@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Kraterion · Console</title>
+  <link rel="stylesheet" href="../../colors_and_type.css"/>
+  <link rel="stylesheet" href="console.css"/>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="Icon.jsx"></script>
+  <script type="text/babel" src="Mark.jsx"></script>
+  <script type="text/babel" src="primitives.jsx"></script>
+  <script type="text/babel" src="Sidebar.jsx"></script>
+  <script type="text/babel" src="Topbar.jsx"></script>
+  <script type="text/babel" src="BucketList.jsx"></script>
+  <script type="text/babel" src="BucketDetail.jsx"></script>
+  <script type="text/babel" src="AccessKeys.jsx"></script>
+  <script type="text/babel" src="Usage.jsx"></script>
+
+  <script type="text/babel">
+    const App = () => {
+      const [route, setRoute] = React.useState({ screen: "buckets" });
+      const [modal, setModal] = React.useState(null);
+      const [toast, setToast] = React.useState(null);
+
+      const navigate = (next) => setRoute(next);
+      const openBucket = (name) => setRoute({ screen: "bucket", bucket: name });
+      const showToast = (msg, tone = "success") => {
+        setToast({ msg, tone });
+        setTimeout(() => setToast(null), 3500);
+      };
+
+      const crumbs = [{ label: "acme-prod", onClick: () => navigate({ screen: "buckets" }) }];
+      if (route.screen === "buckets")  crumbs.push({ label: "Buckets" });
+      if (route.screen === "bucket")   crumbs.push({ label: "Buckets", onClick: () => navigate({ screen: "buckets" }) }, { label: route.bucket });
+      if (route.screen === "keys")     crumbs.push({ label: "Access keys" });
+      if (route.screen === "usage")    crumbs.push({ label: "Usage" });
+      if (route.screen === "settings") crumbs.push({ label: "Settings" });
+
+      const topbarActions = (
+        <>
+          <button className="icon-btn" title="Docs"><Icon name="code" size={16}/></button>
+          <button className="icon-btn" title="Help"><Icon name="search" size={16}/></button>
+        </>
+      );
+
+      let screen;
+      if (route.screen === "buckets")
+        screen = <BucketList onOpen={openBucket} onCreate={() => setModal("create-bucket")}/>;
+      else if (route.screen === "bucket")
+        screen = <BucketDetail name={route.bucket} onUpload={() => showToast(`Uploading 3 files to ${route.bucket}.`, "warning")}/>;
+      else if (route.screen === "keys")
+        screen = <AccessKeys onCreate={() => setModal("create-key")}/>;
+      else if (route.screen === "usage")
+        screen = <Usage/>;
+      else
+        screen = (
+          <div className="ks-screen">
+            <h1 style={{ fontSize: 24, fontWeight: 500 }}>Settings</h1>
+            <p className="lead" style={{ marginTop: 4 }}>Project, billing, and team settings.</p>
+            <div style={{ marginTop: 24, color: "var(--text-tertiary)", fontSize: 14 }}>
+              Empty in this prototype.
+            </div>
+          </div>
+        );
+
+      return (
+        <div className="ks-app">
+          <Sidebar route={route} onNavigate={navigate}/>
+          <main>
+            <Topbar crumbs={crumbs} actions={topbarActions}/>
+            {screen}
+          </main>
+
+          {modal === "create-bucket" && (
+            <div className="ks-modal-scrim" onClick={() => setModal(null)}>
+              <div className="ks-modal" onClick={e => e.stopPropagation()}>
+                <div className="ks-modal-head">
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 500 }}>Create bucket</div>
+                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>Lowercase letters, numbers, and hyphens.</div>
+                  </div>
+                  <button className="icon-btn" onClick={() => setModal(null)}><Icon name="x" size={16}/></button>
+                </div>
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Name</label>
+                    <Input placeholder="my-app-uploads"/>
+                  </div>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Region</label>
+                    <Input defaultValue="walrus-eu-west-1"/>
+                  </div>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Visibility</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button variant="primary" size="sm">Private</Button>
+                      <Button variant="secondary" size="sm">Public</Button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
+                  <Button variant="cta" onClick={() => { setModal(null); showToast("Bucket my-app-uploads created."); }}>Create bucket</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {modal === "create-key" && (
+            <div className="ks-modal-scrim" onClick={() => setModal(null)}>
+              <div className="ks-modal" onClick={e => e.stopPropagation()}>
+                <div className="ks-modal-head">
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 500 }}>New access key</div>
+                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>You'll see the secret once. Save it somewhere safe.</div>
+                  </div>
+                  <button className="icon-btn" onClick={() => setModal(null)}><Icon name="x" size={16}/></button>
+                </div>
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Label</label>
+                    <Input placeholder="production app server"/>
+                  </div>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Scope</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <Button variant="secondary" size="sm">Read</Button>
+                      <Button variant="primary" size="sm">Read · write</Button>
+                      <Button variant="secondary" size="sm">Write only</Button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="micro" style={{ display: "block", marginBottom: 6 }}>Bucket</label>
+                    <Input defaultValue="all buckets"/>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+                  <Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button>
+                  <Button variant="cta" onClick={() => { setModal(null); showToast("Access key created. Copy the secret now."); }}>Create key</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {toast && (
+            <div className="ks-toast-stack">
+              <div className={"ks-toast " + (toast.tone || "")}>
+                <Icon name={toast.tone === "error" ? "x" : "check"} size={14}/>
+                {toast.msg}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>

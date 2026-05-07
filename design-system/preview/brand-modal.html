@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.note{font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:10px 0 0;}
+
+.scene{
+  position:relative;
+  background:#F1ECE0;
+  border:1px solid var(--border);
+  border-radius:8px;
+  height:300px;
+  overflow:hidden;
+}
+.scrim{
+  position:absolute; inset:0;
+  background:rgba(15,14,12,0.45);
+}
+
+/* Modal — soft warm radial wash anchored top-right where the mark sits.
+   Inspired by Linear/Vercel dialog headers: tonal, very low contrast,
+   barely visible but adds a sense of light from the brand glyph. */
+.modal{
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:360px;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(196,91,54,0.10) 0%, rgba(196,91,54,0) 45%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:24px;
+  overflow:hidden;
+}
+/* Mark watermark anchored top-right inside the modal — clipped by overflow:hidden,
+   only the lower-left quadrant peeks through. Pure decoration. */
+.modal-mark{
+  position:absolute;
+  top:-56px; right:-56px;
+  opacity:0.55;
+  pointer-events:none;
+}
+.modal-content{ position:relative; }
+.modal-eyebrow{
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:11px; text-transform:uppercase; letter-spacing:0.16em;
+  color:var(--error); font-weight:500;
+  margin-bottom:14px;
+}
+.modal-eyebrow .dot{width:6px;height:6px;background:var(--error);border-radius:999px;}
+</style></head><body><div class="card-frame">
+<div class="scene">
+  <div class="scrim"></div>
+  <div class="modal">
+    <svg class="modal-mark" viewBox="0 0 256 256" width="160" height="160">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#A89C82" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#A89C82"/>
+    </svg>
+    <div class="modal-content">
+      <div class="modal-eyebrow"><span class="dot"></span>Destructive action</div>
+      <div style="font-size:20px;font-weight:500;color:var(--ink);letter-spacing:-0.01em;line-height:1.25;">Delete bucket app-uploads-prod?</div>
+      <div style="font-size:14px;color:var(--text-secondary);margin-top:10px;line-height:1.5;max-width:260px;">
+        This removes 12,847 objects across 5 sealed shards. The action can't be undone.
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:24px;">
+        <button class="btn btn-secondary">Cancel</button>
+        <button class="btn btn-destructive">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">Ink scrim at 45%. The dialog carries a soft Krater radial wash anchored to the top-right and a watermark of the mark drawn in tonal Stones, clipped by the corner — the brand becomes the corner ornament. Inspired by Linear and Stripe dialog headers.</p>
+</div></body></html>

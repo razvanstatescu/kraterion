@@ -1,0 +1,14 @@
+// Kraterion authoritative metadata schema.
+// See /docs/implementation-plan.md §5 for the full data model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Models live here. Add accounts, projects, buckets, objects, api_keys, etc.
+// per the spec — not scaffolded in this commit.

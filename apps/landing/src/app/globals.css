@@ -1,0 +1,1186 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Kraterion — design tokens
+   Mirrored from /design-system/colors_and_type.css.
+   Keep in sync; if a token changes, change it there first.
+   ============================================================ */
+:root {
+  /* Brand */
+  --ink: #0F0E0C;
+  --cream: #F8F4EC;
+  --krater: #C45B36;
+
+  /* Stone (warm neutrals) */
+  --stone-50:  #FAF7EF;
+  --stone-100: #F1ECE0;
+  --stone-200: #E1D9C7;
+  --stone-300: #C9BFA8;
+  --stone-400: #A89C82;
+  --stone-500: #7C7158;
+  --stone-600: #5B5142;
+  --stone-700: #403930;
+  --stone-800: #2A251D;
+  --stone-900: #1A1610;
+
+  /* Semantic */
+  --success: #5C7A3F;
+
+  /* Light-mode mapping — design-system bans pure white; elevated surfaces lean on hairline borders */
+  --bg-elevated:    var(--cream);
+  --text-secondary: var(--stone-600);
+  --text-tertiary:  var(--stone-500);
+  --border:         var(--stone-200);
+  --border-strong:  var(--stone-300);
+
+  /* Motion */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-cream: var(--cream);
+  --color-krater: var(--krater);
+  --color-stone-50:  var(--stone-50);
+  --color-stone-100: var(--stone-100);
+  --color-stone-200: var(--stone-200);
+  --color-stone-300: var(--stone-300);
+  --color-stone-400: var(--stone-400);
+  --color-stone-500: var(--stone-500);
+  --color-stone-600: var(--stone-600);
+  --color-stone-700: var(--stone-700);
+  --color-stone-800: var(--stone-800);
+  --color-stone-900: var(--stone-900);
+  --color-success: var(--success);
+  --font-sans: var(--font-inter), 'Söhne', 'Geist Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ============================================================
+   Page shell
+   ============================================================ */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-inter), 'Söhne', 'Geist Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  position: relative;
+  /* Defensive — long mono content inside grid cells must never push the page wider than viewport */
+  overflow-x: hidden;
+}
+::selection { background: var(--krater); color: var(--cream); }
+
+.page {
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: 22px 40px 18px;
+  box-sizing: border-box;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+/* ============================================================
+   Top bar
+   ============================================================ */
+.topbar { display: flex; align-items: center; justify-content: space-between; }
+.brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  text-decoration: none;
+  color: #1A1610;
+}
+.brand-mark { display: block; flex-shrink: 0; }
+.brand-name {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: #1A1610;
+}
+.topbar-meta {
+  display: flex; align-items: center; gap: 22px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.topbar-meta > span { white-space: nowrap; }
+.live-dot { display: inline-flex; align-items: center; gap: 8px; }
+.ldot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--krater);
+  animation: livepulse 2s var(--ease) infinite;
+}
+@keyframes livepulse {
+  0%   { box-shadow: 0 0 0 0 rgba(196,91,54,0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(196,91,54,0); }
+  100% { box-shadow: 0 0 0 0 rgba(196,91,54,0); }
+}
+
+/* ============================================================
+   Stage (centered solo dashboard)
+   ============================================================ */
+.stage {
+  position: relative;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  align-self: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 16px;
+}
+.col-solo {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: fade-up 800ms var(--ease) 200ms forwards;
+}
+@keyframes fade-up { to { opacity: 1; transform: translateY(0); } }
+
+/* ============================================================
+   Live krates dashboard
+   ============================================================ */
+.dash-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 880px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.dash-chrome {
+  width: 100%;
+  background: var(--cream);
+  border: 1px solid var(--stone-300);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dash-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--stone-200);
+  background: var(--stone-50);
+}
+.dash-traffic { display: flex; gap: 5px; }
+.dash-traffic span {
+  width: 9px; height: 9px; border-radius: 999px;
+  background: var(--stone-300);
+}
+.dash-url {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font: 500 11px/1 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--stone-600);
+  background: var(--cream);
+  border: 0.5px solid var(--stone-200);
+  border-radius: 4px;
+  padding: 4px 10px;
+  max-width: 280px;
+  margin: 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-url .pad { color: var(--stone-400); }
+.dash-url .k { color: var(--krater); }
+/* Browser-chrome HTTPS lock — sits inline before the URL like Chrome paints it. */
+.dash-url-lock {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 5px;
+  color: var(--stone-500);
+}
+.dash-ver {
+  font: 500 9.5px/1 var(--font-inter), sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--krater);
+}
+.dash-body {
+  padding: 16px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dash-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dash-title h3 {
+  font: 500 16px/1 var(--font-inter), sans-serif;
+  margin: 0;
+  color: var(--ink);
+}
+.dash-meta-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.dash-meta {
+  font: 400 12px/1 var(--font-inter), sans-serif;
+  color: var(--stone-500);
+}
+.dash-owner-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 11px/1 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--stone-700);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--stone-100);
+  cursor: default;
+  letter-spacing: 0;
+  transition: color 200ms var(--ease), background 200ms var(--ease);
+}
+.dash-owner-badge:hover { background: var(--stone-200); color: var(--ink); }
+.dash-owner-badge .dot {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--krater);
+  flex-shrink: 0;
+}
+.dash-owner-badge svg { color: var(--stone-500); }
+
+.dash-create {
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr 1.3fr 0.9fr;
+  gap: 8px;
+  padding: 9px;
+  border: 0.5px dashed var(--stone-300);
+  border-radius: 6px;
+  background: var(--stone-50);
+  align-items: center;
+}
+.dash-field {
+  font: 500 10.5px/1 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--ink);
+  background: var(--cream);
+  border: 0.5px solid var(--stone-200);
+  border-radius: 4px;
+  padding: 6px 7px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dash-field .lbl {
+  color: var(--stone-500);
+  margin-right: 4px;
+  font-weight: 400;
+  font-size: 10px;
+}
+.typed { display: inline-block; overflow: hidden; white-space: nowrap; max-width: 100%; text-overflow: ellipsis; }
+.t1 { width: 0; animation: dash-typeA 1.4s steps(13) 800ms forwards; }
+.t2 { width: 0; animation: dash-typeB 0.9s steps(12) 2400ms forwards; color: var(--krater); font-weight: 500; }
+.t3 { width: 0; animation: dash-typeC 0.8s steps(10) 3500ms forwards; color: var(--krater); font-weight: 500; }
+@keyframes dash-typeA { to { width: 13ch; } }
+@keyframes dash-typeB { to { width: 12ch; } }
+@keyframes dash-typeC { to { width: 10ch; } }
+
+.dash-btn {
+  appearance: none; border: 0;
+  background: var(--ink);
+  color: var(--cream);
+  border-radius: 4px;
+  padding: 7px 8px;
+  font: 500 10.5px/1 var(--font-inter), sans-serif;
+  letter-spacing: 0.04em;
+  cursor: default;
+  opacity: 0.45;
+  animation: dash-btn-glow 500ms var(--ease) 4400ms forwards;
+}
+@keyframes dash-btn-glow { to { opacity: 1; } }
+
+.dash-table { display: flex; flex-direction: column; }
+.dash-trh, .dash-tr {
+  display: grid;
+  grid-template-columns: 1.3fr 0.95fr 0.65fr 1.1fr 1.1fr;
+  gap: 10px;
+  padding: 11px 10px;
+  align-items: center;
+  font: 400 12.5px/1.2 var(--font-inter), sans-serif;
+}
+/* Grid items default to min-width: auto (= min-content). Long mono strings
+   like "portfolio.zip" or "seal · org-write" inflate that to ~110px and push
+   the grid past the dashboard width on narrow screens. Force them to shrink. */
+.dash-trh > *,
+.dash-tr > *,
+.dash-create > * { min-width: 0; }
+.dash-name,
+.dash-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-trh {
+  font: 500 9px/1 var(--font-inter), sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--stone-500);
+  border-bottom: 0.5px solid var(--stone-200);
+  padding: 5px 8px;
+}
+.dash-tr { border-bottom: 0.5px solid var(--stone-100); }
+.dash-tr:last-child { border-bottom: 0; }
+.dash-tr.new {
+  position: relative;
+  background: rgba(196, 91, 54, 0.06);
+  transform: translateY(-6px);
+  opacity: 0;
+  animation: dash-slidein 600ms var(--ease) 4800ms forwards;
+  cursor: pointer;
+  outline: none;
+  transition: background 200ms var(--ease);
+}
+.dash-tr.new:hover { background: rgba(196, 91, 54, 0.10); }
+.dash-tr.new:focus-visible { box-shadow: inset 0 0 0 1px var(--krater); }
+@keyframes dash-slidein { to { opacity: 1; transform: translateY(0); } }
+
+/* Click-loop cursor — appears after the row certifies, glides in, taps once,
+   fades out, loops every 4s. Vanishes once the user actually opens the drawer. */
+.row-cursor {
+  position: absolute;
+  right: 14px; top: 50%;
+  width: 48px; height: 48px;
+  pointer-events: none;
+  opacity: 0;
+  /* Path tip in SVG viewBox is (5.5, 3.5). At 48px width with viewBox 24, that's (11px, 7px) — pivot the click-scale around the tip. */
+  transform-origin: 11px 7px;
+  animation: row-cursor-loop 4.2s var(--ease) infinite;
+  animation-delay: 6800ms;
+}
+@keyframes row-cursor-loop {
+  0%, 5%   { opacity: 0; transform: translate(40px, -90%) scale(1); }
+  18%      { opacity: 1; transform: translate(40px, -90%) scale(1); }
+  40%      { opacity: 1; transform: translate(0, -50%) scale(1); }
+  46%      { transform: translate(0, -50%) scale(0.7); }
+  52%      { transform: translate(0, -50%) scale(1); }
+  78%      { opacity: 1; transform: translate(0, -50%) scale(1); }
+  92%, 100%{ opacity: 0; transform: translate(0, -50%) scale(1); }
+}
+.dash-tr.new.discovered .row-cursor,
+.dash-tr.new:hover .row-cursor { display: none; }
+
+/* Tap-pulse — a krater-tinted ring that radiates from the cursor's tap point
+   in sync with the cursor scale-down. Reinforces the "click me" hint. */
+.dash-tr.new::after {
+  content: "";
+  position: absolute;
+  /* Center the pulse on the cursor's tip exactly.
+     Cursor is 48px wide at right: 14px → SVG-top-left at right: 62.
+     Tip in viewBox (5.5, 3.5) at 2× scale → (11, 7) from SVG top-left.
+     Tip X from row-right = 62 - 11 = 51px → pulse (8px wide) right edge at 47px so center sits at 51px.
+     Tip Y = row_center - (24 - 7) = row_center - 17px. */
+  right: 47px;
+  top: calc(50% - 17px);
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  border: 1.5px solid var(--krater);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(0, -50%) scale(1);
+  animation: row-pulse-loop 4.2s var(--ease) infinite;
+  animation-delay: 6800ms;
+}
+@keyframes row-pulse-loop {
+  0%, 44%  { opacity: 0; transform: translate(0, -50%) scale(0.8); }
+  46%      { opacity: 0.7; transform: translate(0, -50%) scale(1); }
+  64%      { opacity: 0; transform: translate(0, -50%) scale(3.2); }
+  100%     { opacity: 0; transform: translate(0, -50%) scale(1); }
+}
+.dash-tr.new.discovered::after,
+.dash-tr.new:hover::after { display: none; }
+
+.dash-name {
+  font: 500 13px/1.2 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dash-name::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 2px;
+  background: var(--krater);
+  flex-shrink: 0;
+}
+.dash-num {
+  color: var(--stone-600);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.dash-tag {
+  display: inline-flex;
+  align-items: center;
+  font: 500 11.5px/1 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--stone-600);
+  background: var(--stone-100);
+  padding: 4px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.dash-tag.k { background: rgba(196, 91, 54, 0.12); color: var(--krater); }
+
+.dash-created {
+  font: 400 12px/1 var(--font-inter), sans-serif;
+  color: var(--stone-600);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.dash-created::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+  flex-shrink: 0;
+}
+/* New row certifies after the slide-in completes — orange "registering" → green "certified" */
+.dash-tr.new .dash-created::before {
+  background: var(--krater);
+  animation: dash-cert 600ms var(--ease) 5900ms forwards;
+}
+@keyframes dash-cert { to { background: var(--success); } }
+
+.dash-trust {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--stone-50);
+  border: 0.5px solid var(--stone-200);
+  border-radius: 6px;
+}
+.dash-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.dash-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 12px/1 var(--font-inter), sans-serif;
+  color: var(--ink);
+  background: var(--cream);
+  border: 0.5px solid var(--stone-200);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: default;
+  transition: border-color 200ms var(--ease), color 200ms var(--ease);
+}
+.dash-pill:hover, .dash-pill:focus-visible {
+  border-color: var(--stone-400);
+  outline: none;
+}
+.dash-pill .d {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--krater);
+}
+
+/* Engineer-detail tooltip on the trust pills + the owner badge.
+   Plain English on the pill itself; mono technical specs on hover. */
+.dash-pill[data-tip]::after,
+.dash-owner-badge[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 8px 10px;
+  background: var(--ink);
+  color: var(--cream);
+  font: 400 11px/1.45 var(--font-jetbrains-mono), ui-monospace, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--ease), transform 200ms var(--ease);
+  z-index: 60;
+  white-space: normal;
+  text-align: left;
+}
+.dash-pill[data-tip]::before,
+.dash-owner-badge[data-tip]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  opacity: 0;
+  transition: opacity 200ms var(--ease);
+  z-index: 61;
+}
+.dash-pill[data-tip]:hover::after,
+.dash-pill[data-tip]:focus::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.dash-pill[data-tip]:hover::before,
+.dash-pill[data-tip]:focus::before { opacity: 1; }
+
+/* Owner badge sits in the top-right corner of `.dash-chrome { overflow: hidden }`.
+   Center-anchored tooltip would clip on the right; up-anchored would clip on top.
+   So: anchor to the right edge of the badge, drop the tooltip BELOW. */
+.dash-owner-badge[data-tip]::after {
+  left: auto;
+  right: 0;
+  bottom: auto;
+  top: calc(100% + 8px);
+  transform: translateY(-4px);
+}
+.dash-owner-badge[data-tip]::before {
+  left: auto;
+  right: 14px;
+  bottom: auto;
+  top: calc(100% + 3px);
+  transform: rotate(180deg);
+}
+.dash-owner-badge[data-tip]:hover::after,
+.dash-owner-badge[data-tip]:focus::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+.dash-owner-badge[data-tip]:hover::before,
+.dash-owner-badge[data-tip]:focus::before { opacity: 1; }
+
+/* Caption below the dashboard — sentence case so brand icons sit cleanly inline.
+   Each brand icon is rendered at a height tuned to its own monogram aspect ratio. */
+.dash-caption {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  font: 400 13px/1.6 var(--font-inter), sans-serif;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 720px;
+}
+/* Tiny mono postscript naming the SDK packages — second line of the caption. */
+.dash-caption .sdk-postscript {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--stone-500);
+  letter-spacing: 0;
+}
+.brand-icon {
+  display: inline-block;
+  vertical-align: middle;
+  width: auto;
+}
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 2px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 200ms var(--ease);
+}
+.brand-link:hover { opacity: 0.65; }
+.brand-link:focus-visible { outline: 2px solid var(--krater); outline-offset: 3px; }
+/* Walrus has a wide low wordmark; Sui is taller; Seal is wide & medium height. */
+.brand-walrus { height: 14px; }
+.brand-seal   { height: 16px; }
+.brand-sui    { height: 18px; }
+
+/* ============================================================
+   Footer pitch + signup
+   ============================================================ */
+.footer-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items: end;
+  max-width: 1240px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+.pitch h1 {
+  font-size: 52px;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  margin: 0 0 10px;
+  opacity: 0;
+  animation: fade-up 800ms var(--ease) 200ms forwards;
+  text-wrap: balance;
+}
+.pitch h1 .accent { color: var(--krater); }
+.pitch p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  max-width: 460px;
+  line-height: 1.5;
+  opacity: 0;
+  animation: fade-up 800ms var(--ease) 400ms forwards;
+  text-wrap: pretty;
+}
+.pitch p .promise { color: var(--krater); }
+/* Inline code chips inside the pitch — JetBrains Mono on a stone-100 chip,
+   no shadows, hairline-only feel matching the rest of the design system. */
+.pitch p code {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--stone-100);
+  color: var(--ink);
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0;
+}
+
+/* Follow + contact — replaces the email signup. Two affordances:
+   primary X follow CTA, secondary mailto link. */
+.follow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  opacity: 0;
+  animation: fade-up 800ms var(--ease) 600ms forwards;
+}
+.follow-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.follow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 460px;
+  height: 46px;
+  padding: 0 18px;
+  background: var(--krater);
+  color: var(--cream);
+  border-radius: 6px;
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  box-sizing: border-box;
+  transition: background 200ms var(--ease);
+}
+.follow-btn:hover { background: #B0512F; }
+.follow-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.follow-btn .follow-text { flex: 1; text-align: left; }
+.follow-btn .follow-arrow { transition: transform 200ms var(--ease); flex-shrink: 0; }
+.follow-btn:hover .follow-arrow { transform: translate(2px, -2px); }
+.follow-btn .follow-x { flex-shrink: 0; }
+
+.follow-email {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: color 200ms var(--ease);
+}
+.follow-email .mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  letter-spacing: 0;
+  color: var(--stone-700);
+}
+.follow-email:hover { color: var(--ink); }
+.follow-email:hover .mono { color: var(--krater); }
+
+/* ============================================================
+   Bottom strip
+   ============================================================ */
+.strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  max-width: 1240px;
+  margin: 14px auto 0;
+  width: 100%;
+  padding: 14px 16px 0;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border);
+}
+.strip a { color: inherit; text-decoration: none; }
+.strip a:hover { color: var(--ink); }
+.strip .tickers { display: flex; gap: 22px; align-items: center; }
+.strip .tickers .ticker-mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--stone-600);
+}
+.strip .tickers .ticker-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+}
+.strip .tickers .ticker-status .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+}
+
+/* ============================================================
+   Krate drawer — slides in from right (desktop) or up from bottom (mobile)
+   ============================================================ */
+.krate-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 14, 12, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms var(--ease);
+}
+.krate-drawer-scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.krate-drawer {
+  width: min(440px, 100vw);
+  height: 100vh;
+  background: var(--cream);
+  border-left: 1px solid var(--stone-200);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 280ms var(--ease);
+}
+.krate-drawer-scrim.open .krate-drawer {
+  transform: translateX(0);
+}
+
+.kd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--stone-200);
+  flex-shrink: 0;
+}
+.kd-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--stone-500);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.kd-title {
+  font: 500 18px/1.2 var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.kd-x {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--stone-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 200ms var(--ease), color 200ms var(--ease);
+  flex-shrink: 0;
+}
+.kd-x:hover { background: var(--stone-100); color: var(--ink); }
+.kd-x:focus-visible { outline: 2px solid var(--krater); outline-offset: 1px; }
+
+.kd-body {
+  padding: 20px 24px 24px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.kd-section { margin-bottom: 24px; }
+.kd-section:last-of-type { margin-bottom: 16px; }
+.kd-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--stone-500);
+  font-weight: 500;
+  margin: 0 0 10px;
+}
+.kd-rows { margin: 0; padding: 0; }
+.kd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 0.5px solid var(--stone-200);
+  font-size: 13px;
+  margin: 0;
+}
+.kd-row:last-child { border-bottom: 0; }
+.kd-row dt {
+  color: var(--stone-500);
+  margin: 0;
+}
+.kd-row dd {
+  color: var(--ink);
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: right;
+}
+.kd-row dd.mono {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 12px;
+  cursor: default;
+  color: var(--ink);
+  transition: color 200ms var(--ease);
+}
+.kd-row dd.mono:hover { color: var(--krater); }
+.kd-row dd.mono svg { color: var(--stone-500); }
+/* The full Move call is the longest mono value in the drawer.
+   Drop a tick to keep it on one line down to ~360px viewports. */
+.kd-row dd.mono.policy { font-size: 10.5px; letter-spacing: 0; }
+
+.kd-code {
+  display: block;
+  margin: 0 0 8px;
+  padding: 12px 14px;
+  background: var(--ink);
+  color: var(--cream);
+  border-radius: 8px;
+  font: 400 11.5px/1.55 var(--font-jetbrains-mono), ui-monospace, monospace;
+  letter-spacing: 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+.kd-code code {
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+.kd-caption {
+  font-size: 12px;
+  color: var(--stone-500);
+  font-style: italic;
+  margin: 0;
+}
+
+.kd-callout {
+  background: var(--stone-100);
+  border: 1px solid var(--stone-200);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* Audit-log teaser — full-width ghost button + explainer note below.
+   Bg is stone-100 (not cream) so the button shows up against the cream drawer. */
+.kd-audit-btn {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 16px;
+  border: 1px solid var(--stone-300);
+  border-radius: 8px;
+  background: var(--stone-100);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 200ms var(--ease), background 200ms var(--ease), color 200ms var(--ease);
+}
+.kd-audit-btn:hover {
+  border-color: var(--krater);
+  background: var(--stone-50);
+  color: var(--krater);
+}
+.kd-audit-btn:focus-visible { outline: 2px solid var(--krater); outline-offset: 1px; }
+.kd-audit-btn .kd-audit-count { color: var(--stone-500); font-weight: 400; }
+.kd-audit-btn:hover .kd-audit-count { color: var(--krater); }
+.kd-audit-btn > svg { color: var(--stone-500); flex-shrink: 0; transition: color 200ms var(--ease); }
+.kd-audit-btn:hover > svg { color: var(--krater); }
+.kd-audit-note {
+  margin: 8px 4px 0;
+  font-size: 11px;
+  color: var(--stone-400);
+  line-height: 1.5;
+}
+
+.kd-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--stone-200);
+  flex-shrink: 0;
+}
+.kd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease);
+  letter-spacing: 0;
+}
+.kd-btn:focus-visible { outline: 2px solid var(--krater); outline-offset: 1px; }
+.kd-btn.ghost {
+  background: transparent;
+  border-color: var(--stone-300);
+  color: var(--ink);
+}
+.kd-btn.ghost:hover { background: var(--stone-100); border-color: var(--stone-400); }
+.kd-btn.primary {
+  background: var(--ink);
+  color: var(--cream);
+}
+.kd-btn.primary:hover { background: var(--stone-900); }
+
+/* ============================================================
+   Responsive
+   Breakpoints:
+     ≤1180  pitch headline scales down
+     ≤980   page can scroll; footer + strip stack
+     ≤720   topbar simplifies; dashboard tightens; table sheds objects+size
+     ≤480   pitch shrinks; dashboard sheds access; create form fully stacks
+   ============================================================ */
+@media (max-width: 1180px) {
+  .pitch h1 { font-size: 44px; }
+}
+
+@media (max-width: 980px) {
+  /* Per-axis: shorthand `overflow: auto` would reset overflow-x and undo our horizontal-clip safety net */
+  html, body { overflow-x: hidden; overflow-y: auto; }
+  .page {
+    height: auto;
+    min-height: 100vh;
+    padding: 22px 24px 18px;
+    gap: 24px;
+  }
+  .stage { padding: 12px 0; align-self: auto; }
+  .footer-row { grid-template-columns: 1fr; gap: 32px; }
+  .strip {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+    padding-top: 16px;
+  }
+  .pitch h1 { font-size: 40px; }
+}
+
+@media (max-width: 720px) {
+  .page { padding: 18px 16px 16px; gap: 20px; }
+  /* Give the dashboard more vertical breathing room — at narrow widths the
+     topbar/dashboard/pitch all live in one scroll view and felt crowded. */
+  .stage { padding: 28px 0; }
+
+  /* Topbar: drop the version meta to keep "Coming soon" visible without overflow */
+  .topbar-meta { font-size: 10px; gap: 12px; letter-spacing: 0.12em; }
+  .topbar-version { display: none; }
+
+  /* Dashboard chrome */
+  .dash-wrap { gap: 10px; }
+  .dash-bar { padding: 7px 10px; gap: 8px; }
+  .dash-url { font-size: 10px; max-width: 220px; padding: 4px 8px; }
+  .dash-ver { font-size: 9px; }
+  .dash-body { padding: 14px 12px; gap: 10px; }
+  /* Title row stays side-by-side on mobile — title is short, owner badge sits opposite. */
+  .dash-title { align-items: flex-start; gap: 12px; }
+  .dash-title h3 { font-size: 14px; }
+  .dash-meta { font-size: 11px; }
+  .dash-owner-badge { font-size: 10px; padding: 3px 7px; gap: 5px; }
+
+  /* Create-row: 3 fields side-by-side on row 1, full-width button on row 2.
+     Fields auto-truncate via the global .typed text-overflow rule when the cell
+     is narrower than the typed value. */
+  .dash-create {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 6px;
+  }
+  .dash-field { padding: 5px 7px; font-size: 10px; gap: 3px; }
+  .dash-field .lbl { font-size: 9.5px; margin-right: 2px; }
+  .dash-create > .dash-btn {
+    grid-column: 1 / -1;
+    padding: 7px;
+    font-size: 10px;
+  }
+
+  /* Table: drop "objects" + "size" columns; keep krate / access / owner */
+  .dash-trh, .dash-tr {
+    grid-template-columns: 1.4fr 1.2fr 1fr;
+    gap: 8px;
+    padding: 9px 8px;
+  }
+  .dash-trh > :nth-child(2),
+  .dash-trh > :nth-child(3),
+  .dash-tr > :nth-child(2),
+  .dash-tr > :nth-child(3) { display: none; }
+  .dash-name { font-size: 12px; }
+  .dash-tag { font-size: 10.5px; padding: 4px 5px; }
+  .dash-created { font-size: 11px; }
+
+  /* Trust stack: keep all three pills on a single centered row.
+     Smaller font + padding lets "Stored on Walrus / Sealed by you / Owned on Sui"
+     fit even on a 320px-wide phone. */
+  .dash-trust { padding: 6px 8px; }
+  .dash-pills { flex-wrap: nowrap; gap: 4px; }
+  .dash-pill {
+    font-size: 9.5px;
+    padding: 4px 7px;
+    gap: 4px;
+  }
+  .dash-pill .d { width: 5px; height: 5px; }
+
+  .dash-caption { font-size: 12px; gap: 3px; }
+  .brand-walrus { height: 12px; }
+  .brand-seal { height: 14px; }
+  .brand-sui { height: 16px; }
+
+  /* Pitch */
+  .pitch h1 { font-size: 32px; }
+  .pitch p { font-size: 14px; }
+
+  /* Follow: button stretches full-width; email link readable on small screens */
+  .follow-btn { max-width: none; }
+
+  /* Strip tickers: wrap */
+  .strip { font-size: 10px; }
+  /* On phones the lifestyle tickers crowd the strip — keep only copyright. */
+  .strip .tickers { display: none; }
+
+  /* Drawer becomes a bottom-sheet on phones */
+  .krate-drawer-scrim {
+    align-items: flex-end;
+    justify-content: stretch;
+  }
+  .krate-drawer {
+    width: 100vw;
+    height: min(88vh, 640px);
+    border-left: 0;
+    border-top: 1px solid var(--stone-200);
+    border-radius: 12px 12px 0 0;
+    transform: translateY(100%);
+  }
+  .krate-drawer-scrim.open .krate-drawer {
+    transform: translateY(0);
+  }
+  /* Subtle grab-handle at top of bottom sheet */
+  .krate-drawer::before {
+    content: "";
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 36px; height: 4px;
+    border-radius: 999px;
+    background: var(--stone-300);
+  }
+  .kd-head { padding: 22px 20px 16px; }
+  .kd-body { padding: 16px 20px 20px; }
+  .kd-foot { padding: 14px 20px; }
+}
+
+@media (max-width: 480px) {
+  .page { padding: 16px 12px 14px; }
+
+  .topbar { gap: 12px; }
+  .brand-name { font-size: 14px; }
+
+  /* Table: drop "access" too — leave only krate + owner */
+  .dash-trh, .dash-tr {
+    grid-template-columns: 1.4fr 1fr;
+    gap: 6px;
+    padding: 9px 7px;
+  }
+  .dash-trh > :nth-child(4),
+  .dash-tr > :nth-child(4) { display: none; }
+
+  /* URL bar tighter */
+  .dash-url { max-width: 180px; font-size: 9.5px; }
+
+  .pitch h1 { font-size: 28px; }
+  .pitch p { font-size: 13.5px; }
+}
+
+/* Accessibility: respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* Make sure faded-in elements end up visible if their animation is collapsed */
+  .col-solo, .pitch h1, .pitch p, .follow, .dash-tr.new {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .typed.t1, .typed.t2, .typed.t3 { width: auto !important; }
+  .dash-btn { opacity: 1 !important; }
+  /* Land the certify lifecycle on its final state */
+  .dash-tr.new .dash-created::before { background: var(--success) !important; }
+  /* Hide the click-loop hint under reduced-motion — the hover/cursor styling still
+     communicates the row is interactive without an attention-pulling pulse. */
+  .row-cursor, .dash-tr.new::after { display: none !important; }
+}

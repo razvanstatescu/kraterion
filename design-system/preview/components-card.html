@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.note{font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:14px 0 0;}
+/* Very soft warm wash — stacked solid Stones (not a gradient — gradients are forbidden in the system).
+   Cream → Stone-50 layered top→bottom reads as warmth without ever lifting off flat. */
+.k-card{
+  position:relative;
+  max-width:380px;
+  background:linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 55%, #F4EFE3 100%);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:20px 24px;
+  overflow:hidden;
+}
+/* Whisper of Krater: a single warm tinted edge along the top — 0.5px hairline,
+   honors "no shadows" and keeps the brand color present but never two Kraters touching. */
+.k-card::before{
+  content:"";
+  position:absolute; top:0; left:0; right:0; height:1px;
+  background:linear-gradient(90deg, rgba(196,91,54,0) 0%, rgba(196,91,54,0.35) 30%, rgba(196,91,54,0.35) 70%, rgba(196,91,54,0) 100%);
+}
+.k-stat-label{font-family:var(--font-sans);font-size:13px;color:var(--text-tertiary);}
+.k-stat-val{font-size:24px;font-weight:500;margin-top:2px;letter-spacing:-0.01em;color:var(--ink);}
+</style></head><body><div class="card-frame">
+<div class="k-card">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;">Bucket</div>
+      <div style="font-size:18px;font-weight:500;color:var(--ink);margin-top:6px;">app-uploads-prod</div>
+    </div>
+    <span class="pill pill-success"><span class="dot dot-success"></span>Active</span>
+  </div>
+  <div style="display:flex;gap:32px;margin-top:18px;">
+    <div><div class="k-stat-label">Objects</div><div class="k-stat-val">12,847</div></div>
+    <div><div class="k-stat-label">Size</div><div class="k-stat-val">42.1 GB</div></div>
+    <div><div class="k-stat-label">Bandwidth</div><div class="k-stat-val">812 MB</div></div>
+  </div>
+</div>
+<p class="note">Cards carry a very faint warm tonal wash (Cream → Stone-50) plus a 1px Krater-tinted top edge. No shadow, no glow — the warmth lives in the surface itself.</p>
+</div></body></html>

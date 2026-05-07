@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+</style></head><body><div class="card-frame">
+<div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <!-- Light: tightly-spaced Stone trio — outer 500, middle 700, dot 900. All three sit in the dark half of the family so they read as one material. -->
+    <svg viewBox="0 0 256 256" width="120" height="120">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+    </svg>
+    <span class="name">Light</span>
+    <span class="value">stone-500 · 700 · 900</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <!-- Dark: tightly-spaced Stone trio — outer 300 (much brighter, very visible on Ink), middle 200, dot 50. All three in the light half. -->
+    <div style="background:#0F0E0C;padding:8px;border-radius:8px;"><svg viewBox="0 0 256 256" width="104" height="104">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#E1D9C7" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#FAF7EF"/>
+    </svg></div>
+    <span class="name">Dark</span>
+    <span class="value">stone-300 · 200 · 50</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <div style="background:#C45B36;padding:8px;border-radius:8px;"><svg viewBox="0 0 256 256" width="104" height="104">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#F8F4EC" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#F8F4EC" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#F8F4EC"/>
+    </svg></div>
+    <span class="name">On Krater</span>
+    <span class="value">cream · cream · cream</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;color:#0F0E0C;">
+    <svg viewBox="0 0 256 256" width="120" height="120">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="currentColor" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="currentColor" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="currentColor"/>
+    </svg>
+    <span class="name">Mono</span>
+    <span class="value">currentColor</span>
+  </div>
+</div>
+<p style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:14px 0 0;">Three Stone shades drawn from a tight band of the family — all dark on light surfaces, all light on Ink. Outer ring uses a brighter shade on dark so it stays clearly visible against the Ink background.</p>
+</div></body></html>

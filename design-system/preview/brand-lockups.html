@@ -1,0 +1,106 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:24px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:24px;}
+.row{display:flex;align-items:center;gap:48px;flex-wrap:wrap;}
+.lockup{display:flex;align-items:center;gap:14px;}
+.wm{font-family:var(--font-sans);font-size:32px;font-weight:500;letter-spacing:0.06em;}
+.swatch{display:flex;flex-direction:column;align-items:flex-start;gap:8px;}
+.tile{padding:18px 22px;border-radius:8px;display:flex;align-items:center;gap:14px;}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+.note{font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:0;}
+</style></head><body><div class="card-frame">
+
+<div class="row">
+  <!-- Light lockup: stones 500/700/900, wordmark in 900 -->
+  <div class="swatch">
+    <div class="tile" style="background:#F8F4EC;border:1px solid var(--border);">
+      <svg viewBox="0 0 256 256" width="44" height="44">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+        <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+      </svg>
+      <span class="wm" style="color:#1A1610;">Kraterion</span>
+    </div>
+    <span class="name">Light</span>
+    <span class="value">stone-500 · 700 · 900 · wordmark 900</span>
+  </div>
+
+  <!-- Dark lockup: stones 300/200/50, wordmark 50 -->
+  <div class="swatch">
+    <div class="tile" style="background:#0F0E0C;">
+      <svg viewBox="0 0 256 256" width="44" height="44">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="6"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#E1D9C7" stroke-width="6"/>
+        <circle cx="128" cy="128" r="22" fill="#FAF7EF"/>
+      </svg>
+      <span class="wm" style="color:#FAF7EF;">Kraterion</span>
+    </div>
+    <span class="name">Dark</span>
+    <span class="value">stone-300 · 200 · 50 · wordmark 50</span>
+  </div>
+</div>
+
+<div class="row">
+  <!-- On Krater lockup -->
+  <div class="swatch">
+    <div class="tile" style="background:#C45B36;">
+      <svg viewBox="0 0 256 256" width="44" height="44">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#F8F4EC" stroke-width="6"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#F8F4EC" stroke-width="6"/>
+        <circle cx="128" cy="128" r="22" fill="#F8F4EC"/>
+      </svg>
+      <span class="wm" style="color:#F8F4EC;">Kraterion</span>
+    </div>
+    <span class="name">On Krater</span>
+    <span class="value">cream throughout</span>
+  </div>
+
+  <!-- Mono lockup -->
+  <div class="swatch">
+    <div class="tile" style="background:#F8F4EC;border:1px solid var(--border);color:#0F0E0C;">
+      <svg viewBox="0 0 256 256" width="44" height="44">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="currentColor" stroke-width="6"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="currentColor" stroke-width="6"/>
+        <circle cx="128" cy="128" r="22" fill="currentColor"/>
+      </svg>
+      <span class="wm" style="color:currentColor;">Kraterion</span>
+    </div>
+    <span class="name">Mono</span>
+    <span class="value">currentColor · embossing, single-color print</span>
+  </div>
+</div>
+
+<!-- Stacked lockup -->
+<div class="row">
+  <div class="swatch">
+    <div class="tile" style="background:#F8F4EC;border:1px solid var(--border);flex-direction:column;gap:10px;padding:24px 32px;">
+      <svg viewBox="0 0 256 256" width="56" height="56">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+        <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+      </svg>
+      <span class="wm" style="color:#1A1610;font-size:24px;">Kraterion</span>
+    </div>
+    <span class="name">Stacked</span>
+    <span class="value">favicon · app icon · social avatar</span>
+  </div>
+
+  <!-- Small inline (sidebar / nav) -->
+  <div class="swatch">
+    <div class="tile" style="background:#F8F4EC;border:1px solid var(--border);padding:10px 14px;gap:10px;">
+      <svg viewBox="0 0 256 256" width="22" height="22">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="10"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="10"/>
+        <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+      </svg>
+      <span class="wm" style="color:#1A1610;font-size:15px;">Kraterion</span>
+    </div>
+    <span class="name">Inline · 22px</span>
+    <span class="value">app sidebar · nav bar · stroke widens to 10 to compensate</span>
+  </div>
+</div>
+
+<p class="note">Logo lockups follow the mark-variant Stone family — 500/700/900 on light surfaces, 300/200/50 on Ink. Wordmark always picks up the inner-dot shade so name and aperture share the deepest depth. Stroke weight scales up at small sizes (22px+) to preserve ring legibility.</p>
+
+</div></body></html>

@@ -1,0 +1,87 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);font-family:var(--font-sans);}
+.card-frame{padding:0;box-sizing:border-box;}
+
+/* Header */
+.km-header{background:rgba(248,244,236,0.92);border-bottom:1px solid var(--border);}
+.km-header-inner{padding:16px 28px;display:flex;align-items:center;gap:28px;}
+.km-brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-size:16px;font-weight:500;letter-spacing:0.06em;}
+.km-nav{display:flex;gap:24px;}
+.km-nav a{color:var(--text-secondary);font-size:14px;text-decoration:none;}
+.km-nav a:hover{color:var(--text-primary);}
+.km-cta{margin-left:auto;display:flex;align-items:center;gap:16px;}
+.km-link{color:var(--text-secondary);font-size:14px;text-decoration:none;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid transparent;text-decoration:none;line-height:1.4;}
+.btn-primary{background:var(--ink);color:var(--cream);}
+
+/* Footer */
+.km-footer{background:var(--ink);color:var(--stone-400);padding:48px 28px 20px;}
+.km-footer-inner{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:40px;padding-bottom:40px;}
+.km-footer-brand p{margin:14px 0 0;max-width:260px;color:var(--stone-400);font-size:13px;line-height:1.55;}
+.km-footer-cols .micro{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--stone-400);font-weight:500;}
+.km-footer-cols ul{list-style:none;padding:0;margin:12px 0 0;display:flex;flex-direction:column;gap:8px;}
+.km-footer-cols a{color:var(--stone-300);font-size:13px;text-decoration:none;}
+.km-footer-cols a:hover{color:var(--cream);}
+.km-footer-base{display:flex;justify-content:space-between;border-top:1px solid var(--stone-700);padding-top:18px;font-size:12px;color:var(--stone-500);}
+
+.section-label{padding:18px 28px 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-tertiary);font-weight:500;}
+</style></head><body><div class="card-frame">
+
+<div class="section-label">Header</div>
+<header class="km-header">
+  <div class="km-header-inner">
+    <a class="km-brand" href="#">
+      <svg viewBox="0 0 256 256" width="28" height="28">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="10"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="10"/>
+        <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+      </svg>
+      <span style="color:#1A1610;">Kraterion</span>
+    </a>
+    <nav class="km-nav">
+      <a href="#">Product</a>
+      <a href="#">How it works</a>
+      <a href="#">Pricing</a>
+      <a href="#">Docs</a>
+    </nav>
+    <div class="km-cta">
+      <a class="km-link" href="#">Sign in</a>
+      <a class="btn btn-primary" href="#">Get started</a>
+    </div>
+  </div>
+</header>
+
+<div class="section-label">Footer</div>
+<footer class="km-footer">
+  <div class="km-footer-inner">
+    <div class="km-footer-brand">
+      <div class="km-brand">
+        <svg viewBox="0 0 256 256" width="28" height="28">
+          <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="10"/>
+          <circle cx="128" cy="128" r="68" fill="none" stroke="#E1D9C7" stroke-width="10"/>
+          <circle cx="128" cy="128" r="22" fill="#FAF7EF"/>
+        </svg>
+        <span style="color:#FAF7EF;">Kraterion</span>
+      </div>
+      <p>Object storage you actually own. Built on Walrus, Sui, and Seal.</p>
+    </div>
+    <div class="km-footer-cols">
+      <div class="micro">Product</div>
+      <ul><li><a href="#">Console</a></li><li><a href="#">Docs</a></li><li><a href="#">API reference</a></li><li><a href="#">Status</a></li></ul>
+    </div>
+    <div class="km-footer-cols">
+      <div class="micro">Company</div>
+      <ul><li><a href="#">About</a></li><li><a href="#">Pricing</a></li><li><a href="#">Security</a></li><li><a href="#">Contact</a></li></ul>
+    </div>
+    <div class="km-footer-cols">
+      <div class="micro">Legal</div>
+      <ul><li><a href="#">Terms</a></li><li><a href="#">Privacy</a></li><li><a href="#">DPA</a></li><li><a href="#">SOC 2</a></li></ul>
+    </div>
+  </div>
+  <div class="km-footer-base">
+    <span>© 2026 Kraterion Labs</span>
+    <span>eu-west-1 · us-east-1 · ap-southeast-1</span>
+  </div>
+</footer>
+
+</div></body></html>

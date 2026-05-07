@@ -1,0 +1,41 @@
+{
+  "name": "@kraterion/worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kraterion/kraterion-move-sdk": "workspace:*",
+    "@kraterion/shared": "workspace:*",
+    "@kraterion/walrus-client": "workspace:*",
+    "@nestjs/bullmq": "^10.2.0",
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/platform-fastify": "^10.4.0",
+    "@nestjs/schedule": "^4.1.0",
+    "@prisma/client": "^5.22.0",
+    "bullmq": "^5.20.0",
+    "fastify": "^4.28.0",
+    "ioredis": "^5.4.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.0",
+    "@nestjs/schematics": "^10.2.0",
+    "@types/node": "^20",
+    "eslint": "^9",
+    "ts-loader": "^9.5.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5",
+    "vitest": "^2.1.0"
+  }
+}

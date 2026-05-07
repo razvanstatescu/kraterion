@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);font-family:var(--font-sans);}
+.card-frame{padding:24px;box-sizing:border-box;display:flex;flex-direction:column;gap:20px;max-width:480px;}
+.field{display:flex;flex-direction:column;gap:6px;}
+.label{font-size:13px;font-weight:500;color:var(--text-primary);}
+.req{color:var(--krater);margin-left:2px;}
+.input{height:36px;padding:0 12px;background:var(--cream);border:1px solid var(--stone-300);border-radius:6px;color:var(--text-primary);font-family:inherit;font-size:14px;outline:none;}
+.input:focus{outline:2px solid var(--krater);outline-offset:1px;}
+.input.error{border-color:var(--error);}
+.helper{font-size:12px;color:var(--text-tertiary);}
+.err{font-size:12px;color:var(--error);}
+.sel{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237C7158' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;}
+textarea.input{height:auto;padding:10px 12px;font-family:inherit;line-height:1.5;}
+</style></head><body><div class="card-frame">
+
+<div class="field">
+  <label class="label" for="a">Bucket name<span class="req">*</span></label>
+  <input id="a" class="input" value="prod-user-uploads" />
+  <div class="helper">Lowercase letters, numbers, and hyphens. Must be globally unique.</div>
+</div>
+
+<div class="field">
+  <label class="label" for="b">Region</label>
+  <select id="b" class="input sel"><option>eu-central-1 — Frankfurt</option></select>
+  <div class="helper">Determines which Walrus aggregator your reads go through.</div>
+</div>
+
+<div class="field">
+  <label class="label" for="c">Default access<span class="req">*</span></label>
+  <select id="c" class="input sel"><option>Private — Seal-encrypted</option></select>
+</div>
+
+<div class="field">
+  <label class="label" for="d">Description</label>
+  <textarea id="d" class="input" rows="2" placeholder="What is this bucket for?"></textarea>
+</div>
+
+<div class="field">
+  <label class="label" for="e">API key name<span class="req">*</span></label>
+  <input id="e" class="input error" value="" />
+  <div class="err">Required. Pick a name you'll recognize later.</div>
+</div>
+
+</div></body></html>

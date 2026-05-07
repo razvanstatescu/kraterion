@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);font-family:var(--font-sans);}
+.card-frame{padding:48px 32px;box-sizing:border-box;}
+.km-container{max-width:960px;margin:0 auto;}
+.km-section-head{max-width:640px;margin-bottom:40px;}
+.micro{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-tertiary);font-weight:500;}
+.km-h2{font-size:36px;font-weight:500;line-height:1.1;letter-spacing:-0.015em;margin:14px 0 0;text-wrap:balance;color:var(--text-primary);}
+.km-lead{font-size:16px;color:var(--text-secondary);line-height:1.55;margin:14px 0 0;max-width:520px;}
+
+/* Feature grid */
+.km-feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.km-feature{
+  position:relative;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(196,91,54,0.06) 0%, rgba(196,91,54,0) 50%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+  padding:24px;display:flex;flex-direction:column;gap:12px;
+}
+/* Anchor the krater wash to a different corner per card so the 3-up has rhythm. */
+.km-feature:nth-child(2){
+  background:
+    radial-gradient(circle at 100% 0%, rgba(196,91,54,0.06) 0%, rgba(196,91,54,0) 50%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+}
+.km-feature:nth-child(3){
+  background:
+    radial-gradient(circle at 100% 100%, rgba(196,91,54,0.07) 0%, rgba(196,91,54,0) 55%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+}
+.km-feature h3{font-size:16px;font-weight:500;letter-spacing:-0.005em;margin:0;color:var(--text-primary);}
+.km-feature p{color:var(--text-secondary);line-height:1.55;font-size:14px;margin:0;}
+.km-feature svg{color:var(--ink);}
+
+.section-label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-tertiary);font-weight:500;margin-bottom:24px;}
+.divider{height:1px;background:var(--border);margin:48px 0;}
+</style></head><body><div class="card-frame">
+
+<div class="section-label">Section container — eyebrow · headline · lede</div>
+<section class="km-container">
+  <div class="km-section-head">
+    <span class="micro">Product</span>
+    <h2 class="km-h2">Built for teams that read the AWS docs.</h2>
+    <p class="km-lead">Kraterion sits at the same layer as Supabase Storage or DigitalOcean Spaces, and speaks fluent S3 to your existing code.</p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<div class="section-label">Feature card — used in 3-up grid</div>
+<section class="km-container">
+  <div class="km-feature-grid">
+    <article class="km-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m14 9 3 3"/></svg>
+      <h3>Bring your AWS SDK</h3>
+      <p>boto3, AWS SDK for JS, s3cmd, rclone, mc — point them at our endpoint and they work. No new client to learn.</p>
+    </article>
+    <article class="km-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <h3>Sealed at rest</h3>
+      <p>Every object is encrypted by Seal before it touches storage. We never hold the keys to your data.</p>
+    </article>
+    <article class="km-feature">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18l-1.5 13a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 6Z"/><path d="M3 6 6 3h12l3 3"/><path d="M9 10v6"/><path d="M15 10v6"/></svg>
+      <h3>True ownership</h3>
+      <p>Your buckets are addressed on Sui. If we disappear tomorrow, your bytes don't.</p>
+    </article>
+  </div>
+</section>
+
+</div></body></html>

@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;}
+.swatch{display:flex;flex-direction:column;gap:6px;}
+.chip{width:96px;height:64px;border-radius:8px;border:1px solid var(--border);}
+.chip-sm{width:64px;height:48px;border-radius:6px;border:1px solid var(--border);}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+</style></head><body><div class="card-frame">
+<div style="display:flex;flex-direction:column;gap:14px;font-size:14px;">
+  <div style="font-size:32px;font-weight:500;color:var(--ink);line-height:1.2;letter-spacing:-0.01em;">Object storage you actually own.</div>
+  <div style="display:flex;gap:18px;">
+    <div style="flex:1;padding:14px 16px;background:#F1ECE0;border:1px solid var(--border);border-radius:8px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;margin-bottom:6px;">✓ Approved</div>
+      <div style="color:var(--ink);">Couldn't reach the bucket. Check your connection and retry.</div>
+    </div>
+    <div style="flex:1;padding:14px 16px;background:#EFCFC9;border:1px solid #B53D2E33;border-radius:8px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:#5A1D14;font-weight:500;margin-bottom:6px;">✗ Banned</div>
+      <div style="color:#5A1D14;">An error occurred. Our revolutionary, AI-powered system will retry seamlessly.</div>
+    </div>
+  </div>
+  <div class="value" style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);">Sentence case. Active voice. One idea per sentence. State the next action. Banned: revolutionary · next-gen · seamless · effortless · AI-powered (when AI isn't the feature).</div>
+</div>
+</div></body></html>

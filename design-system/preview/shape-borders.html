@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;}
+.swatch{display:flex;flex-direction:column;gap:6px;}
+.chip{width:96px;height:64px;border-radius:8px;border:1px solid var(--border);}
+.chip-sm{width:64px;height:48px;border-radius:6px;border:1px solid var(--border);}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+</style></head><body><div class="card-frame">
+<div style="display:flex;flex-direction:column;gap:14px;">
+  <div style="padding:14px 16px;background:var(--bg-elevated);border:1px solid var(--stone-200);border-radius:8px;">
+    <div class="name">Default border</div><div class="value">1px stone-200 · cards, list rows</div>
+  </div>
+  <div style="padding:14px 16px;background:var(--bg-elevated);border:1px solid var(--stone-300);border-radius:8px;">
+    <div class="name">Strong border</div><div class="value">1px stone-300 · selected, hover-emphasis</div>
+  </div>
+  <div style="padding:14px 16px;background:var(--bg-elevated);border:0.5px solid var(--stone-200);border-radius:8px;">
+    <div class="name">Hairline</div><div class="value">0.5px · table dividers, fine grid</div>
+  </div>
+  <p class="value" style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:0;">Shadows are forbidden. Elevation is communicated via border + bg contrast only.</p>
+</div>
+</div></body></html>

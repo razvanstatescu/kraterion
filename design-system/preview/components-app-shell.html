@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--stone-100);font-family:var(--font-sans);}
+.card-frame{padding:0;box-sizing:border-box;}
+.shell{display:grid;grid-template-columns:240px 1fr;height:520px;background:var(--bg);overflow:hidden;}
+
+/* Sidebar */
+.side{background:var(--stone-50);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 0;}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 16px 16px;}
+.wm{font-size:16px;font-weight:500;letter-spacing:0.06em;color:var(--text-primary);}
+.nav{display:flex;flex-direction:column;gap:2px;padding:0 8px;}
+.item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;color:var(--text-secondary);font-size:14px;cursor:pointer;}
+.item.active{background:var(--stone-100);color:var(--text-primary);font-weight:500;}
+.item:hover:not(.active){background:var(--stone-100);}
+.org{margin:24px 16px 0;padding:12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;}
+.micro{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-tertiary);font-weight:500;}
+.orgname{font-size:14px;font-weight:500;margin-top:6px;}
+.orgmeta{font-size:12px;color:var(--text-tertiary);margin-top:2px;}
+.account{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border);}
+.avatar{width:28px;height:28px;background:var(--ink);color:var(--cream);border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;}
+.aname{font-size:13px;font-weight:500;}
+.amail{font-size:12px;color:var(--text-tertiary);}
+
+/* Main */
+.main{display:flex;flex-direction:column;min-width:0;}
+.top{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--bg);}
+.crumbs{display:flex;align-items:center;gap:8px;font-size:13px;}
+.crumb-link{color:var(--text-tertiary);}
+.crumb-curr{color:var(--text-secondary);}
+.actions{display:flex;align-items:center;gap:8px;}
+.search{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;background:var(--cream);border:1px solid var(--stone-300);border-radius:6px;color:var(--text-tertiary);width:240px;font-size:13px;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid transparent;cursor:pointer;}
+.btn-primary{background:var(--ink);color:var(--cream);}
+.body{padding:28px;flex:1;background:var(--bg);}
+.h1{font-size:24px;font-weight:500;letter-spacing:-0.01em;margin:0 0 4px;}
+.sub{font-size:14px;color:var(--text-secondary);margin:0;}
+
+/* svg helpers */
+.ic{display:inline-flex;align-items:center;justify-content:center;color:currentColor;}
+</style></head><body><div class="card-frame">
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="side">
+    <div class="brand">
+      <svg viewBox="0 0 256 256" width="28" height="28">
+        <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="10"/>
+        <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="10"/>
+        <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+      </svg>
+      <span class="wm" style="color:#1A1610;">Kraterion</span>
+    </div>
+    <nav class="nav">
+      <div class="item active"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18l-1.5 13a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 6Z"/><path d="M3 6 6 3h12l3 3"/><path d="M9 10v6"/><path d="M15 10v6"/></svg></span><span>Buckets</span></div>
+      <div class="item"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m14 9 3 3"/></svg></span><span>Access keys</span></div>
+      <div class="item"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span><span>Usage</span></div>
+      <div class="item"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></span><span>Settings</span></div>
+    </nav>
+    <div class="org">
+      <div class="micro">Project</div>
+      <div class="orgname">acme-prod</div>
+      <div class="orgmeta">eu-west-1 · 3 buckets</div>
+    </div>
+    <div class="account">
+      <div class="avatar">M</div>
+      <div style="min-width:0;flex:1;">
+        <div class="aname">Maya Petrescu</div>
+        <div class="amail">maya@acme.io</div>
+      </div>
+      <span class="ic" style="color:var(--text-tertiary);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="top">
+      <div class="crumbs">
+        <span class="crumb-link">acme-prod</span>
+        <span class="ic" style="color:var(--text-tertiary);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+        <span class="crumb-curr">Buckets</span>
+      </div>
+      <div class="actions">
+        <div class="search">
+          <span class="ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
+          <span>Search…</span>
+        </div>
+        <button class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          New bucket
+        </button>
+      </div>
+    </header>
+    <div class="body">
+      <h1 class="h1">Buckets</h1>
+      <p class="sub">Sealed object storage. Addressed on Sui, sharded on Walrus.</p>
+    </div>
+  </div>
+
+</div>
+</div></body></html>

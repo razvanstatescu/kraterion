@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+@keyframes p-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes p-spin{to{transform:rotate(360deg)}}
+@keyframes p-iris{from{transform:scale(0)}to{transform:scale(1)}}
+.m-mid{transform-origin:128px 128px;animation:p-pulse 2.5s cubic-bezier(0.4,0,0.2,1) infinite}
+.m-out{transform-origin:128px 128px;animation:p-spin 4s linear infinite}
+.m-dot{transform-origin:128px 128px;animation:p-iris 800ms cubic-bezier(0.4,0,0.2,1) infinite alternate}
+</style></head><body><div class="card-frame">
+<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <svg viewBox="0 0 256 256" width="100" height="100">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6"/>
+      <circle class="m-mid" cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+    </svg>
+    <span class="name">Aperture pulse</span>
+    <span class="value">2.5s loop · alive states</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <svg viewBox="0 0 256 256" width="100" height="100">
+      <circle class="m-out" cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6" stroke-dasharray="60 30"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#1A1610"/>
+    </svg>
+    <span class="name">Spin upload</span>
+    <span class="value">4s linear · uploading</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+    <svg viewBox="0 0 256 256" width="100" height="100">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#7C7158" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#403930" stroke-width="6"/>
+      <circle class="m-dot" cx="128" cy="128" r="22" fill="#1A1610"/>
+    </svg>
+    <span class="name">Iris open</span>
+    <span class="value">400ms · app boot</span>
+  </div>
+</div>
+<p style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:14px 0 0;">Three Stone shades from the dark half of the family — 500, 700, 900. The mark stays one material at three depths whether it's still or in motion.</p>
+</div></body></html>

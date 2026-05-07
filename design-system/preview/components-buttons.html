@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;width:80px;flex-shrink:0;}
+.note{font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);margin:0;}
+/* Soften the default Ink button: keep contrast, but use Stone-800 instead of pure Ink to feel less "in your face" */
+.btn-primary{background:var(--stone-800);}
+.btn-primary:hover{background:var(--ink);}
+</style></head><body><div class="card-frame">
+<div style="display:flex;flex-direction:column;gap:12px;">
+  <div class="row"><span class="label">Default</span>
+    <button class="btn btn-secondary">Save changes</button>
+    <button class="btn btn-secondary">Cancel</button>
+    <button class="btn btn-ghost">Settings</button>
+  </div>
+  <div class="row"><span class="label">Emphasis</span>
+    <button class="btn btn-primary">Save changes</button>
+    <button class="btn btn-cta">Create bucket</button>
+    <button class="btn btn-destructive">Delete</button>
+  </div>
+  <div class="row"><span class="label">Sizes</span>
+    <button class="btn btn-cta btn-lg">Get started</button>
+    <button class="btn btn-secondary">Read the docs</button>
+    <button class="btn btn-secondary btn-sm">Cancel</button>
+  </div>
+  <p class="note" style="margin-top:6px;">Default actions lean on Secondary (Cream + hairline) — Ink is reserved for the single committing action on a screen. Krater is rarer still: only the moment the action becomes the brand promise (creating, getting started). Hover steps one Stone darker; focus is a 2px Krater outline.</p>
+</div>
+</div></body></html>

@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);}
+.card-frame{padding:20px 24px;box-sizing:border-box;}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;}
+.swatch{display:flex;flex-direction:column;gap:6px;}
+.chip{width:96px;height:64px;border-radius:8px;border:1px solid var(--border);}
+.chip-sm{width:64px;height:48px;border-radius:6px;border:1px solid var(--border);}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;}
+.value{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+.name{font-size:13px;color:var(--text-primary);font-weight:500;}
+</style></head><body><div class="card-frame">
+<div style="display:flex;flex-direction:column;gap:12px;max-width:360px;">
+  <div>
+    <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;display:block;margin-bottom:6px;">Bucket name</label>
+    <input class="input" placeholder="my-app-uploads" />
+  </div>
+  <div>
+    <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-secondary);font-weight:500;display:block;margin-bottom:6px;">Region</label>
+    <input class="input" value="walrus-eu-west-1" />
+  </div>
+  <div>
+    <input class="input error" value="my app uploads" />
+    <div style="font-size:13px;color:var(--error);margin-top:4px;">Bucket names use lowercase letters, numbers, and hyphens.</div>
+  </div>
+</div>
+</div></body></html>

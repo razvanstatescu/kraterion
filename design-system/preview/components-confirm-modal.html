@@ -1,0 +1,145 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
+html,body{margin:0;padding:0;background:var(--bg);font-family:var(--font-sans);}
+.card-frame{padding:20px 24px;box-sizing:border-box;display:flex;flex-direction:column;gap:18px;}
+.note{font-size:12px;color:var(--text-secondary);margin:0;}
+
+/* Scene shell — same chrome as brand-modal.html */
+.scene{
+  position:relative;
+  background:#F1ECE0;
+  border:1px solid var(--border);
+  border-radius:8px;
+  height:460px;
+  overflow:hidden;
+}
+.scrim{position:absolute;inset:0;background:rgba(15,14,12,0.45);}
+
+.modal{
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:440px;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(196,91,54,0.10) 0%, rgba(196,91,54,0) 45%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:24px;
+  overflow:hidden;
+}
+.modal.tone-info{
+  background:
+    radial-gradient(circle at 85% 0%, rgba(59,111,115,0.10) 0%, rgba(59,111,115,0) 45%),
+    linear-gradient(180deg, #FFFDF7 0%, #F8F4EC 100%);
+}
+.modal-mark{position:absolute;top:-56px;right:-56px;opacity:0.55;pointer-events:none;}
+.modal-content{position:relative;}
+
+.eyebrow{
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:11px; text-transform:uppercase; letter-spacing:0.16em;
+  font-weight:500; margin-bottom:14px;
+}
+.eyebrow .dot{width:6px;height:6px;border-radius:999px;}
+.eyebrow.dest{color:var(--error);} .eyebrow.dest .dot{background:var(--error);}
+.eyebrow.info{color:var(--info);} .eyebrow.info .dot{background:var(--info);}
+
+.title{font-size:20px;font-weight:500;color:var(--ink);letter-spacing:-0.01em;line-height:1.25;}
+.body{font-size:14px;color:var(--text-secondary);margin-top:10px;line-height:1.5;}
+
+/* Optional info-box slot — same surface as the on-chain note */
+.infobox{
+  margin-top:14px;
+  display:flex; align-items:flex-start; gap:10px;
+  padding:10px 12px;
+  background:rgba(255,255,255,0.55);
+  border:1px solid var(--border);
+  border-radius:6px;
+  font-size:12px;
+  color:var(--text-secondary);
+  line-height:1.5;
+}
+.infobox svg{flex-shrink:0;margin-top:1px;color:var(--text-tertiary);}
+
+/* Optional on-chain reference rows */
+.refs{margin-top:14px;border-top:1px solid var(--border);}
+.ref{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:16px; padding:8px 0;
+  border-bottom:1px solid var(--border);
+  font-size:12px;
+}
+.ref:last-child{border-bottom:0;}
+.ref .lab{color:var(--text-tertiary);}
+.ref .val{
+  display:inline-flex; align-items:center; gap:6px;
+  color:var(--text-primary); text-decoration:none;
+  font-family:'JetBrains Mono',ui-monospace,Menlo,monospace; font-size:11px;
+}
+
+.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;}
+.btn{padding:8px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;border:1px solid transparent;}
+.ghost{background:transparent;border-color:var(--border-strong);color:var(--text-primary);}
+.danger{background:var(--error);color:var(--cream);}
+.primary{background:var(--ink);color:var(--cream);}
+
+.label{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-tertiary);font-weight:500;margin:0;}
+</style></head><body><div class="card-frame">
+
+<p class="label">A · Destructive · with info-box</p>
+<div class="scene">
+  <div class="scrim"></div>
+  <div class="modal">
+    <svg class="modal-mark" viewBox="0 0 256 256" width="160" height="160">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#A89C82" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#A89C82"/>
+    </svg>
+    <div class="modal-content">
+      <div class="eyebrow dest"><span class="dot"></span>Destructive · on-chain</div>
+      <div class="title">Revoke API access?</div>
+      <div class="body">SDK requests will no longer be able to download files from this bucket. Files remain encrypted on-chain and you can still access them via the dashboard.</div>
+      <div class="infobox">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7a5 5 0 0 1 0-10h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/></svg>
+        <span>Enforced on-chain by Seal threshold key servers. Even Kraterion cannot bypass this.</span>
+      </div>
+      <div class="actions">
+        <button class="btn ghost">Cancel</button>
+        <button class="btn danger">Revoke</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="label">B · Info · with on-chain references (post-action confirmation)</p>
+<div class="scene">
+  <div class="scrim"></div>
+  <div class="modal tone-info">
+    <svg class="modal-mark" viewBox="0 0 256 256" width="160" height="160">
+      <circle cx="128" cy="128" r="110" fill="none" stroke="#C9BFA8" stroke-width="6"/>
+      <circle cx="128" cy="128" r="68" fill="none" stroke="#A89C82" stroke-width="6"/>
+      <circle cx="128" cy="128" r="22" fill="#A89C82"/>
+    </svg>
+    <div class="modal-content">
+      <div class="eyebrow info"><span class="dot"></span>Subscription cancelled</div>
+      <div class="title">Your files stay on-chain</div>
+      <div class="body">Files in 4 buckets remain at your Sui address, funded for ~12 months. Anyone can extend funding via kraterion-cli to keep them alive indefinitely.</div>
+      <div class="refs">
+        <div class="ref">
+          <span class="lab">Your Sui address</span>
+          <a href="#" class="val">0xabcd…1234 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg></a>
+        </div>
+        <div class="ref">
+          <span class="lab">Funded through</span>
+          <span class="val" style="font-family:inherit;">Epoch 614 · ~Sep 22, 2027</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost">Close</button>
+        <button class="btn primary">View funding guide</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note">One Modal component, three optional slots: <b>eyebrow</b> (destructive / info / success / none), <b>info-box</b> (icon + caption), <b>references</b> (on-chain ref rows). Chrome — Ink scrim at 45%, Krater radial wash anchored top-right (Info tonal swaps wash to <code>--info</code>), Stone-tonal mark watermark in the corner — stays consistent. Footer actions accept any combination of ghost / primary / danger buttons.</p>
+
+</div></body></html>

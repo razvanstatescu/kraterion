@@ -1,0 +1,8 @@
+<svg viewBox="0 0 480 96" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kraterion">
+  <g>
+    <circle cx="48" cy="48" r="42" fill="none" stroke="#7C7158" stroke-width="3"></circle>
+    <circle cx="48" cy="48" r="26" fill="none" stroke="#F8F4EC" stroke-width="3"></circle>
+    <circle cx="48" cy="48" r="8.5" fill="#C45B36"></circle>
+  </g>
+  <text x="112" y="62" font-family="Inter, system-ui, sans-serif" font-size="44" font-weight="500" letter-spacing="2.6" fill="#F8F4EC">Kraterion</text>
+</svg>
