@@ -3,8 +3,10 @@ name = "kraterion"
 edition = "2024.beta"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
-Walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "contracts/walrus", rev = "main" }
+# Sui framework is brought in transitively via Walrus (Walrus pins its own
+# Sui rev). The Sui CLI auto-augments the dep graph with Sui/MoveStdlib when
+# we don't list them explicitly, which avoids version-pin conflicts.
+Walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "contracts/walrus", rev = "testnet" }
 
 [addresses]
 kraterion = "0x0"

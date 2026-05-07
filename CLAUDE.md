@@ -9,6 +9,33 @@ the user can revoke. Building for Sui Overflow 2026, Walrus track.
 Read /docs/implementation-plan.md for the full spec. Always defer to that doc
 when in doubt.
 
+## Project knowledge base — read and update these every session
+
+Three living docs in `/docs/`. Read the relevant ones at the start of any
+non-trivial task; **append to them as part of finishing the work**, not as a
+separate step.
+
+- `/docs/decisions.md` — architectural and product decisions, why each was made.
+  **Append a new entry** whenever a non-obvious choice is made (tooling,
+  shape, picking between two valid options). Use the existing format: date,
+  title, status, context, decision, consequences.
+- `/docs/runbook.md` — solved bugs and gotchas, indexed by symptom. **Grep
+  here first** when something breaks. **Append a new entry** after solving any
+  problem that took more than ~10 minutes to diagnose. Use the template at
+  the top of the file. Make symptoms greppable (paste the actual error string).
+- `/docs/progress.md` — chronological build log. The single source of truth for
+  "where are we." **Append an entry** at the end of any session where something
+  measurable shipped, prefixed with the workstream tag (`[move]`, `[gateway]`,
+  etc).
+- `/docs/timeline.md` — calendar view (which week we're in, exit criteria,
+  submission deadline). Read at the start of any planning conversation. Update
+  the Status block weekly and after any milestone slip.
+
+These files complement (not duplicate) the auto-memory system: memory captures
+user preferences and Claude-specific context per machine; these docs capture
+project facts in version control where every session and every contributor
+can see them.
+
 ## Repo layout
 Turborepo + pnpm workspaces. See README.md for the full map. Top level:
 - `apps/landing` — public marketing site (Next.js 16, port 3000)
