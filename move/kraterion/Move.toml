@@ -3,10 +3,17 @@ name = "kraterion"
 edition = "2024.beta"
 
 [dependencies]
-# Sui framework is brought in transitively via Walrus (Walrus pins its own
-# Sui rev). The Sui CLI auto-augments the dep graph with Sui/MoveStdlib when
-# we don't list them explicitly, which avoids version-pin conflicts.
-Walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "contracts/walrus", rev = "testnet" }
+# Sui framework is brought in transitively via Walrus. The `testnet-contracts`
+# subtree of the Walrus repo holds the exact source code of the testnet
+# deployment, paired with Move.lock files that carry the deployed addresses.
+Walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "testnet-contracts/walrus", rev = "testnet" }
 
 [addresses]
 kraterion = "0x0"
+# Override the placeholder addresses Walrus's source carries (`0x0`) with the
+# real testnet deployment IDs so our package consumes the deployed Walrus and
+# WAL packages instead of trying to re-publish them. Verify against
+# `testnet-contracts/{walrus,wal}/Move.lock` (chain-id = "4c78adac") if the
+# build complains.
+walrus = "0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66"
+wal = "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a"

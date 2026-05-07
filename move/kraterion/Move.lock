@@ -29,13 +29,13 @@ manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D
 deps = { MoveStdlib = "MoveStdlib_1" }
 
 [pinned.testnet.WAL]
-source = { git = "https://github.com/MystenLabs/walrus.git", subdir = "contracts/wal", rev = "9c5590a81e29e1141b05a2481c677fe1e2b73b29" }
+source = { git = "https://github.com/MystenLabs/walrus.git", subdir = "testnet-contracts/wal", rev = "9c5590a81e29e1141b05a2481c677fe1e2b73b29" }
 use_environment = "testnet"
 manifest_digest = "E3FB8D733F73C13E3911CC30A2833A75745E4DD7970BE28F2305576115944FE7"
 deps = { Sui = "Sui_1" }
 
 [pinned.testnet.Walrus]
-source = { git = "https://github.com/MystenLabs/walrus.git", subdir = "contracts/walrus", rev = "9c5590a81e29e1141b05a2481c677fe1e2b73b29" }
+source = { git = "https://github.com/MystenLabs/walrus.git", subdir = "testnet-contracts/walrus", rev = "9c5590a81e29e1141b05a2481c677fe1e2b73b29" }
 use_environment = "testnet"
 manifest_digest = "1DBF69549FA5B9F0D4E2DB51D0920F8B3FFB8843E11C1BA8C73024BF045203F2"
 deps = { Sui = "Sui_1", WAL = "WAL" }
@@ -43,5 +43,5 @@ deps = { Sui = "Sui_1", WAL = "WAL" }
 [pinned.testnet.kraterion]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "54144C34EC47343C1458F3FAD16F9FCEFE49C4994DD5CB73D74D171462DD9576"
+manifest_digest = "C2B1268397C60891E524845EB4CB93CCA0E74D9D58594CB183A78737ADB3342B"
 deps = { Walrus = "Walrus", std = "MoveStdlib", sui = "Sui" }

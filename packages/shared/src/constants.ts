@@ -20,4 +20,7 @@ export const WALRUS_PUBLISHER_URL = "";
 export const WALRUS_AGGREGATOR_URL = "";
 
 // Kraterion Move package — populated after first publish.
-export const KRATERION_PACKAGE_ID = "";
+export const KRATERION_PACKAGE_ID = "0x853ceaa163da9b14ba7d7f11d6f7aa42a0f41bd441ca66e9fb8bff106dc818f5";
+
+// Captured at publish; needed for sui client upgrade-package.
+export const KRATERION_UPGRADE_CAP_ID = "0x68e76518d28d36165c28c91f964eebc608ba18f8aed05eec09a67316fdee596d";

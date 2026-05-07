@@ -47,3 +47,6 @@ move/**/build
 # prisma
 prisma/*.db
 prisma/*.db-journal
+
+# deploy archive — full sui client publish responses, kept locally for forensics
+deploy/
