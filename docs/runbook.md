@@ -134,6 +134,135 @@ don't exist in 1.x.
 
 ---
 
+## Symptom: `register_blob` aborts with code 3 (`EResourceSize`) — "the reserved storage's size doesn't fit the actual blob"
+
+**Cause:** Walrus's `system::reserve_space(storage_amount, ...)` expects the
+**encoded** blob length (post-RS2 encoding), not the raw plaintext
+length. RS2 expansion is dramatic — a 354-byte plaintext on a
+1000-shard committee encodes to ~66 MB. Passing the unencoded length
+means the storage allocation is way too small, and the subsequent
+`register_blob(... size, ...)` aborts when it tries to fit.
+
+**Fix:** compute encoded length before calling
+`kraterion::register_blob_for_bucket`. The Walrus SDK has the formula
+internally but doesn't export it; we re-implemented it in
+`packages/walrus-client/src/index.ts` as `getEncodedBlobLength(size, nShards)`
+plus `getCommitteeShardCount()` to fetch `n_shards` from
+`client.systemState()`. Pass the result as `storageAmount`; pass the
+plaintext length as `size`.
+
+**Observed:** 2026-05-08, first smoke-test run.
+
+---
+
+## Symptom: upload to Mysten testnet relay returns `400 The query parameters are missing the transaction ID or the nonce, but the proxy requires them to check the tip payment.`
+
+**Cause:** Mysten's public testnet upload-relay requires a tip. The SDK's
+`UploadRelayClient.writeBlob` only includes `tx_id` and `nonce` in the
+query string when `requiresTip: true` is set internally, which only
+happens if `WalrusClient.uploadRelay.sendTip` is configured. Without
+`sendTip`, the relay rejects with this 400.
+
+**Fix:** Configure `sendTip: { max: <budget> }` on the WalrusClient at
+construction (we use `{ max: 10_000_000 }` ≈ 0.01 WAL). The high-level
+`writeBlobToUploadRelay` then auto-passes `requiresTip: true`.
+
+**Observed:** 2026-05-08.
+
+---
+
+## Symptom: upload to relay returns `401 the auth package is missing from the first input slot of the PTB`
+
+**Cause:** When a tip is required, the relay verifies the on-chain tip
+payment by parsing the registration PTB. It expects the **auth payload**
+(produced by `walrus.addAuthPayload({ size, blobDigest, nonce })`) to
+be **input slot #0** of the PTB. `tx.add(walrus.sendUploadRelayTip(...))`
+inserts that input wherever the call appears in the command list — if
+it runs after `kraterion::register_blob_for_bucket(...)`, the bucket
+object/u64 inputs get lower slot numbers and the auth payload lands
+later.
+
+**Fix:** Add `walrus.sendUploadRelayTip(...)` to the PTB **first**, before
+any other call that creates inputs:
+```ts
+tx.add(walrus.sendUploadRelayTip({ size, blobDigest, nonce })); // FIRST
+const blobArg = tx.add(kraterion.registerBlobForBucket({ ... }));
+tx.transferObjects([blobArg], gatewayAddress);
+```
+
+**Observed:** 2026-05-08.
+
+---
+
+## Symptom: Seal SDK errors with `Invalid TTL N, must be between 1 and 30`
+
+**Cause:** `@mysten/seal@1.1.x` caps SessionKey TTL at 30 minutes (the
+plan §7.4 said "1 hour" — that was based on `@mysten/seal@0.6` semantics,
+which Mysten tightened in 1.0+).
+
+**Fix:** Use `ttlMin ≤ 30`. We use 25 to leave 5 min skew margin under
+the cap. Redis cache TTL matches.
+
+**Observed:** 2026-05-08.
+
+---
+
+## Symptom: `JSON.stringify(sessionKey.export())` throws `This object is not serializable`
+
+**Cause:** `@mysten/seal@1.1.x`'s `SessionKey.export()` returns an object
+with a `toJSON` property explicitly set to `() => { throw ... }`. This
+is intentional — the export contains the SessionKey's secret key, and
+Mysten doesn't want clients accidentally `JSON.stringify`-ing it. They
+expect IndexedDB-style per-field storage.
+
+**Fix:** Pluck the fields manually before serializing. Our
+`packages/seal-client/src/index.ts::getOrCreateSessionKey` does this. The
+secret material in `serializable.sessionKey` is no more sensitive than
+the gateway's keypair seed already in Postgres; Redis on the trusted
+gateway host is an acceptable storage tier for our threat model.
+
+**Observed:** 2026-05-08.
+
+---
+
+## Symptom: passing a Walrus blobId string directly into a `u256` Move arg throws `Cannot convert <string> to a BigInt`
+
+**Cause:** Walrus exposes blob IDs as 43-char URL-safe-base64 strings
+(e.g. `OsJnX9NVNj9lqoknZyinXFWgzDSQ5YnJ6iZLOGOjnvg`). `BigInt(...)` on
+that string fails because it's not a numeric literal. The Walrus SDK
+has `blobIdToInt` to convert, but it's not exposed in
+`@mysten/walrus`'s public exports.
+
+**Fix:** Inline the conversion. Our
+`packages/walrus-client/src/index.ts::blobIdStringToU256` and
+`rootHashBytesToU256` re-implement the SDK's internal helpers via
+`bcs.u256()` from `@mysten/sui/bcs`.
+
+**Observed:** 2026-05-08.
+
+---
+
+## Symptom: `reserve.fund` (or any `Coin<WAL>`-taking move call) aborts with `CommandArgumentError { kind: TypeMismatch }` when the deployer "has WAL"
+
+**Cause:** Several unrelated `*::wal::WAL` coin types float around Sui
+testnet (faucet artifacts from packages that namespace-clash with
+Walrus). `sui client balance` displays them all under the same `WAL`
+symbol. A `findCoin(coinType.endsWith("::wal::WAL"))` filter happily
+returns one of these decoys, and the runtime rejects it because
+Walrus's `fund(reserve, coin: Coin<WAL>)` expects the canonical type
+`${WAL_PACKAGE_ID}::wal::WAL` only.
+
+**Fix:** Always match the EXACT coin type. The canonical testnet WAL is
+`0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL`,
+exposed as `WAL_COIN_TYPE` in `@kraterion/shared`. Use
+`coin.coinType === WAL_COIN_TYPE`, not regex tail-matching.
+
+**Observed:** 2026-05-08, first run of `bootstrap-gateway.ts` against
+the deployer wallet. The deployer had 13 different `*::wal::WAL`
+coins; the wrong one was picked first.
+
+---
+
 ## Symptom: codegen's `tx.add(kraterion.foo({ arguments: { name: new TextEncoder().encode("…") } }))` fails to typecheck
 
 **Cause:** Generated PTB helpers type `vector<u8>` arguments as

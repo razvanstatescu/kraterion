@@ -500,3 +500,140 @@ package `init` automatically).
   need actually arises.
 
 ---
+
+## 2026-05-08 — Bumped `@mysten/seal` to 1.1.3 and `@mysten/walrus` to 1.1.6 to match decentralized committee + relay APIs
+
+**Status:** Accepted
+
+**Context:** The plan was written when our installed SDKs were
+`@mysten/seal@0.6` and `@mysten/walrus@0.6.7`. Two newer realities forced
+bumps:
+- The Decentralized Seal Committee (3-of-5 internal threshold across
+  Mysten + Natsai + Overclock + NodeInfra + Ruby Nodes) requires SDK
+  ≥ 1.1.
+- `@mysten/walrus@1.1.6` is the version that ships the
+  `writeBlobToUploadRelay({ blob, blobId, nonce, txDigest, blobObjectId,
+  deletable })` shape we depend on (returns `{ blobId, certificate }`
+  ready to feed into `certifyBlob`).
+
+**Decision:** Pin `@mysten/seal: ^1.1.3`, `@mysten/walrus: ^1.1.6`,
+`@mysten/sui: ^2.16.2` across the workspace (peer-dep alignment).
+
+**Consequences:** All 15 workspace `typecheck` tasks pass. SDK 2.x's
+`SuiClient → SuiJsonRpcClient` and `getFullnodeUrl →
+getJsonRpcFullnodeUrl` rename was already documented in the runbook
+from earlier work. No breaking changes to our generated bindings
+(codegen output is unchanged).
+
+---
+
+## 2026-05-08 — Decentralized Seal Committee for testnet (single trust unit, threshold 1)
+
+**Status:** Accepted
+
+**Context:** Plan §7.8 originally suggested a 2-of-3 of independent
+open-mode key servers. Mysten shipped a Decentralized Seal Committee
+(`https://blog.sui.io/introducing-decentralized-seal-key-server-testnet/`)
+that exposes one on-chain object backed by a 3-of-5 internal threshold
+across geo-distributed operators with a Mysten-operated trustless
+aggregator.
+
+**Decision:** Use the Decentralized Committee. Configure `SealClient`
+with one `KeyServerConfig` (objectId
+`0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98`,
+weight 1, `aggregatorUrl: https://seal-aggregator-testnet.mystenlabs.com`)
+and SDK-side threshold `1`. Stronger trust property than independent
+servers (geo-distributed, MPC-protected master key) with the same SDK
+shape.
+
+**Fallback:** If the committee proves unstable on testnet, swap to a
+2-of-3 of independent open-mode servers. One-line config change in
+`packages/shared/src/constants.ts`; everything downstream is unaffected.
+
+**Consequences:** Encryption/decryption requests go through the
+aggregator (single endpoint) instead of fanning out to N key servers
+from our process. Slightly different latency profile than independent
+servers; expected to be faster and more stable since the committee
+absorbs internal-share fanout.
+
+---
+
+## 2026-05-08 — Architecture-D wrapper packages live in `packages/{walrus,seal}-client`, not in the gateway
+
+**Status:** Accepted
+
+**Context:** The gateway, the worker, and (eventually) the dashboard
+all need to talk to Walrus and Seal with identical config. Putting the
+construction logic inside the gateway tied configuration to one app
+and forced the others to duplicate.
+
+**Decision:** Both wrappers live as workspace packages. Each exports a
+memoized factory (`getWalrusClient`, `getSealClient`) plus a small
+surface of "the only operations Kraterion uses":
+- `walrus-client`: `encodeBlob`, `writeBlobToUploadRelay`,
+  `certifyBlobFragment`, `readBlobByBlobId`, `getSuiClient`.
+- `seal-client`: `encrypt`, `decrypt`, `getOrCreateSessionKey`,
+  `getSealClient`.
+
+Network constants (relay URL, aggregator URL, key-server IDs,
+threshold) come from `@kraterion/shared`. SessionKey caching lives in
+`seal-client.getOrCreateSessionKey(opts)` — caller passes a Redis
+instance.
+
+**Consequences:** Apps import a tiny, intent-revealing API instead of
+constructing SDK clients themselves. Swapping testnet→mainnet is a
+one-line constants change; the wrapper APIs don't move. SessionKey
+caching lives once (instead of being re-implemented per app). Read path
+uses the public Walrus aggregator via plain `fetch` — no storage-node
+fanout from the gateway, single HTTP GET per read.
+
+---
+
+## 2026-05-08 — Wrapper packages must add value, never duplicate the SDK
+
+**Status:** Accepted (codified after a Phase-2 audit found 6 redundant pass-throughs)
+
+**Context:** First-pass `@kraterion/walrus-client` and `@kraterion/seal-client`
+exported thin pass-throughs of `client.encodeBlob`,
+`client.computeBlobMetadata`, `client.writeBlobToUploadRelay`,
+`client.certifyBlob`, `client.encrypt`, and `client.decrypt`. Each was
+1–3 lines forwarding arguments. Looked like cohesion; was actually drag —
+every consumer paid an extra import indirection and the wrapper API
+drifted as soon as the SDK added a new option (`signal`, `aad`, etc).
+
+**Decision:** Wrappers expose only what the SDK doesn't already give us:
+
+1. **Constructor / config functions** that bake in our network choice,
+   key-server set, relay tip cap, etc. — `getSuiClient`,
+   `getWalrusClient`, `getSealClient`.
+2. **Helpers the SDK has internally but doesn't export publicly** —
+   `getEncodedBlobLength` and `rootHashBytesToU256` in walrus-client;
+   `getOrCreateSessionKey` (Redis-cached) in seal-client. Each is
+   documented with the upstream gap it fills.
+3. **Re-exports** of public SDK helpers we want every consumer to find
+   under our package name (e.g. `blobIdToInt` re-exported as
+   `blobIdStringToU256` for naming consistency at our call sites).
+4. **Read-path overrides** where the SDK's default does the wrong thing
+   for our case. `readBlobByBlobId` uses the aggregator's HTTP endpoint
+   instead of the SDK's `client.readBlob()` storage-node fanout — a
+   deliberate latency/egress choice for our gateway.
+
+**Forbidden:** 1:1 pass-throughs in `packages/{walrus,seal}-client`. If
+the only thing a function does is call `getXxxClient().method(arg)`, it
+must be deleted and callers updated to call the SDK directly via the
+memoized client.
+
+**Consequences:** Wrappers stay small (~150 LOC each) and self-
+explaining. Callers lean on the SDK's typings, signal-handling, and
+option set without us having to re-thread changes. New SDK methods are
+zero-effort to consume. Cost: one extra step per call site
+(`getWalrusClient()` then `client.encodeBlob(...)` instead of just
+`encodeBlob(...)`) — a tolerable trade for the lower drift.
+
+**The audit that triggered this:** dropped 6 pass-throughs (4 in
+walrus-client, 2 in seal-client), replaced `getAllCoins` + filter loop
+with `client.getBalance({ coinType })`, and replaced manual `splitCoins`
+ceremony with `coinWithBalance({ type, balance })` from
+`@mysten/sui/transactions`. Smoke test still passes end-to-end.
+
+---

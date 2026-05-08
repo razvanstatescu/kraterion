@@ -105,6 +105,108 @@ _Calendar weeks anchored in `docs/timeline.md`._
   - Two new runbook entries logged: SDK 2.x rename
     (`SuiClient`→`SuiJsonRpcClient`) and the `Uint8Array` vs `number[]`
     typing footgun for `vector<u8>` PTB args.
+- `[gateway]` 2026-05-08 — Audit pass against Walrus/Seal/Sui SDK
+  surfaces; refactored wrappers to drop redundancy. Changes:
+  - Removed 4 pass-throughs from `walrus-client` (`encodeBlob`,
+    `computeBlobMetadata`, `writeBlobToUploadRelay`, `certifyBlobFragment`)
+    and 2 from `seal-client` (`encrypt`, `decrypt`). Callers now use the
+    memoized SDK client directly.
+  - `blobIdStringToU256` is now a re-export of the SDK's public
+    `blobIdToInt` (it IS exported from the main `@mysten/walrus` entry,
+    just not from any subpath). Hand-rolled implementation deleted.
+  - `bootstrap-gateway.ts`: replaced `getAllCoins` + filter loop with
+    `suiClient.getBalance({ owner, coinType: WAL_COIN_TYPE })` for
+    server-side filtering. Replaced manual `tx.splitCoins(...)` ceremony
+    in `fundReserveWithWal` with `coinWithBalance({ type, balance })`
+    from `@mysten/sui/transactions` — handles arbitrary coin types,
+    auto-merges/splits owned coins, no conditional logic.
+  - Added a wrapper-boundary policy ADR: `decisions.md` codifies
+    "wrappers must add value, never duplicate the SDK." Anything that's
+    a 1:1 pass-through is forbidden going forward.
+  - 15/15 workspace typecheck still green; smoke test still round-trips
+    end-to-end (tx digests `5qzjKChSTW2xxVLKsaEYbfFPVHZJUp6MNxnppxW9NtaS`,
+    `8B3iFugKCkNt8YjmYWyGWEkzW8NeSt6opu7fBLriA4et`).
+- `[gateway]` 2026-05-08 — **Phase 2 smoke-test green end-to-end.** Full
+  Architecture-D pipeline validated against testnet:
+  - Seal-encrypt 55-byte plaintext → 354-byte encrypted blob
+  - PTB 1: relay tip + `register_blob_for_bucket` (composes `sendUploadRelayTip`
+    as input slot #0 + our reserve-paying register call) →
+    `blobObjectId 0xe090…1fb0`, tx `BTpTwurc…2w2b`
+  - Upload encoded payload to Mysten testnet relay, receive certificate
+  - PTB 2: `walrus.certifyBlob` + `kraterion.wrapInSharedBlob` (atomic) →
+    `SharedBlob 0xc4ae…fda0e`, tx `8GKoFu5L…RrG`
+  - Read back via public aggregator HTTP — 354 bytes match
+  - Build `seal_approve` PTB (158 txBytes, sender = gateway)
+  - Get/create SessionKey (Redis-cached, TTL 25 min)
+  - Decrypt → 55 bytes recovered, plaintext matches
+  Final smoke run on tx digests
+  `2UVJRXfURmn8okd2Wk8zfmReGAX8yCj64JKNGab3D7yY` (register) and
+  `8GKoFu5LQyCVpRj3zmshSCqMjcXhq1Hwf67f3G248RrG` (certify+wrap).
+  Six runbook entries logged covering footguns we hit:
+  - `EResourceSize` from raw vs encoded blob size (RS2 expansion)
+  - `400` from upload-relay needing tip query params
+  - `401` from auth-payload not being PTB input #0
+  - SessionKey TTL cap dropped from 60 → 30 min in Seal SDK 1.1
+  - `SessionKey.export()` blocks `JSON.stringify` (toJSON throws)
+  - blobId base64 → u256 conversion (SDK helper not exported)
+  Walrus-client wrapper now exposes `getEncodedBlobLength`,
+  `getCommitteeShardCount`, `blobIdStringToU256`, `rootHashBytesToU256`,
+  `computeBlobMetadata`, plus the WalrusClient configured with
+  `sendTip: { max: 10M MIST }` for the public relay. Seal-client manually
+  serializes SessionKey fields to bypass the SDK's `toJSON` block.
+- `[gateway]` 2026-05-08 — Phase 2 bootstrap complete. The platform is
+  fully operational on testnet:
+  - **Gateway sub-wallet** (api_decryption role, account_id NULL):
+    `0x634fbf24b7ad8ffb72a7c5ec96bd128e58db913db9751fcd11497bf062d2213d`.
+    Seed AES-wrapped via `KEY_WRAPPING_MASTER_KEY`; round-trip verified
+    in script.
+  - **Gateway funded** with 5 SUI from deployer
+    (tx `24836mDxVYdAahW5SHxyoF8KSnWHnyrneB3Ski2D293n`).
+  - **Reserve authorization:** gateway address whitelisted on the
+    `PlatformReserve` (tx `8jXMFhiHhKhPgqAsvPmHLyTBBm8RK67AD5KoDP2cD3Xj`).
+  - **Reserve funded** with 2 WAL (2_000_000_000 MIST) from deployer
+    (tx `AgHwm5vDraJjhEgp3HYVzGRHRcypAn4wkVmBtiuJxCuG`).
+  - **Test account / project / API key** in Postgres:
+    - account `3b9d9c97-d5f2-4f58-a662-56d36ef72662` (email
+      `demo@kraterion.dev`, sui_address = deployer)
+    - project `1a1144ec-38b7-4266-92f5-d363c4722537`
+    - access_key_id `AKIA5QHUNKTDD3UECGHS`, secret AES-wrapped in DB
+      (one-time displayed value: `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`
+      — testnet credentials, safe to commit to local notes; rotate before
+      mainnet)
+  - **Test bucket** on testnet:
+    `0x23e705ec4fed90c3cd13e2053f3ec755ed1f946f80ff8fdc627c3f9770beaa68`
+    (tx `6GuevhfY2xAn5rny2XNpHQ4kFzfoseXKg7YNF1XyZ184`). Owner = deployer,
+    api_decryption_addresses = [gateway], encryption_mode = private.
+  - Bootstrap script (`apps/gateway/scripts/bootstrap-gateway.ts`) is
+    idempotent: re-running detects existing state and skips re-creation
+    of every step. New constant `WAL_COIN_TYPE` in `@kraterion/shared`
+    fixes the "many `*::wal::WAL` symbols on testnet" footgun.
+- `[gateway]` 2026-05-08 — Phase 0 + Phase 1 of gateway build complete.
+  - **Phase 0 — constants + SDK bumps.** `@mysten/seal` 0.6 → 1.1.3,
+    `@mysten/walrus` 0.6.7 → 1.1.6, `@mysten/sui` aligned to ^2.16.2
+    across the workspace. Added `WALRUS_AGGREGATOR_URL`,
+    `WALRUS_UPLOAD_RELAY_URL`, `WALRUS_SYSTEM_OBJECT_ID`,
+    `WALRUS_STAKING_POOL_ID`, `SEAL_KEY_SERVERS` (decentralized
+    committee), `SEAL_THRESHOLD = 1`, `SEAL_AGGREGATOR_URL` to
+    `packages/shared/src/constants.ts`.
+  - **Phase 1 — wrapper packages.** `packages/walrus-client/src/index.ts`
+    and `packages/seal-client/src/index.ts` shipped (replacing the empty
+    stubs).
+    - `walrus-client` exports: `getSuiClient()`, `getWalrusClient()`,
+      `encodeBlob(bytes)`, `writeBlobToUploadRelay(opts)`,
+      `certifyBlobFragment(opts)`, `readBlobByBlobId(blobId, signal?)`.
+      Read path uses public aggregator HTTP — no storage-node fanout
+      from our gateway.
+    - `seal-client` exports: `getSealClient()`, `encrypt(plaintext, identity)`,
+      `decrypt(ciphertext, sessionKey, txBytes)`,
+      `getOrCreateSessionKey({ accountKey, signer, redis })`. Identity
+      hex-encoding handled internally; SessionKey caching keyed by
+      `accountKey` with TTL 55 min in Redis (matching Seal's 60-min
+      ceiling minus skew).
+  - **Workspace typecheck:** 15/15 tasks green. Documentation bumped:
+    decisions.md gained 3 ADRs (SDK version bumps, decentralized
+    committee choice, wrapper package boundary).
 - `[move]` 2026-05-08 — Reserve spawned by Move's `init` at publish, not
   via a follow-up tx. Re-published; reserve ID auto-captured into
   `constants.ts`. New deploy:

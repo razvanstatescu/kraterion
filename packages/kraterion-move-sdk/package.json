@@ -18,7 +18,7 @@
   "dependencies": {
     "@kraterion/shared": "workspace:*",
     "@mysten/bcs": "^2.0.3",
-    "@mysten/sui": "^2.16.0"
+    "@mysten/sui": "^2.16.2"
   },
   "devDependencies": {
     "@mysten/codegen": "^0.10.4",
