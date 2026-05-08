@@ -264,6 +264,21 @@ public fun register_blob_for_bucket(
 ///   - `walrus::shared_blob::extend` (drains the SharedBlob's own jar,
 ///     anyone can fund it via `walrus::shared_blob::fund`).
 ///
+/// `seal_identity` is the 48-byte IBE identity the gateway minted at
+/// PutObject time (`bucket_object_id (32) || object_uuid (16)`); it gets
+/// included in the emitted event so the off-chain indexer can populate
+/// `S3Object.seal_identity` without an out-of-band channel.
+///
+/// `size_bytes` is the PLAINTEXT byte count, not the Walrus blob's
+/// (encrypted) size — that latter value is on the inner Blob and would
+/// need a separate getter to surface. Plaintext size is what S3 GET
+/// reports as `Content-Length`, so we capture it here authoritatively
+/// for the indexer.
+///
+/// `storage_end_epoch` is read from the inner Blob's `Storage` resource
+/// (no extra arg needed) and emitted with the event so the renewal
+/// worker can scan by it without round-tripping through `getObject`.
+///
 /// Emits `KraterionObjectCreated`. Authorization: caller must be authorized
 /// for the bucket (owner or api_decryption_addresses).
 public fun wrap_in_shared_blob(
@@ -271,6 +286,8 @@ public fun wrap_in_shared_blob(
     blob: Blob,
     s3_key: vector<u8>,
     content_type: vector<u8>,
+    seal_identity: vector<u8>,
+    size_bytes: u64,
     ctx: &mut TxContext,
 ) {
     assert_caller_authorized_for_bucket(bucket, ctx);
@@ -278,6 +295,7 @@ public fun wrap_in_shared_blob(
     // Capture identifiers BEFORE moving `blob` into shared_blob::new.
     let walrus_blob_object_id = object::id(&blob);
     let walrus_blob_id = blob::blob_id(&blob);
+    let storage_end_epoch = blob::end_epoch(&blob);
 
     // shared_blob::new shares the wrapped object internally with an empty
     // jar — no return. The off-chain indexer joins the SharedBlob's ID to
@@ -292,6 +310,9 @@ public fun wrap_in_shared_blob(
         content_type,
         bucket.owner,
         ctx.sender(),
+        seal_identity,
+        size_bytes,
+        storage_end_epoch,
     );
 }
 

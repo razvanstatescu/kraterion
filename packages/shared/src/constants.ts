@@ -86,14 +86,14 @@ export const SEAL_AGGREGATOR_URL = "https://seal-aggregator-testnet.mystenlabs.c
 // === Kraterion deployment ===
 
 /** Kraterion Move package — populated after first publish. */
-export const KRATERION_PACKAGE_ID = "0x5dfc84a40e295ba2472e9d2ebd728ff58d133431976f8123c9466f09a3a464db";
+export const KRATERION_PACKAGE_ID = "0x27e1627c8d7ebb4b20b1069fd32f730b54dfb54eb7bbe5943970da8de85a0a51";
 
 /** Captured at publish; needed for `sui client upgrade-package`. */
-export const KRATERION_UPGRADE_CAP_ID = "0x09b6cbd14416224bdc9694bf4b66219d630611f0b284ab029d8e05e0981be958";
+export const KRATERION_UPGRADE_CAP_ID = "0x0a9c343af49ddac20c9d15d361b6106dc24363f5f8fd5f5a6ee765001937ec4d";
 
 /**
  * Singleton PlatformReserve, spawned by the package's init function
  * at publish. Required as a tx input by every paid operation
  * (`register_blob_for_bucket`, `extend_blob_from_reserve`).
  */
-export const KRATERION_RESERVE_ID = "0x9d939ddb91d7379afaebd5c86c4470a6285638eb92e3e8f7a1a2df267cef5a5c";
+export const KRATERION_RESERVE_ID = "0xad3e396e21ac262256c1a056eca87699f694ffffc0bb325f1e116941c228c7ac";

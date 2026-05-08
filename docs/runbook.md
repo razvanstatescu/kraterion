@@ -415,3 +415,49 @@ possible but not scripted yet.
 **First seen:** 2026-05-08 during Phase-5 boto3 conformance run.
 
 ---
+
+## After redeploying the Move package, smoke test fails with `Transaction resolution failed: CommandArgumentError { arg_idx: 1, kind: TypeMismatch } in command 2`
+
+**Symptom:** Smoke test (or boto3 PutObject) fails at PTB 1 with the
+above error referencing command 2 (the `register_blob_for_bucket`
+Move call) and arg index 1 (the `bucket` argument).
+
+**Cause:** The Bucket row in Postgres carries
+`kraterion_bucket_object_id` of an on-chain bucket created BEFORE the
+redeploy. That bucket's type is the OLD package's
+`{old_pkg}::kraterion::KraterionBucket`. The new
+`register_blob_for_bucket` expects the NEW package's bucket type.
+Sui's chain-side type checker rejects the cross-package mismatch.
+
+**Common origin of the stale Bucket row:** the bootstrap script ran
+BEFORE `@kraterion/shared`'s `dist/` was rebuilt with the new
+constants. Since workspace packages export from `dist/`, bootstrap
+read the OLD `KRATERION_PACKAGE_ID` and called the OLD package's
+`createGrantAndShareBucket`.
+
+**Fix:**
+
+1. Re-build the shared package after `setup-testnet.sh`:
+   ```bash
+   pnpm -F @kraterion/shared build
+   pnpm -F @kraterion/kraterion-move-sdk build
+   ```
+2. Truncate `Bucket`, `S3Object`, `Account`, `Project`, `ApiKey`,
+   `SubWallet` (or just `Bucket`/`S3Object` if you want to reuse the
+   account). The on-chain artifacts under the OLD package are now
+   orphaned; we don't reuse them.
+3. Re-run `pnpm -F @kraterion/gateway bootstrap`. It will create a
+   fresh gateway sub-wallet, fund + authorize on the new reserve,
+   and create a new test bucket whose type matches the new package.
+4. Retry smoke / boto3.
+
+**Prevention:** make `setup-testnet.sh` also build `@kraterion/shared`
+and `@kraterion/kraterion-move-sdk` AFTER updating constants, so
+downstream consumers see fresh dist immediately. Tracked as a future
+runbook chore.
+
+**First seen:** 2026-05-08 during Phase 0 of indexer plan (Move event
+surgery). The error is specifically deterministic, not a transient
+flake — repeats every smoke run until the stale Bucket row is purged.
+
+---

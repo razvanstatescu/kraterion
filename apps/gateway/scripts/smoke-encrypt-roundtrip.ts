@@ -197,15 +197,33 @@ async function main() {
   info(`tx1 digest:    ${r1.digest}`);
 
   // === 4. Upload encoded payload to Mysten testnet relay ===
+  // The relay is consistently flaky on testnet (500s "internal client
+  // error" and 400s "the transaction does not have a timestamp; it has
+  // not been executed" — both transient). Retry up to 8 times with a
+  // 4s base delay; a fresh PTB1 is NOT cheap (orphan Blob + reserve
+  // WAL spend), so we only re-enter the relay step.
   bold("▸ upload to relay");
-  const relayResult = await walrus.writeBlobToUploadRelay({
-    blob: encrypted,
-    blobId: meta.blobId,
-    nonce: meta.nonce,
-    txDigest: r1.digest,
-    blobObjectId,
-    deletable: false,
-  });
+  let relayResult: Awaited<ReturnType<typeof walrus.writeBlobToUploadRelay>> | null = null;
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    try {
+      relayResult = await walrus.writeBlobToUploadRelay({
+        blob: encrypted,
+        blobId: meta.blobId,
+        nonce: meta.nonce,
+        txDigest: r1.digest,
+        blobObjectId,
+        deletable: false,
+      });
+      break;
+    } catch (e) {
+      lastErr = e as Error;
+      const wait = Math.min(15_000, 4_000 * attempt);
+      info(`relay attempt ${attempt}/8 failed: ${lastErr.message} — waiting ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!relayResult) throw lastErr ?? new Error("relay never succeeded");
   info(`certificate received (${typeof relayResult.certificate === "string" ? "BCS-base64" : "structured"})`);
 
   // === 5. PTB 2: certify + wrap, atomically ===
@@ -227,6 +245,8 @@ async function main() {
         blob: blobObjectId,
         s3Key: Array.from(new TextEncoder().encode("smoke/hello.txt")),
         contentType: Array.from(new TextEncoder().encode("text/plain")),
+        sealIdentity: Array.from(sealIdentity),
+        sizeBytes: BigInt(plaintext.length),
       },
     }),
   );

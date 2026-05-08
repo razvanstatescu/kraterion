@@ -1174,3 +1174,82 @@ decode under their original handler.
   cursors.
 
 ---
+
+## 2026-05-08 — Move event surgery: `KraterionObjectCreated` carries `seal_identity`, `size_bytes`, `storage_end_epoch`; `shared_blob_object_id` recovered from tx effects
+
+**Status:** Accepted
+
+**Context:** The event-driven indexer (planned next) needs every field
+required to populate `S3Object` from a single event. The original
+`KraterionObjectCreated` carried `bucket_id`, `walrus_blob_object_id`,
+`walrus_blob_id`, `s3_key`, `content_type`, `owner_address`, and
+`wrapped_by`, but lacked four pieces:
+
+1. **`seal_identity` (48 bytes)** — gateway-minted at PutObject time,
+   not derivable from chain state. The indexer needs it to populate
+   `S3Object.seal_identity`, which `seal_approve` checks at GET time.
+2. **`size_bytes`** — the plaintext byte count S3 GET returns as
+   `Content-Length`. Distinct from the Walrus blob's size (which is
+   the *encrypted* size from `walrus::blob::Blob.size`). Gateway
+   knows it; chain doesn't carry it elsewhere.
+3. **`storage_end_epoch`** — the Walrus end epoch for renewal
+   scheduling. Available on the inner Blob's storage resource, but
+   surfacing it on the event saves an extra `getObject(SharedBlob)`
+   round-trip per indexer event.
+4. **`shared_blob_object_id`** — the wrapping SharedBlob's Sui object
+   ID.
+
+**Decision:** Add fields 1–3 to the event. For field 4, the Move-side
+reality blocks event-encoding: `walrus::shared_blob::new(blob, ctx)`
+both constructs and shares the SharedBlob in one call without
+returning the value, so the kraterion module never sees the
+SharedBlob's ID. We can't replicate the constructor (walrus's
+`SharedBlob` fields are private to its module), and we won't fork
+walrus. The indexer recovers `shared_blob_object_id` from
+`tx.effects.changed_objects` in the same checkpoint payload — a
+single client-side filter for `objectType` ending in
+`::shared_blob::SharedBlob`. The gRPC `SubscribeCheckpoints` read
+mask already pulls effects, so this is zero extra RPC calls.
+
+**Implementation.**
+
+- `events.move`: add the three fields to `KraterionObjectCreated` +
+  match on `emit_object_created`.
+- `kraterion.move`: `wrap_in_shared_blob` gains
+  `seal_identity: vector<u8>` and `size_bytes: u64` parameters;
+  `storage_end_epoch` is read in-Move from the inner Blob via
+  `walrus::blob::end_epoch(&blob)` before consuming it into
+  `shared_blob::new`.
+- 33/33 Move unit tests still green.
+- Gateway's `objects.write.controller.ts` and
+  `smoke-encrypt-roundtrip.ts` pass the new args. Verified on chain:
+  ```json
+  "seal_identity": "nqpRVGc…/oF4XBfb/RBZFG00…", // base64 48 bytes
+  "size_bytes": "55",
+  "storage_end_epoch": 396.0
+  ```
+
+**Why not pass `storage_end_epoch` from the gateway too.** Could; the
+gateway computes `currentEpoch + EPOCHS_AHEAD` and that matches what
+walrus stores. But surfacing it from `&blob` inside Move makes the
+event the authoritative source — no risk of gateway/chain drift if
+walrus's storage rounding ever changes.
+
+**Why not fork walrus to surface `shared_blob_object_id`.** A patched
+fork is a maintenance liability; the indexer-side recovery is a
+2-line filter that costs nothing in latency or bandwidth.
+
+**Consequences:**
+- Old `KRATERION_PACKAGE_ID = 0x5dfc…64db` is abandoned. New ID is
+  `0x27e1627c8d7ebb4b20b1069fd32f730b54dfb54eb7bbe5943970da8de85a0a51`.
+- New `KRATERION_RESERVE_ID = 0xad3e396e…c228c7ac` (re-spawned by the
+  new package's `init`).
+- All on-chain SharedBlobs from the old package are stranded — they
+  reference the dead package's types and can't be queried under the
+  new module address. Acceptable on testnet; documented in the
+  runbook.
+- `Bucket` and `S3Object` rows truncated; bootstrap re-run with new
+  AKIA / secret / bucket on the new package. Test data from earlier
+  phases is gone.
+
+---

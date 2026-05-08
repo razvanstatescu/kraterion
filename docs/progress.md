@@ -606,3 +606,64 @@ _Calendar weeks anchored in `docs/timeline.md`._
   they're "if time permits" items per the timeline.
 
 ---
+
+- `[move]` `[gateway]` 2026-05-08 — **Phase 0 of indexer plan: Move event
+  surgery + redeploy.**
+
+  **What shipped:**
+  - `KraterionObjectCreated` event extended: 3 new fields
+    (`seal_identity: vector<u8>`, `size_bytes: u64`,
+    `storage_end_epoch: u32`).
+  - `wrap_in_shared_blob` signature adds `seal_identity` and
+    `size_bytes` arguments. `storage_end_epoch` is read in-Move from
+    the wrapped Blob via `walrus::blob::end_epoch(&blob)`.
+  - Move package re-deployed (fresh publish; events aren't
+    upgrade-compatible). New constants in
+    `packages/shared/src/constants.ts`:
+    - `KRATERION_PACKAGE_ID =
+      0x27e1627c8d7ebb4b20b1069fd32f730b54dfb54eb7bbe5943970da8de85a0a51`
+    - `KRATERION_RESERVE_ID =
+      0xad3e396e21ac262256c1a056eca87699f694ffffc0bb325f1e116941c228c7ac`
+    - `KRATERION_UPGRADE_CAP_ID =
+      0x0a9c343af49ddac20c9d15d361b6106dc24363f5f8fd5f5a6ee765001937ec4d`
+    - publish tx digest:
+      `F5Sh2xuzkznxS6J5oNCxbK64X3BtUusYhBGGPtBAReBq`
+  - Gateway's `objects.write.controller.ts` PutObject and
+    `smoke-encrypt-roundtrip.ts` updated to pass the new args.
+  - Smoke test gained relay-retry logic (up to 8 attempts with
+    exponential delay) — a fresh PTB1 per retry burns reserve WAL,
+    so we re-enter only the relay step on transient failure.
+  - DB truncated (`Bucket`, `S3Object`, `Account`, `Project`,
+    `ApiKey`, `SubWallet`); bootstrap re-run.
+
+  **Test summary:**
+  - 33/33 Move unit tests green.
+  - 15/15 workspace typecheck green.
+  - Smoke test round-tripped against the new package; the on-chain
+    `KraterionObjectCreated` event verified to carry all 3 new
+    fields:
+    ```json
+    "seal_identity": "nqpRVGcaFxz7iwFLnKfE8y4n11ASpBvL/OF4XBfb/RBZFG00ktxXTUHWK0bBkAYA",
+    "size_bytes": "55",
+    "storage_end_epoch": 396.0
+    ```
+
+  **Testnet artifacts (this round):**
+  - New gateway sub-wallet:
+    `0x7438d879d36f5df5c8f24c131bfcb8775226aaf24aa48df137f287ac054a86ea`
+  - Test bucket on new package:
+    `0x9eaa5154671a171cfb8b014b9ca7c4f32e27d75012a41bcbfce1785c17dbfd10`
+  - Test AKIA: `AKIAQJVZMCMEP4LGK6OJ`
+  - Test secret: `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`
+  - Smoke test SharedBlob:
+    `0xb0ec560b85fd4050f3b18d6f3d8383c56adc679cd96b8e911b9f9355bb5e9843`
+
+  ADR `2026-05-08 — Move event surgery` documents why
+  `shared_blob_object_id` is NOT in the event (walrus's
+  `shared_blob::new` doesn't return the value; indexer recovers it
+  from tx effects).
+
+  **Next up:** Phase 1 — schema migration + indexer skeleton +
+  Day-1 read-mask probe.
+
+---

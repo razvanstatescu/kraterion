@@ -301,6 +301,15 @@ export class ObjectsWriteController {
           blob: blobObjectId,
           s3Key: Array.from(new TextEncoder().encode(s3Key)),
           contentType: Array.from(new TextEncoder().encode(contentType)),
+          // 48-byte IBE identity — gateway-minted, must travel via the
+          // event so the indexer can populate `S3Object.seal_identity`
+          // (used to reconstruct the `seal_approve` PTB at GET time).
+          sealIdentity: Array.from(sealIdentity),
+          // PLAINTEXT byte count — the value S3 returns as
+          // `Content-Length`. Distinct from the encrypted/Walrus-blob
+          // size; passed explicitly because the inner Blob only carries
+          // the encrypted size.
+          sizeBytes: BigInt(plaintext.byteLength),
         },
       }),
     );

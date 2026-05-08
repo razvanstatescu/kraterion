@@ -404,6 +404,8 @@ export interface WrapInSharedBlobArguments {
     blob: RawTransactionArgument<string>;
     s3Key: RawTransactionArgument<Array<number>>;
     contentType: RawTransactionArgument<Array<number>>;
+    sealIdentity: RawTransactionArgument<Array<number>>;
+    sizeBytes: RawTransactionArgument<number | bigint>;
 }
 export interface WrapInSharedBlobOptions {
     package?: string;
@@ -411,7 +413,9 @@ export interface WrapInSharedBlobOptions {
         bucket: RawTransactionArgument<string>,
         blob: RawTransactionArgument<string>,
         s3Key: RawTransactionArgument<Array<number>>,
-        contentType: RawTransactionArgument<Array<number>>
+        contentType: RawTransactionArgument<Array<number>>,
+        sealIdentity: RawTransactionArgument<Array<number>>,
+        sizeBytes: RawTransactionArgument<number | bigint>
     ];
 }
 /**
@@ -423,6 +427,20 @@ export interface WrapInSharedBlobOptions {
  * - `walrus::shared_blob::extend` (drains the SharedBlob's own jar, anyone can
  *   fund it via `walrus::shared_blob::fund`).
  *
+ * `seal_identity` is the 48-byte IBE identity the gateway minted at PutObject time
+ * (`bucket_object_id (32) || object_uuid (16)`); it gets included in the emitted
+ * event so the off-chain indexer can populate `S3Object.seal_identity` without an
+ * out-of-band channel.
+ *
+ * `size_bytes` is the PLAINTEXT byte count, not the Walrus blob's (encrypted) size
+ * — that latter value is on the inner Blob and would need a separate getter to
+ * surface. Plaintext size is what S3 GET reports as `Content-Length`, so we
+ * capture it here authoritatively for the indexer.
+ *
+ * `storage_end_epoch` is read from the inner Blob's `Storage` resource (no extra
+ * arg needed) and emitted with the event so the renewal worker can scan by it
+ * without round-tripping through `getObject`.
+ *
  * Emits `KraterionObjectCreated`. Authorization: caller must be authorized for the
  * bucket (owner or api_decryption_addresses).
  */
@@ -432,9 +450,11 @@ export function wrapInSharedBlob(options: WrapInSharedBlobOptions) {
         null,
         null,
         'vector<u8>',
-        'vector<u8>'
+        'vector<u8>',
+        'vector<u8>',
+        'u64'
     ] satisfies (string | null)[];
-    const parameterNames = ["bucket", "blob", "s3Key", "contentType"];
+    const parameterNames = ["bucket", "blob", "s3Key", "contentType", "sealIdentity", "sizeBytes"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'kraterion',

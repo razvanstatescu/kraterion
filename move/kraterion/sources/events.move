@@ -28,6 +28,27 @@ public struct KraterionObjectCreated has copy, drop {
     content_type: vector<u8>,
     owner_address: address,
     wrapped_by: address,
+    // 48-byte Seal IBE identity = bucket_object_id (32) || object_uuid (16).
+    // Gateway-minted at PutObject time; the indexer needs it to populate
+    // S3Object.seal_identity (which seal_approve checks at GET time).
+    // Cannot be derived from on-chain state; must come via the event.
+    seal_identity: vector<u8>,
+    // Plaintext byte count of the original object body. The gateway knows
+    // this at PutObject time; included here so the indexer can populate
+    // S3Object.size_bytes (S3 GET's Content-Length) without an extra
+    // chain query.
+    size_bytes: u64,
+    // Walrus storage end epoch (current_epoch + epochs_ahead). Gateway
+    // computes this from systemState before PutObject; included so the
+    // indexer's renewal worker can scan by storage_end_epoch without
+    // round-tripping through getObject(SharedBlob).
+    storage_end_epoch: u32,
+    // Note: `shared_blob_object_id` is intentionally omitted — walrus's
+    // `shared_blob::new` consumes the Blob and shares without returning
+    // the SharedBlob, so we cannot read its ID inside this Move
+    // function. The indexer recovers it from `tx.effects.changed_objects`
+    // in the same checkpoint payload (one created object of type
+    // `walrus::shared_blob::SharedBlob` per emit).
 }
 
 public struct KraterionObjectExtended has copy, drop {
@@ -100,6 +121,9 @@ public(package) fun emit_object_created(
     content_type: vector<u8>,
     owner_address: address,
     wrapped_by: address,
+    seal_identity: vector<u8>,
+    size_bytes: u64,
+    storage_end_epoch: u32,
 ) {
     event::emit(KraterionObjectCreated {
         bucket_id,
@@ -109,6 +133,9 @@ public(package) fun emit_object_created(
         content_type,
         owner_address,
         wrapped_by,
+        seal_identity,
+        size_bytes,
+        storage_end_epoch,
     });
 }
 
