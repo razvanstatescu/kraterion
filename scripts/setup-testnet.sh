@@ -265,6 +265,46 @@ else
     warn "no PlatformReserve created at publish — KRATERION_RESERVE_ID not updated. Did the package's init() function get removed?"
 fi
 
+# ---------- update .env (INDEXER_INITIAL_CHECKPOINT) ----------
+#
+# The indexer worker uses `INDEXER_INITIAL_CHECKPOINT` as its starting
+# point when no cursor row exists in Postgres. Without it, a fresh
+# worker boot defaults to checkpoint 0 and tries to backfill the
+# entire chain history. We need it pinned to the publish checkpoint so
+# the worker only backfills from this package's first event onward.
+#
+# Discover the publish checkpoint by querying the publish tx. We poll
+# briefly because the fullnode's view of just-submitted tx → checkpoint
+# can lag a few seconds.
+PUBLISH_CHECKPOINT=""
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    PUBLISH_CHECKPOINT=$(sui client tx-block "$TX_DIGEST" --json 2>/dev/null \
+        | jq -r '.checkpoint // empty')
+    [[ -n "$PUBLISH_CHECKPOINT" && "$PUBLISH_CHECKPOINT" != "null" ]] && break
+    sleep 2
+done
+
+ENV_FILE="$REPO_ROOT/.env"
+if [[ -n "$PUBLISH_CHECKPOINT" && "$PUBLISH_CHECKPOINT" != "null" ]]; then
+    bold "▸ update .env (INDEXER_INITIAL_CHECKPOINT)"
+    if [[ -f "$ENV_FILE" ]] && grep -qE '^INDEXER_INITIAL_CHECKPOINT=' "$ENV_FILE"; then
+        sed -E -i.bak "s|^INDEXER_INITIAL_CHECKPOINT=.*$|INDEXER_INITIAL_CHECKPOINT=${PUBLISH_CHECKPOINT}|" \
+            "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+    else
+        {
+            echo ""
+            echo "# Indexer's start point when no cursor row exists in Postgres."
+            echo "# Set to the package publish checkpoint by setup-testnet.sh."
+            echo "INDEXER_INITIAL_CHECKPOINT=${PUBLISH_CHECKPOINT}"
+        } >> "$ENV_FILE"
+    fi
+    info "wrote INDEXER_INITIAL_CHECKPOINT=${PUBLISH_CHECKPOINT}"
+else
+    warn "could not resolve publish checkpoint; INDEXER_INITIAL_CHECKPOINT not updated"
+    warn "set it manually after \`sui client tx-block ${TX_DIGEST} --json\` returns a checkpoint"
+fi
+
 # ---------- summary ----------
 
 EXPLORER="https://suiscan.xyz/testnet"

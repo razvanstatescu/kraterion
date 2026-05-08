@@ -564,3 +564,56 @@ amplification is a dev-only failure mode.
 **First seen:** 2026-05-08 during Phase 2/3 verification.
 
 ---
+
+## Indexer dev tools — `INDEXER_INITIAL_CHECKPOINT` + `indexer:fast-forward`
+
+Two operational tools for keeping dev iteration fast on the indexer
+worker. Both relate to the cursor's start point on a fresh worker
+boot.
+
+### `INDEXER_INITIAL_CHECKPOINT` (env)
+
+The cursor used when no `IndexerCursor` row exists in Postgres. Set
+automatically by `scripts/setup-testnet.sh` to the package publish
+checkpoint after every redeploy — the worker then backfills only
+this package's history (a few hundred to a few thousand checkpoints
+on testnet, ~5–20 min at 8 rps).
+
+If the env var is unset and no cursor row exists, the worker
+defaults to checkpoint 0 (full chain replay) — almost certainly
+wrong. Always set it via `setup-testnet.sh` or by hand to the
+package publish checkpoint.
+
+### `pnpm -F @kraterion/worker indexer:fast-forward [--back N] [--source ID]`
+
+Seeds the cursor at `live_tip - N` (default 50). Use this when:
+- You've already exercised the bucket-create flow and the
+  corresponding rows exist in Postgres.
+- You want to skip the backfill and enter live-stream mode
+  immediately.
+- You're iterating on a new handler and don't care about historical
+  events for older keys.
+
+**Production warning:** running this skips events between the
+existing cursor and the seeded position. Domain rows that should
+have been derived from those events will be missing. Only safe in
+dev or after manually verifying the gap is empty.
+
+`indexer:reset` does the inverse — drops the cursor row so the
+worker re-derives state from `INDEXER_INITIAL_CHECKPOINT`.
+
+### Recommended dev flow after a Move package redeploy
+
+```
+scripts/setup-testnet.sh --force         # writes new pkg/reserve IDs + INDEXER_INITIAL_CHECKPOINT
+pnpm -F @kraterion/shared build           # ship dist with new IDs
+pnpm -F @kraterion/kraterion-move-sdk build
+psql ... TRUNCATE \"S3Object\", \"Bucket\", \"Account\", ...  # clean slate
+pnpm -F @kraterion/gateway bootstrap      # new test bucket on chain (no DB write)
+pnpm -F @kraterion/worker dev             # backfill from publish-checkpoint, ~5–10 min on testnet
+# (optional, if iterating fast and don't care about historical state:)
+pnpm -F @kraterion/worker indexer:fast-forward
+pnpm -F @kraterion/gateway dev            # gateway up; PutObject works in steady state
+```
+
+---

@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "indexer:probe-readmask": "tsx src/indexer/cli/probe-readmask.ts",
-    "indexer:reset": "tsx src/indexer/cli/reset-cursor.ts"
+    "indexer:reset": "tsx src/indexer/cli/reset-cursor.ts",
+    "indexer:fast-forward": "tsx src/indexer/cli/fast-forward.ts"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.12.0",
