@@ -1,53 +1,29 @@
 /**
  * `GET /:bucket` — ListObjectsV2.
  *
- * Phase-4 stub: validates the bucket exists and is owned by the caller,
- * then 501s. The real implementation lands in Phase 6 (paginated key
- * listing with prefix + delimiter semantics, ETag inclusion, etc).
+ * Phase-4 stub: 501. Phase 6 implements paginated listing with
+ * prefix + delimiter semantics + ETag/size in the response.
  *
- * Validating the bucket first means callers get the canonical
- * `NoSuchBucket` 404 instead of `NotImplemented` for nonexistent
- * buckets — better UX and aligns with how AWS routes 404s before 501s.
+ * We deliberately don't validate the bucket here — every other request
+ * shape that hits this route will already 501 with the same message,
+ * so the extra Postgres lookup just burns a round-trip on a path that
+ * always errors. (For comparison: `BucketsController` handles
+ * HeadBucket and DeleteBucket, both of which legitimately return
+ * NoSuchBucket — those routes do validate.)
  */
 
-import { Controller, Get, Req, UseGuards } from "@nestjs/common";
-import type { FastifyRequest } from "fastify";
+import { Controller, Get, UseGuards } from "@nestjs/common";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
-import { PrismaService } from "../prisma/prisma.service.js";
 import { S3Error } from "./s3-error.js";
-import type { KraterionRequestContext } from "../auth/sigv4/types.js";
 
 @UseGuards(Sigv4Guard)
 @Controller()
 export class ObjectsListController {
-  constructor(private readonly prisma: PrismaService) {}
-
   @Get(":bucket")
-  async listObjectsV2(@Req() req: FastifyRequest): Promise<never> {
-    const ctx = requireKraterion(req);
-    if (!ctx.bucket) {
-      throw new S3Error("InvalidRequest", "Bucket name is required.");
-    }
-    const bucket = await this.prisma.bucket.findFirst({
-      where: {
-        name: ctx.bucket,
-        deleted_at: null,
-        project: { account_id: ctx.identity.accountId },
-      },
-      select: { id: true },
-    });
-    if (!bucket) {
-      throw new S3Error("NoSuchBucket", "The specified bucket does not exist.");
-    }
+  listObjectsV2(): never {
     throw new S3Error(
       "NotImplemented",
       "ListObjectsV2 is not implemented in this phase. Coming in Phase 6.",
     );
   }
-}
-
-function requireKraterion(req: FastifyRequest): KraterionRequestContext {
-  const ctx = req.kraterion;
-  if (!ctx) throw new S3Error("InternalError", "Request context not initialized.");
-  return ctx;
 }

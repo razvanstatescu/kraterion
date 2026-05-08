@@ -405,3 +405,51 @@ _Calendar weeks anchored in `docs/timeline.md`._
     pagination polish.
 
 ---
+
+- `[gateway]` 2026-05-08 — **Phase-4 audit pass.** Pre-Phase-5 cleanup of
+  the read controller against real S3 client conformance.
+
+  **What changed:**
+  - `Range:` no longer 501s; silently ignored per RFC 7233 §3.1 (we
+    advertise `Accept-Ranges: none`). Unblocks boto3 `download_file`
+    and `aws s3 sync`.
+  - Conditional headers (`If-Match`, `If-None-Match`,
+    `If-{Modified,Unmodified}-Since`) no longer 501; silently ignored
+    per RFC 7232 §6. Phase-6 follow-up to honor `If-None-Match` → 304.
+  - Successful GetObject/HeadObject responses now carry
+    `x-amz-server-side-encryption: AES256`, `x-amz-request-id`, and
+    `x-amz-id-2`.
+  - Walrus aggregator transient failures translate to
+    `ServiceUnavailable` (503) — boto3 auto-retries with backoff
+    instead of surfacing opaque 500.
+  - Post-decrypt byte-length check: plaintext size MUST equal
+    `objectRow.size_bytes`; otherwise `InternalError` with a loud log.
+  - Hard 2 GiB cap on read (AES-GCM is non-streaming); larger objects
+    return `EntityTooLarge`. Chunked-frame Seal envelopes deferred.
+  - `requireKraterion` / `requireBucket` / `requireKey` extracted into
+    `apps/gateway/src/s3/request-context.ts` (was duplicated three
+    times).
+  - Hand-written `ObjectRow` interface + `as ObjectRow` cast replaced
+    with `Prisma.S3ObjectGetPayload<...>`. The `select` clause is the
+    single source of truth.
+  - `ObjectsListController` simplified to a plain 501 stub (was doing
+    an unused Postgres lookup before erroring).
+  - `S3ErrorCode` union gained `ServiceUnavailable` (503) and
+    `EntityTooLarge` (413).
+
+  **Test summary:**
+  - 15/15 workspace typecheck green.
+  - boto3 (`/tmp/boto-test.py`) — 12/12 cases pass:
+    - Phase-3: ListBuckets, HeadBucket(ok), HeadBucket(404),
+      CreateBucket(501), bad-secret(SignatureDoesNotMatch).
+    - Phase-4: HeadObject, GetObject(plaintext matches),
+      GetObject(NoSuchKey), GetObject(NoSuchBucket),
+      GetObject(Range silently ignored, 200),
+      GetObject(If-None-Match silently ignored, 200),
+      GetObject(canonical headers well-formed),
+      ListObjectsV2(501).
+
+  ADR `2026-05-08 — S3 read-path conformance audit` documents each
+  rule with RFC + AWS source links.
+
+---

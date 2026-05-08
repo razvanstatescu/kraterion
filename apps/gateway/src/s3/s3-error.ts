@@ -19,6 +19,7 @@ export type S3ErrorCode =
   | "AccountCancelled"
   | "BucketAlreadyExists"
   | "BucketNotEmpty"
+  | "EntityTooLarge"
   | "InternalError"
   | "InvalidAccessKeyId"
   | "InvalidArgument"
@@ -31,6 +32,10 @@ export type S3ErrorCode =
   | "NoSuchKey"
   | "NotImplemented"
   | "RequestTimeTooSkewed"
+  // Transient backend unavailability (Walrus aggregator down, Seal key
+  // server timeout). Boto3 auto-retries on 503 with capped exponential
+  // backoff; clients get a free retry without us re-implementing it.
+  | "ServiceUnavailable"
   | "SignatureDoesNotMatch";
 
 const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
@@ -38,6 +43,7 @@ const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   AccountCancelled: HttpStatus.FORBIDDEN,
   BucketAlreadyExists: HttpStatus.CONFLICT,
   BucketNotEmpty: HttpStatus.CONFLICT,
+  EntityTooLarge: HttpStatus.PAYLOAD_TOO_LARGE,
   InternalError: HttpStatus.INTERNAL_SERVER_ERROR,
   InvalidAccessKeyId: HttpStatus.FORBIDDEN,
   InvalidArgument: HttpStatus.BAD_REQUEST,
@@ -50,6 +56,7 @@ const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   NoSuchKey: HttpStatus.NOT_FOUND,
   NotImplemented: HttpStatus.NOT_IMPLEMENTED,
   RequestTimeTooSkewed: HttpStatus.FORBIDDEN,
+  ServiceUnavailable: HttpStatus.SERVICE_UNAVAILABLE,
   SignatureDoesNotMatch: HttpStatus.FORBIDDEN,
 };
 

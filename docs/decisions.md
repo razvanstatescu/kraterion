@@ -799,3 +799,90 @@ else is reconstructable from the ciphertext.
 - One less moving part to keep in sync across PutObject/GetObject paths.
 
 ---
+
+## 2026-05-08 — S3 read-path conformance audit: silent-ignore Range and conditionals; canonical success headers
+
+**Status:** Accepted
+
+**Context:** First end-to-end audit of `ObjectsReadController` against
+real S3 client behavior (boto3 + aws-cli). Three findings against our
+v1 surface:
+
+1. **`Range:` was returning 501.** RFC 7233 §3.1 says "A server that
+   does not support range requests for the target resource... MUST
+   ignore a Range header field." We *do* advertise `Accept-Ranges:
+   none` (the spec-compliant signal), so the 501 was inconsistent.
+   More importantly: boto3's `download_file` probes ranges first and
+   falls back to single-shot on 200; on 501 it surfaces the error
+   directly. `aws s3 sync`, multipart-download fallback, rclone, and
+   smart_open all break on 501.
+
+2. **Conditional headers were also returning 501.** RFC 7232 §6 says
+   servers MAY ignore conditionals on resources that don't support
+   them. AWS S3 honors all four (`If-Match`, `If-None-Match`,
+   `If-{Modified,Unmodified}-Since`); CloudFront, `aws s3 sync`,
+   Terraform's S3 backend, and any caching client rely on
+   `If-None-Match` for cheap "is this stale?" checks. 501 made
+   `aws s3 sync` re-download every object every run.
+
+3. **Canonical success headers were missing.** AWS S3 success responses
+   include `x-amz-server-side-encryption` (when SSE was used),
+   `x-amz-request-id`, `x-amz-id-2`. Our error filter set the latter
+   two; the success path didn't.
+
+**Decision:**
+
+- `Range:` and the four conditional headers are now *silently ignored*.
+  We return 200 with the full body. Honoring `If-None-Match` → 304 is
+  a Phase-6 follow-up (~5-line change once we have ListObjectsV2
+  working).
+- `setReadHeaders` adds `x-amz-server-side-encryption: AES256`,
+  `x-amz-request-id`, and `x-amz-id-2` on every successful read.
+  AES256 is the standard SSE marker; under the hood we run Seal IBE
+  → AES-GCM-256, but AWS-aware tooling parses the canonical enum.
+- Walrus aggregator transient failures (timeout, 5xx, connection
+  reset) translate to **`ServiceUnavailable` (503)** instead of
+  bubbling as `InternalError`. Boto3 auto-retries on 503 with capped
+  exponential backoff; we get free retries without re-implementing.
+- A post-decrypt byte-length check asserts `plaintext.byteLength ===
+  Number(objectRow.size_bytes)`. A mismatch is silent corruption —
+  log loudly, return `InternalError`, never auto-retry past it.
+- Hard cap on read path: `MAX_DECRYPT_BYTES = 2 GiB`. AES-GCM is
+  non-streaming (the auth tag at the end of the ciphertext must be
+  validated before any plaintext is released), so we have to buffer
+  both ciphertext and plaintext in RAM. Larger objects return
+  `EntityTooLarge`. Chunked-frame Seal envelopes (Iceberg-style) are
+  post-hackathon.
+
+**Consequences:**
+
+- 12/12 boto3 cases pass, including a new "canonical headers
+  well-formed" assertion that locks in the response shape.
+- `aws s3 sync` works (caveat: re-downloads on every run until we
+  honor `If-None-Match` → 304).
+- Boto3's multipart-download fallback works (Range is ignored
+  cleanly).
+- Walrus brownouts no longer surface as opaque 500s.
+- Storage-layer corruption is detected at the gateway, not at the
+  client.
+
+**Other cleanups bundled with this audit:**
+
+- `requireKraterion` / `requireBucket` / `requireKey` extracted into
+  `apps/gateway/src/s3/request-context.ts` — was duplicated in three
+  controllers.
+- `ObjectsReadController` now uses `Prisma.S3ObjectGetPayload` /
+  `Prisma.BucketGetPayload` types instead of a hand-written
+  `ObjectRow` interface plus `as` cast.
+- `ObjectsListController` simplified — the unused-Postgres-lookup
+  before the 501 was removed; it was burning a round-trip on a path
+  that always errored.
+
+**Sources:**
+- [RFC 7233 — Range Requests](https://www.rfc-editor.org/rfc/rfc7233)
+- [RFC 7232 — Conditional Requests](https://tools.ietf.org/html/rfc7232)
+- [AWS S3 Common Response Headers](https://docs.aws.amazon.com/AmazonS3/latest/API/RESTCommonResponseHeaders.html)
+- [boto3 issue #657 — ETag returned with quotes (won't fix)](https://github.com/boto/boto3/issues/657)
+- [Apache Iceberg AES GCM Stream Spec](https://iceberg.apache.org/gcm-stream-spec/)
+
+---

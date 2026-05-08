@@ -27,7 +27,7 @@ import type { FastifyRequest } from "fastify";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { S3Error } from "./s3-error.js";
-import type { KraterionRequestContext } from "../auth/sigv4/types.js";
+import { requireKraterion, requireBucket } from "./request-context.js";
 
 @UseGuards(Sigv4Guard)
 @Controller()
@@ -136,17 +136,6 @@ export class BucketsController {
     });
     this.logger.log(`bucket soft-deleted: ${name} (account=${ctx.identity.accountId})`);
   }
-}
-
-function requireKraterion(req: FastifyRequest): KraterionRequestContext {
-  const ctx = req.kraterion;
-  if (!ctx) throw new S3Error("InternalError", "Request context not initialized.");
-  return ctx;
-}
-
-function requireBucket(ctx: KraterionRequestContext): string {
-  if (!ctx.bucket) throw new S3Error("InvalidRequest", "Bucket name is required.");
-  return ctx.bucket;
 }
 
 function renderListAllMyBucketsResult(data: {
