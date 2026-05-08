@@ -27,25 +27,28 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 
 ## Status
 
-- **Current week:** W1 (Foundations) — May 7 to May 13
+- **Current week:** W2 (Storage path) — May 14 to May 20 (currently
+  running ahead — Phase 5 landed during W1)
 - **Days to submission:** 44
 - **Last reviewed:** 2026-05-08
-- **W1 status:** Move package + bindings + Prisma + crypto pipeline +
-  S3 bucket-level endpoints + S3 read path all green. Phases 0–4 of the
-  gateway build done.
+- **W1 status (complete):** Move package + bindings + Prisma + crypto
+  pipeline + full S3 surface (bucket + object read + object write)
+  green. Phases 0–5 of the gateway build done.
   - On-chain: Move package `0x5dfc…64db`, init-spawned reserve, TS
     bindings auto-synced.
   - Off-chain crypto: smoke test round-trips encrypt → register →
-    upload-relay → certify+wrap → aggregator-read → decrypt, and now
-    persists an `S3Object` row.
-  - HTTP: gateway is ESM, boots clean under `node dist/main.js`;
-    `GetObject` and `HeadObject` decrypt end-to-end via Seal SessionKey
-    + aggregator. `ListObjectsV2` is a 501 stub awaiting Phase 6.
+    upload-relay → certify+wrap → aggregator-read → decrypt.
+  - HTTP: gateway is ESM, boots clean under `node dist/main.js`.
+    GetObject/HeadObject/PutObject/DeleteObject all wired to the
+    encrypt + on-chain pipeline. ListObjectsV2 is a 501 stub awaiting
+    Phase 6.
   - 15/15 workspace typecheck green. 33/33 Move unit tests + 7/7 SDK
-    tests + 11/11 boto3 cases green (5 Phase-3 + 6 Phase-4).
-  Remaining W1 → W2: PutObject + DeleteObject (Phase 5) — wraps the
-  validated write path (`PTB1 register → relay → PTB2 certify+wrap`)
-  in an HTTP route.
+    tests + **24/24 boto3 cases** green (Phase-3 bucket level,
+    Phase-4 read path conformance, Phase-5 write path conformance).
+  Next: Phase 6 — ListObjectsV2 implementation (paginated key listing
+  with prefix + delimiter), DeleteBucket-with-objects, then Phase 7
+  polish (`/public/*`, `x-amz-meta-*` pass-through, `If-None-Match`
+  → 304).
 
 ## Cadence
 

@@ -375,3 +375,43 @@ hackathon) the procedure should be:
 publishes whenever the ABI is backward-compatible.
 
 ---
+
+## Orphan blob count amplifies on relay flake during PutObject
+
+**Symptom:** `docs/progress.md` testnet log notes 2-3 `ORPHAN BLOB (relay
+POST failed)` entries per failed boto3 PUT, even though the test
+ultimately passed. Suiscan shows multiple `Blob` objects owned by the
+gateway address with no SharedBlob wrapper (you'll see them as "owned"
+not "shared").
+
+**Cause:** PutObject's pipeline is PTB 1 (`register_blob_for_bucket`)
+→ relay POST → PTB 2 (`certify_blob` + `wrap_in_shared_blob`). When
+the relay returns 5xx (Mysten testnet's relay flakes occasionally),
+the gateway:
+
+1. Logs `ORPHAN BLOB (relay POST failed)` with the registered Blob's
+   objectId.
+2. Returns `ServiceUnavailable` (503) to the client.
+3. Boto3 auto-retries the PUT under its default retry policy.
+4. The retry runs the *full* pipeline including PTB 1 — registering a
+   *brand new* Blob with a fresh `(blobId, rootHash)` derived from a
+   fresh `objectUuid` + new ciphertext.
+
+So one boto3 call that retries 3× before succeeding leaves 2 orphan
+Blobs and 1 successful SharedBlob.
+
+**Fix (post-hackathon):** Add a `pending_upload` table keyed on
+`(bucket_id, s3_key, request_id)`. On each request, before PTB 1, look
+up by `(bucket_id, s3_key)` for a row in state `registered` or
+`relayed` younger than 10 minutes — if present, resume from the
+existing Blob instead of registering a new one. The reaper sweeps
+rows older than 10 min in non-`committed` state.
+
+**Workaround for now:** Watch for orphan log lines in the gateway
+output during heavy PUT activity. Manual cleanup via `sui client
+call --package $KRATERION --module reserve_or_blob_admin ...` is
+possible but not scripted yet.
+
+**First seen:** 2026-05-08 during Phase-5 boto3 conformance run.
+
+---

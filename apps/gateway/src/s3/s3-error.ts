@@ -17,9 +17,11 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 export type S3ErrorCode =
   | "AccessDenied"
   | "AccountCancelled"
+  | "BadDigest"
   | "BucketAlreadyExists"
   | "BucketNotEmpty"
   | "EntityTooLarge"
+  | "IncompleteBody"
   | "InternalError"
   | "InvalidAccessKeyId"
   | "InvalidArgument"
@@ -36,14 +38,17 @@ export type S3ErrorCode =
   // server timeout). Boto3 auto-retries on 503 with capped exponential
   // backoff; clients get a free retry without us re-implementing it.
   | "ServiceUnavailable"
-  | "SignatureDoesNotMatch";
+  | "SignatureDoesNotMatch"
+  | "XAmzContentSHA256Mismatch";
 
 const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   AccessDenied: HttpStatus.FORBIDDEN,
   AccountCancelled: HttpStatus.FORBIDDEN,
+  BadDigest: HttpStatus.BAD_REQUEST,
   BucketAlreadyExists: HttpStatus.CONFLICT,
   BucketNotEmpty: HttpStatus.CONFLICT,
-  EntityTooLarge: HttpStatus.PAYLOAD_TOO_LARGE,
+  EntityTooLarge: HttpStatus.BAD_REQUEST,
+  IncompleteBody: HttpStatus.BAD_REQUEST,
   InternalError: HttpStatus.INTERNAL_SERVER_ERROR,
   InvalidAccessKeyId: HttpStatus.FORBIDDEN,
   InvalidArgument: HttpStatus.BAD_REQUEST,
@@ -58,6 +63,7 @@ const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   RequestTimeTooSkewed: HttpStatus.FORBIDDEN,
   ServiceUnavailable: HttpStatus.SERVICE_UNAVAILABLE,
   SignatureDoesNotMatch: HttpStatus.FORBIDDEN,
+  XAmzContentSHA256Mismatch: HttpStatus.BAD_REQUEST,
 };
 
 export class S3Error extends HttpException {

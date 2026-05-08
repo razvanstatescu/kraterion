@@ -886,3 +886,194 @@ v1 surface:
 - [Apache Iceberg AES GCM Stream Spec](https://iceberg.apache.org/gcm-stream-spec/)
 
 ---
+
+## 2026-05-08 — `removeAllContentTypeParsers` + single catch-all buffer parser
+
+**Status:** Accepted
+
+**Context:** Phase-5 PutObject reads the request body byte-exact for two
+reasons: (1) ETag is `MD5(plaintext)` per the S3 spec, (2) when
+`x-amz-content-sha256` is a hex hash (not `UNSIGNED-PAYLOAD`), we have
+to verify it matches `SHA-256(body)`. Boto3 sends `Content-Type:
+text/plain` whenever `ContentType="text/plain"` is passed (or detected
+by python's mimetypes module). Fastify's built-in `text/plain` parser
+runs and stringifies the body, which (a) breaks the byte-exact hash
+math, (b) round-trips bytes through UTF-8 (so a 1024-byte random
+binary becomes a different 1024-byte string), and (c) returns a
+`string` to `req.body`, defeating `@Body() body: Buffer`. The first
+PutObject test against the gateway returned `IncompleteBody` because
+the typed-as-Buffer body was actually a string and `body.byteLength`
+disagreed with `Content-Length`.
+
+**Decision:** In `main.ts`, call `fastify.removeAllContentTypeParsers()`
+before registering a single catch-all `addContentTypeParser('*', {
+parseAs: 'buffer', bodyLimit: MAX_BODY_BYTES }, ...)` that hands every
+body to the controller as a Buffer regardless of `Content-Type`.
+Removing the JSON parser is safe — no S3 endpoint accepts JSON bodies
+and the health endpoints are GET-only.
+
+**Consequences:**
+- `@Body() body: Buffer` works uniformly across `application/octet-stream`,
+  `binary/octet-stream`, `text/plain`, and any user-supplied
+  `Content-Type:`.
+- Hash math is correct on the wire bytes, not a Unicode-roundtripped
+  copy.
+- bodyLimit on both the FastifyAdapter and the parser is 2 GiB + 1 MiB
+  margin (matches the GET-side AES-GCM-buffered cap from the Phase-4
+  audit).
+
+---
+
+## 2026-05-08 — Orphan blobs: log on failure, defer reaper to post-hackathon
+
+**Status:** Accepted
+
+**Context:** PutObject is a four-step write across a non-transactional
+substrate: PTB 1 (`register_blob_for_bucket`) → relay POST → PTB 2
+(`certify_blob` + `wrap_in_shared_blob`) → DB upsert. A failure after
+PTB 1 succeeds leaves an on-chain `Blob` owned by the gateway with no
+SharedBlob wrapper. A failure after PTB 2 succeeds leaves a SharedBlob
+on-chain with no DB row. Plus: every overwrite produces an orphan —
+the previous SharedBlob is no longer addressable via S3 but still
+holds user WAL on-chain.
+
+The principled path is a `pending_upload` table + a reaper worker that
+sweeps stuck rows. That's two new Prisma models and a worker
+workstream we don't have time for pre-submission.
+
+**Decision:** For v1, log every orphan-producing failure at ERROR
+level with enough context for a future reaper to act on:
+- the `blobObjectId` (so the reaper can `delete_blob` to refund
+  storage)
+- the `walrus_blob_id` (the content-addressed identifier)
+- the `(bucket, s3_key)` pair (to disambiguate)
+- the `shared_blob_object_id` for the overwrite case
+
+The renewal worker (separate workstream) will gain the reaper
+responsibility post-hackathon. Until then orphans accumulate; they
+don't block correctness.
+
+**Consequences:**
+- Demo flow is correct: every successful PUT produces a SharedBlob the
+  user owns, and every GET reads the most recent one.
+- During a relay flake, boto3's auto-retry on 503 amplifies orphan
+  count: each retry runs PTB 1 fresh, so a single client call that
+  retries 3× leaves 2 orphan Blobs and 1 success. Acceptable for
+  testnet.
+- One log line is the entire trail for the reaper. Make sure the log
+  format stays parseable (the `ORPHAN BLOB (...)` prefix is what the
+  reaper will grep for).
+
+---
+
+## 2026-05-08 — PutObject header policy: reject feature gaps, accept-and-ignore client noise
+
+**Status:** Accepted
+
+**Context:** Real S3 clients (boto3, aws-cli, rclone) send a
+constellation of `x-amz-*` headers by default — most of which are
+features we either don't support yet (`x-amz-meta-*`, `x-amz-tagging`)
+or never plan to expose (`x-amz-acl`, `x-amz-storage-class`). Two
+failure modes to avoid:
+
+1. **Silent data loss.** If the client sends `x-amz-meta-author=alice`
+   and we drop it on the floor without telling them, they'll later
+   `head_object` and find no metadata, but their workflow assumed it
+   was stored.
+2. **Spurious 400s.** rclone defaults to setting `x-amz-storage-class:
+   STANDARD`. If we 400 every request that includes a header we don't
+   recognize, rclone breaks before its first useful call.
+
+**Decision:**
+- `x-amz-meta-*` and `x-amz-tagging`: **reject with `NotImplemented`
+  (501).** Clients learn we don't store the data and can decide
+  whether to retry or remove the header.
+- `x-amz-acl`, `x-amz-storage-class`, `x-amz-server-side-encryption`:
+  **accept and silently ignore.** AWS deprecated `x-amz-acl` in 2023
+  (BucketOwnerEnforced default), `STANDARD` is the only storage class
+  we implement, and we always SSE — these headers convey no
+  information that changes our behavior.
+- `Content-Disposition`, `Content-Encoding`, `Cache-Control`,
+  `Content-Language`, `Expires`: **Phase-7 work** (pass-through into
+  metadata + echoed on GET/HEAD). Not in v1 yet — acceptable to
+  silently drop because they're stylistically optional, not
+  load-bearing.
+- Default `Content-Type` to `binary/octet-stream` when missing — AWS-
+  canonical, not the more common `application/octet-stream`. Boto3
+  notices the difference.
+
+**Consequences:**
+- aws-cli, rclone, and boto3 default flows work without `--no-...`
+  flags.
+- Future feature work (custom metadata) doesn't change wire behavior
+  — clients that already work continue to.
+- Documented in the boto-test conformance suite so the policy is
+  asserted, not just implied.
+
+---
+
+## 2026-05-08 — DB writes are gateway-direct today; replace with event-driven indexer when the dashboard lands
+
+**Status:** Accepted (interim — supersedes itself)
+
+**Context:** Every Postgres write today happens inline in the process
+that executes the PTB:
+- `ObjectsWriteController.putObject` parses `r2.objectChanges` for
+  `SharedBlob.objectId` and upserts `s3_object` in the same handler.
+- `ObjectsWriteController.deleteObject` and
+  `BucketsController.deleteBucket` flip `deleted_at` directly.
+- `scripts/bootstrap-gateway.ts` and the smoke test write `bucket` /
+  `s3_object` rows after their PTBs.
+
+This works because the gateway (or the bootstrap script) is the *only*
+PTB executor in v1. The Move package already emits 11 events covering
+every state change — `KraterionBucketCreated`,
+`KraterionObjectCreated` (carries `s3_key`, `content_type`,
+`walrus_blob_id`, `seal_identity`, `shared_blob_id`, `end_epoch`),
+`KraterionObjectExtended`, `ApiAccessGranted/Revoked`,
+`BucketVisibilityChanged`, plus reserve events — so the architectural
+groundwork for event-driven indexing is in place; we just don't
+consume those events yet.
+
+**Decision:**
+- For the gateway-only write paths (PutObject / DeleteObject /
+  DeleteBucket / bootstrap), keep the direct DB writes. They're
+  simple, low-latency for the S3 client, and have no other writer
+  competing for the row.
+- When the dashboard ships, the user-signed flows
+  (`createGrantAndShareBucket`, `set_bucket_visibility`,
+  `revoke_all_api_access`, `revoke_api_access_for_user`,
+  `transfer_bucket`) execute PTBs the gateway never sees. At that
+  point, **rip out the gateway's inline DB writes wholesale and
+  replace them with an event-driven indexer** that:
+  - reads on-chain events from a Sui checkpoint cursor (resumable
+    after restart),
+  - writes/updates rows keyed on `(event_seq, tx_digest)` for
+    idempotency,
+  - is the *single* writer for `bucket` and `s3_object` rows.
+- The indexer also fixes the orphan-SharedBlob recovery case (gateway
+  crashed after PTB 2 but before DB upsert): the
+  `KraterionObjectCreated` event carries everything needed, so the
+  indexer reconstructs the row on its next sweep.
+
+**Why migrate everything, not run both side-by-side:** dual-writer
+correctness is a load-bearing assumption to get wrong. If the gateway
+writes inline AND the indexer writes from events, every row needs an
+unambiguous "who wins" rule and idempotency tokens at every call
+site. Cheaper to flip cleanly: indexer is the writer, gateway only
+ever signs PTBs.
+
+**Consequences:**
+- Today's code is simpler, ships faster, has fewer moving parts.
+- A swathe of code in `objects.write.controller.ts`,
+  `buckets.controller.ts`, `bootstrap-gateway.ts`, and
+  `smoke-encrypt-roundtrip.ts` will be deleted when the indexer
+  lands. Don't sink effort into making the inline writes more
+  sophisticated (transactions, retry logic) — that work is
+  throwaway.
+- The orphan-blob log lines from Phase 5 stay relevant for the
+  reaper job; they're orthogonal to indexing.
+- No event consumer exists yet, so events emitted today are purely
+  on-chain audit trail. That's fine.
+
+---

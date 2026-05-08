@@ -453,3 +453,81 @@ _Calendar weeks anchored in `docs/timeline.md`._
   rule with RFC + AWS source links.
 
 ---
+
+- `[gateway]` 2026-05-08 — **Phase 5 done — PutObject + DeleteObject
+  end-to-end against testnet via boto3.**
+
+  PutObject now wraps the smoke-test crypto-and-chain pipeline in an
+  HTTP handler: SigV4 → Postgres bucket lookup → mint
+  `seal_identity` → Seal-encrypt → encode → PTB 1 (relay tip +
+  `register_blob_for_bucket`) → relay POST → PTB 2 (`certify_blob` +
+  `wrap_in_shared_blob`) → DB upsert → 200 with canonical headers.
+  DeleteObject is the soft-delete on the row (the on-chain SharedBlob
+  persists — that's the whole product point).
+
+  **What shipped:**
+  - `ObjectsWriteController.putObject(@Put(":bucket/*"))` — full
+    write path, ~340 LoC; comments explain each PTB and every
+    failure-mode → S3-error mapping.
+  - `ObjectsWriteController.deleteObject(@Delete(":bucket/*"))` —
+    soft delete + 204; idempotent on missing keys (S3 spec).
+  - Custom Fastify catch-all body parser (`removeAllContentTypeParsers`
+    + `addContentTypeParser('*', { parseAs: 'buffer' })`) so binary
+    uploads land byte-exact in `req.body: Buffer`. Fastify's built-in
+    `text/plain` parser would otherwise stringify, breaking the ETag
+    MD5 math.
+  - `S3ErrorCode` union extended with `BadDigest` (Content-MD5
+    mismatch), `IncompleteBody` (declared-vs-actual length), and
+    `XAmzContentSHA256Mismatch` (when the SigV4 hash claim doesn't
+    match the body).
+  - bodyLimit reduced from 13 GiB → 2 GiB + 1 MiB margin (matches the
+    GET cap from Phase 4 — AES-GCM is non-streaming).
+  - Header policy: 501 on `x-amz-meta-*` / `x-amz-tagging` (silent
+    data-loss prevention); accept-and-ignore on
+    `x-amz-acl` / `x-amz-storage-class` /
+    `x-amz-server-side-encryption` (rclone + aws-cli compat).
+  - `Content-Type` defaults to AWS-canonical `binary/octet-stream`
+    when missing.
+  - Overwrites are last-write-wins via Prisma upsert keyed on
+    `(bucket_id, s3_key)`. The previous `walrus_blob_id` and
+    `shared_blob_object_id` are logged as `ORPHAN BLOB (overwritten)`
+    for the future reaper job.
+  - PTB 1, relay, PTB 2, and DB-upsert failure cases each log a
+    distinctive `ORPHAN BLOB (...)` line with `blobObjectId`,
+    `walrus_blob_id`, and the `(bucket, key)` pair so a reaper can
+    refund storage from the orphaned `Blob` later.
+
+  **Test summary:**
+  - 15/15 workspace typecheck green.
+  - boto3 (`/tmp/boto-test.py`) — **24/24 cases pass** end-to-end
+    against the live testnet stack. Phase-5 additions:
+    - PutObject (text body) + GET round-trip; ETag = MD5(plaintext)
+    - PutObject (64 KiB random binary) + GET byte-exact round-trip
+    - PutObject (empty body) — accepted; ETag = MD5("")
+    - HeadObject after PutObject — size + content-type + ETag match
+    - PutObject with wrong Content-MD5 → BadDigest 400
+    - PutObject with `x-amz-tagging` → NotImplemented 501
+    - PutObject with `x-amz-meta-*` → NotImplemented 501
+    - PutObject with `StorageClass=REDUCED_REDUNDANCY` → silently
+      accepted, ETag returned
+    - Overwrite (v1 then v2) → second GET returns v2; orphan logged
+    - DeleteObject → 204; subsequent GET → NoSuchKey
+    - DeleteObject(missing key) → 204 (idempotent)
+    - PutObject with unicode key (`phase5/中文 名/ファイル.txt`) →
+      byte-exact round-trip (key carries through SigV4 +
+      URL-style parser + Postgres key column unchanged)
+  - Live Suiscan: every PutObject produced a new `SharedBlob` shared
+    object owned by no one (the user's KraterionBucket holds a
+    pointer); SUI gas + WAL are paid by the gateway from the
+    PlatformReserve.
+
+  ADRs written:
+  - `removeAllContentTypeParsers + single catch-all buffer parser` —
+    why we threw out Fastify's built-in JSON/text parsers.
+  - `Orphan blobs: log on failure, defer reaper to post-hackathon` —
+    log format and what the reaper needs.
+  - `PutObject header policy: reject feature gaps, accept-and-ignore
+    client noise` — the matrix of which `x-amz-*` headers we 501,
+    drop, or honor.
+
+---

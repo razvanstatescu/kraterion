@@ -2,17 +2,22 @@ import { Module } from "@nestjs/common";
 import { BucketsController } from "./buckets.controller.js";
 import { ObjectsReadController } from "./objects.read.controller.js";
 import { ObjectsListController } from "./objects.list.controller.js";
+import { ObjectsWriteController } from "./objects.write.controller.js";
 
 /**
- * S3 surface area. Phase 3 added the bucket controller; Phase 4 adds
- * the read controller (GetObject + HeadObject) plus a 501 stub for
- * ListObjectsV2 that lives in its own controller — Phase 6 will make
- * that real.
- *
- * Phase 5 will add `ObjectsWriteController` (PutObject + DeleteObject)
- * alongside.
+ * S3 surface area:
+ *   - `BucketsController` — ListBuckets, HeadBucket, CreateBucket(=501),
+ *     DeleteBucket.
+ *   - `ObjectsReadController` — GetObject, HeadObject.
+ *   - `ObjectsWriteController` — PutObject, DeleteObject.
+ *   - `ObjectsListController` — ListObjectsV2 (501 stub; Phase 6).
  */
 @Module({
-  controllers: [BucketsController, ObjectsReadController, ObjectsListController],
+  controllers: [
+    BucketsController,
+    ObjectsReadController,
+    ObjectsWriteController,
+    ObjectsListController,
+  ],
 })
 export class S3Module {}
