@@ -112,6 +112,39 @@ bold "▸ build"
 ( cd "$MOVE_DIR" && sui move build >/dev/null )
 info "move package builds clean"
 
+# ---------- move tests ----------
+# Defense in depth: never publish a contract whose unit tests are broken.
+
+bold "▸ move tests"
+if ! ( cd "$MOVE_DIR" && sui move test >/tmp/kraterion-move-test.log 2>&1 ); then
+    cat /tmp/kraterion-move-test.log >&2
+    die "sui move test failed — refusing to publish"
+fi
+PASSED=$(grep -c '\[ PASS' /tmp/kraterion-move-test.log || true)
+info "$PASSED move unit tests passed"
+
+# ---------- ts bindings sync ----------
+# Defense in depth: regenerate TS bindings against the Move source we are
+# about to publish, and run typecheck. This catches the case where someone
+# forgot to run `pnpm generate` after editing Move and is about to ship a
+# contract whose ABI doesn't match the bindings the apps consume.
+#
+# The generation is also wired into Turbo (turbo.json), so day-to-day this
+# is redundant — but the publish path is the safety net.
+
+bold "▸ ts bindings"
+if ! pnpm --filter @kraterion/kraterion-move-sdk run generate >/tmp/kraterion-codegen.log 2>&1; then
+    cat /tmp/kraterion-codegen.log >&2
+    die "@kraterion/kraterion-move-sdk codegen failed"
+fi
+info "bindings generated from current Move source"
+
+if ! pnpm --filter @kraterion/kraterion-move-sdk run typecheck >/tmp/kraterion-typecheck.log 2>&1; then
+    cat /tmp/kraterion-typecheck.log >&2
+    die "bindings or callers fail typecheck — refusing to publish"
+fi
+info "bindings typecheck clean"
+
 # ---------- dry run path ----------
 
 if [[ "$DRY_RUN" -eq 1 ]]; then

@@ -36,6 +36,30 @@ user preferences and Claude-specific context per machine; these docs capture
 project facts in version control where every session and every contributor
 can see them.
 
+## Move package ↔ TS bindings sync
+
+The bindings in `packages/kraterion-move-sdk/src/generated/` are a function
+of Move source, not of the deployed package. They auto-regenerate via Turbo
+whenever Move source changes:
+
+- `pnpm typecheck`, `pnpm build`, `pnpm test` at the repo root → if anything
+  under `move/kraterion/sources/` or `move/kraterion/Move.toml` changed,
+  Turbo runs `@kraterion/kraterion-move-sdk#generate` first; otherwise
+  cached. See the per-task overrides in `turbo.json`.
+- The generated output is committed to git so consumers don't need the Sui
+  CLI to build the SDK.
+- `scripts/setup-testnet.sh` regenerates and typechecks before every publish
+  as a safety net. **Never publish a contract version whose bindings haven't
+  been regenerated** — the script enforces this.
+
+If you add a new Move module / function / event, the typical loop is:
+1. Edit `move/kraterion/sources/*.move`
+2. `cd move/kraterion && sui move test`
+3. `pnpm typecheck` at the repo root (Turbo regens bindings, typechecks
+   apps that import them)
+4. `scripts/setup-testnet.sh --force` (only when ready to publish a new
+   on-chain version; see runbook for the `Published.toml` step)
+
 ## Repo layout
 Turborepo + pnpm workspaces. See README.md for the full map. Top level:
 - `apps/landing` — public marketing site (Next.js 16, port 3000)

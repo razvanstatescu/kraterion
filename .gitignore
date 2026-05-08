@@ -43,6 +43,7 @@ Thumbs.db
 
 # move
 move/**/build
+move/**/package_summaries
 
 # prisma
 prisma/*.db

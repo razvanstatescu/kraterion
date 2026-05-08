@@ -224,3 +224,101 @@ Walrus to upgrade first. That's fine — we're tracking testnet, not
 mainnet.
 
 ---
+
+## 2026-05-08 — TS bindings via `@mysten/codegen`, generated bindings committed
+
+**Status:** Accepted
+
+**Context:** `packages/kraterion-move-sdk` needs to expose typed PTB-builder
+helpers and BCS schemas so the gateway, worker, and dashboard can call the
+deployed Move package without hand-writing 16+ wrappers + 6 BCS decoders.
+Two viable tools in May 2026: Mysten's first-party `@mysten/codegen`
+(`sui-ts-codegen` CLI), and the older community `kunalabs-io/sui-client-gen`.
+
+**Decision:** Use `@mysten/codegen` 0.10.4. Its config-driven workflow
+(`sui-codegen.config.ts` → `sui move summary` → `sui-ts-codegen generate`)
+fits the monorepo. Output goes to `packages/kraterion-move-sdk/src/generated/`
+and **is checked into git** so consumers (apps/gateway, apps/worker,
+apps/dashboard) don't need the Sui CLI to build. Only the intermediate
+`move/kraterion/package_summaries/` is gitignored.
+
+**Consequences:** ~15 lines of config, one `pnpm generate` command, and the
+SDK has fully typed bindings with `.fromBase64`/`.fromHex`/`.parse`/`.get`
+on every event and struct. Iteration cost: re-run `pnpm generate` after
+every Move-source change. Future-proofing: if codegen emits invalid TS or
+the `@mysten/sui` SDK breaks the API, the build catches it (we run
+typecheck on every CI run). The community alternative `sui-client-gen`
+is now functionally superseded — Mysten ships the canonical path.
+
+**Notes:** `@mysten/codegen` requires `@mysten/sui` ≥ 2.x for its
+`ClientWithCoreApi` / `SuiClientTypes` types — bumped from 1.20 to 2.16
+during this work. The SDK 2.x rename (`SuiClient` → `SuiJsonRpcClient`,
+`getFullnodeUrl` → `getJsonRpcFullnodeUrl`, in `@mysten/sui/jsonRpc`) is
+a known migration footgun; logged in `docs/runbook.md`.
+
+---
+
+## 2026-05-08 — `Published.toml` and `Move.lock` are the on-chain source of truth, `constants.ts` is the runtime mirror
+
+**Status:** Accepted
+
+**Context:** Two files now carry our deployed package ID: Move's own
+`move/kraterion/Published.toml` (auto-written by `sui client publish`) and
+`packages/shared/src/constants.ts::KRATERION_PACKAGE_ID` (written by our
+`scripts/setup-testnet.sh`).
+
+**Decision:** Both are committed and authoritative for their respective
+toolchains:
+- `Published.toml` is consumed by `sui move build` / `sui move upgrade`
+  to know what's deployed where. It says inside itself "SHOULD be
+  committed to source control."
+- `constants.ts` is consumed by the TS runtime (gateway, worker,
+  dashboard, codegen MVR override) and is the only thing JS bundlers can
+  import.
+- `setup-testnet.sh` is the one source that writes `constants.ts`; never
+  hand-edit. After re-publish (`--force`), both files update on the same
+  commit so they can't drift.
+
+**Consequences:** Two files, one truth — checkable by diffing the package
+ID across both. Cost: one extra place to update; mitigated by the script
+keeping them in sync.
+
+---
+
+## 2026-05-08 — Bindings auto-regenerate via Turbo on Move source change; deploy script enforces sync as a safety net
+
+**Status:** Accepted
+
+**Context:** Generated TS bindings can drift from the Move source they were
+produced from. Hooking codegen on *deploy* would catch the drift far too
+late — by then, app code has already been written against stale bindings.
+The right hook is on Move source change, with a defensive check at deploy.
+
+**Decision:** Two layers.
+
+1. **Turbo wiring (primary).** `turbo.json` declares
+   `@kraterion/kraterion-move-sdk#generate` with
+   `inputs: [move/kraterion/sources/**, move/kraterion/Move.toml,
+   sui-codegen.config.ts]`. The package's `build`, `typecheck`, and `test`
+   tasks all depend on `generate`. So `pnpm typecheck` at the repo root
+   regenerates bindings automatically when Move source has changed, and
+   uses the cache when nothing has. Verified empirically: cached run is
+   ~20 ms; cache invalidates correctly when Move source content changes.
+
+2. **Deploy-script safety net (secondary).** `scripts/setup-testnet.sh`,
+   before any publish, runs `sui move test`, regenerates bindings, and
+   typechecks the SDK package. If any step fails, the publish is aborted.
+   This catches the case where someone bypasses Turbo (e.g., publishes
+   from a different machine that doesn't have node_modules installed).
+
+**Consequences:** Bindings can never silently drift from Move source on a
+machine that runs `pnpm typecheck` or the deploy script. Cost: every Move
+source change incurs one codegen run on the next typecheck; ~2s. Manual
+escape hatch: `pnpm --filter @kraterion/kraterion-move-sdk generate`.
+
+**Alternatives rejected:**
+- Post-publish hook: too late. Apps are already broken before deploy.
+- Pre-commit hook: hostile to WIP commits, slow.
+- CI-only check: doesn't help local dev iteration.
+
+---

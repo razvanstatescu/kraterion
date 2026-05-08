@@ -84,5 +84,37 @@ _Calendar weeks anchored in `docs/timeline.md`._
   underfunded, `--dry-run` flag for gas estimation, and automatic write of
   package ID + upgrade cap to `packages/shared/src/constants.ts`. Run
   `scripts/setup-testnet.sh --help` for usage.
+- `[move-sdk]` 2026-05-08 — TS bindings generated and wired up.
+  - `@mysten/codegen` 0.10.4 + `@mysten/sui` 2.16 + `@mysten/bcs` 2.0
+    added to `packages/kraterion-move-sdk`.
+  - `sui-codegen.config.ts` points at `move/kraterion`; running
+    `pnpm --filter @kraterion/kraterion-move-sdk generate` runs
+    `sui move summary` and emits typed PTB builders + BCS schemas under
+    `src/generated/`. Output is committed.
+  - `src/index.ts` re-exports the generated `kraterion`, `access`,
+    `events` namespaces, and adds:
+    - `KRATERION_PACKAGE_ID` (re-exported from `@kraterion/shared`)
+    - `EVENT_TYPE` map of fully-qualified type strings ready for
+      `client.queryEvents({ MoveEventType: ... })`
+    - `parseEvent({ type, bcs, bcsEncoding })` — typed event decoder that
+      dispatches across all six event schemas
+  - 7 vitest tests pass: 5 unit + 2 live testnet integration. The live
+    pair (`KRATERION_LIVE=1`) confirms the deployed package's three
+    modules (`access`, `events`, `kraterion`) match what we expect via
+    `getNormalizedMoveModulesByPackage`.
+  - Two new runbook entries logged: SDK 2.x rename
+    (`SuiClient`→`SuiJsonRpcClient`) and the `Uint8Array` vs `number[]`
+    typing footgun for `vector<u8>` PTB args.
+- `[move-sdk]` 2026-05-08 — Bindings auto-sync wired in.
+  - `turbo.json` declares `@kraterion/kraterion-move-sdk#generate` with
+    Move source as inputs; `build`/`typecheck`/`test` all depend on it.
+    Verified: cached run ~20 ms, cache invalidates on Move source content
+    change.
+  - `scripts/setup-testnet.sh` now runs `sui move test`, then bindings
+    regen, then SDK typecheck *before* any publish. Refuses to publish
+    if any of these fail.
+  - New runbook entry on `Published.toml` blocking re-publish.
+  - New decision recorded explaining why this is on Move source change
+    (not on deploy).
 
 ---

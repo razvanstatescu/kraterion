@@ -22,6 +22,25 @@
     },
     "clean": {
       "cache": false
+    },
+    "@kraterion/kraterion-move-sdk#generate": {
+      "inputs": [
+        "sui-codegen.config.ts",
+        "../../move/kraterion/sources/**",
+        "../../move/kraterion/Move.toml"
+      ],
+      "outputs": ["src/generated/**"]
+    },
+    "@kraterion/kraterion-move-sdk#build": {
+      "dependsOn": ["@kraterion/kraterion-move-sdk#generate", "^build"],
+      "outputs": ["dist/**"]
+    },
+    "@kraterion/kraterion-move-sdk#typecheck": {
+      "dependsOn": ["@kraterion/kraterion-move-sdk#generate", "^build"]
+    },
+    "@kraterion/kraterion-move-sdk#test": {
+      "dependsOn": ["@kraterion/kraterion-move-sdk#generate", "^build"],
+      "outputs": ["coverage/**"]
     }
   }
 }

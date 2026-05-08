@@ -102,3 +102,73 @@ Verify those addresses against `testnet-contracts/{walrus,wal}/Move.lock`'s
 **Observed:** 2026-05-08, while wiring up the deploy script.
 
 ---
+
+## Symptom: `tsc` reports `Module '"@mysten/sui/client"' has no exported member 'SuiClient'` or `'getFullnodeUrl'`
+
+**Cause:** `@mysten/sui` was renamed in 2.x. The classes moved out of
+`@mysten/sui/client` (which now only exports the abstract `BaseClient` and
+friends) into a JSON-RPC-specific subpath.
+
+**Fix:** Update imports:
+```ts
+// before (1.x)
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+const client = new SuiClient({ url: getFullnodeUrl("testnet") });
+
+// after (2.x)
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+const client = new SuiJsonRpcClient({
+  network: "testnet",
+  url: getJsonRpcFullnodeUrl("testnet"),
+});
+```
+The constructor now also requires `network`. The on-the-wire RPC method
+names (`queryEvents`, `getNormalizedMoveModulesByPackage`, …) are unchanged.
+
+**Observed:** 2026-05-08, when bumping `@mysten/sui` from 1.20 → 2.16 to
+satisfy `@mysten/codegen` 0.10.
+
+**Notes:** `@mysten/codegen` ≥ 0.10 requires `@mysten/sui` ≥ 2.x. Don't try
+to keep the old version side-by-side; codegen output references types that
+don't exist in 1.x.
+
+---
+
+## Symptom: codegen's `tx.add(kraterion.foo({ arguments: { name: new TextEncoder().encode("…") } }))` fails to typecheck
+
+**Cause:** Generated PTB helpers type `vector<u8>` arguments as
+`RawTransactionArgument<number[]>`. `TextEncoder.encode` returns
+`Uint8Array<ArrayBuffer>`, not `number[]` — TS's structural check rejects
+the missing array-method shape (`pop`, `push`, `concat`, …).
+
+**Fix:** Convert with `Array.from(...)`:
+```ts
+arguments: { name: Array.from(new TextEncoder().encode("uploads")) }
+```
+At runtime the SDK accepts both, but TS only sees `number[]`.
+
+**Observed:** 2026-05-08, first usage of generated bindings in a vitest
+smoke test.
+
+---
+
+## Symptom: `sui client publish` fails with `Your package is already published. You have to manually remove the publication entry to publish again.`
+
+**Cause:** Sui 1.71+ tracks published versions in
+`move/kraterion/Published.toml`. Once a package has been published to a
+given environment, the CLI refuses to re-publish to that environment
+unless the entry is removed.
+
+**Fix:** to deploy a new package version on testnet (e.g., after a
+breaking ABI change), edit `move/kraterion/Published.toml` and delete the
+`[published.testnet]` block, then re-run `scripts/setup-testnet.sh
+--force`. The new entry is auto-written by `sui client publish` on
+success.
+
+For *upgrades* (preserving the package ID and the UpgradeCap), use
+`sui client upgrade` instead — the existing `Published.toml` entry is
+expected and required.
+
+**Observed:** 2026-05-08, while smoke-testing the pre-publish dry-run path.
+
+---
