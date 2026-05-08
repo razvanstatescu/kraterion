@@ -33,8 +33,7 @@ export const KraterionObjectCreated = new MoveStruct({ name: `${$moduleName}::Kr
         s3_key: bcs.vector(bcs.u8()),
         content_type: bcs.vector(bcs.u8()),
         owner_address: bcs.Address,
-        wrapped_by: bcs.Address,
-        funded_amount: bcs.u64()
+        wrapped_by: bcs.Address
     } });
 export const KraterionObjectExtended = new MoveStruct({ name: `${$moduleName}::KraterionObjectExtended`, fields: {
         shared_blob_id: bcs.Address,
@@ -55,4 +54,28 @@ export const BucketVisibilityChanged = new MoveStruct({ name: `${$moduleName}::B
         owner: bcs.Address,
         old_mode: bcs.u8(),
         new_mode: bcs.u8()
+    } });
+export const ReserveCreated = new MoveStruct({ name: `${$moduleName}::ReserveCreated`, fields: {
+        reserve_id: bcs.Address,
+        admin: bcs.Address
+    } });
+export const ReserveCallerAuthorized = new MoveStruct({ name: `${$moduleName}::ReserveCallerAuthorized`, fields: {
+        reserve_id: bcs.Address,
+        admin: bcs.Address,
+        caller: bcs.Address
+    } });
+export const ReserveCallerDeauthorized = new MoveStruct({ name: `${$moduleName}::ReserveCallerDeauthorized`, fields: {
+        reserve_id: bcs.Address,
+        admin: bcs.Address,
+        caller: bcs.Address
+    } });
+export const ReserveFunded = new MoveStruct({ name: `${$moduleName}::ReserveFunded`, fields: {
+        reserve_id: bcs.Address,
+        amount: bcs.u64()
+    } });
+export const ReserveWithdrawn = new MoveStruct({ name: `${$moduleName}::ReserveWithdrawn`, fields: {
+        reserve_id: bcs.Address,
+        admin: bcs.Address,
+        recipient: bcs.Address,
+        amount: bcs.u64()
     } });

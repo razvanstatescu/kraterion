@@ -30,10 +30,14 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 - **Current week:** W1 (Foundations) — May 7 to May 13
 - **Days to submission:** 44
 - **Last reviewed:** 2026-05-08
-- **W1 status:** Move package live on testnet (`0x853c…818f5`), TS bindings
-  generated and committed, Prisma schema landed and migrated, 24/24 Move
-  unit tests + 7/7 SDK tests green. Remaining W1 work: zkLogin, Walrus
-  publisher infra, sub-wallets, KMS.
+- **W1 status:** Move package re-published on testnet
+  (`0x4faff…823b07`) with the new platform-reserve model + paid-operation
+  guards. TS bindings auto-synced (4 modules now). Prisma schema migrated.
+  33/33 Move unit tests + 7/7 SDK tests (incl. live testnet) green.
+  Architecture D selected for Walrus (SDK + public testnet upload-relay,
+  no self-hosted publisher). Remaining W1 work: zkLogin (deferred to
+  client work), KMS (deferred until first wrap call), Seal key-server
+  ID constants, Walrus testnet endpoints in constants.
 
 ## Cadence
 

@@ -29,11 +29,17 @@ import {
   ApiAccessGranted,
   ApiAccessRevoked,
   BucketVisibilityChanged,
+  ReserveCreated,
+  ReserveCallerAuthorized,
+  ReserveCallerDeauthorized,
+  ReserveFunded,
+  ReserveWithdrawn,
 } from "./generated/kraterion/events.js";
 
 export * as kraterion from "./generated/kraterion/kraterion.js";
 export * as access from "./generated/kraterion/access.js";
 export * as events from "./generated/kraterion/events.js";
+export * as reserve from "./generated/kraterion/reserve.js";
 
 export { KRATERION_PACKAGE_ID };
 
@@ -45,12 +51,17 @@ export const EVENT_TYPE = {
   apiAccessGranted: `${KRATERION_PACKAGE_ID}::events::ApiAccessGranted`,
   apiAccessRevoked: `${KRATERION_PACKAGE_ID}::events::ApiAccessRevoked`,
   bucketVisibilityChanged: `${KRATERION_PACKAGE_ID}::events::BucketVisibilityChanged`,
+  reserveCreated: `${KRATERION_PACKAGE_ID}::events::ReserveCreated`,
+  reserveCallerAuthorized: `${KRATERION_PACKAGE_ID}::events::ReserveCallerAuthorized`,
+  reserveCallerDeauthorized: `${KRATERION_PACKAGE_ID}::events::ReserveCallerDeauthorized`,
+  reserveFunded: `${KRATERION_PACKAGE_ID}::events::ReserveFunded`,
+  reserveWithdrawn: `${KRATERION_PACKAGE_ID}::events::ReserveWithdrawn`,
 } as const;
 
 /**
  * Map an event's type string to the matching generated BCS schema. Used by
- * `parseEvent` and exposed in case callers want to dispatch on type
- * themselves (e.g. when building an indexer that handles all six events).
+ * `parseEvent` and exposed for indexers that want to dispatch on type
+ * themselves.
  */
 const SCHEMA_BY_TYPE = {
   [EVENT_TYPE.bucketCreated]: KraterionBucketCreated,
@@ -59,12 +70,17 @@ const SCHEMA_BY_TYPE = {
   [EVENT_TYPE.apiAccessGranted]: ApiAccessGranted,
   [EVENT_TYPE.apiAccessRevoked]: ApiAccessRevoked,
   [EVENT_TYPE.bucketVisibilityChanged]: BucketVisibilityChanged,
+  [EVENT_TYPE.reserveCreated]: ReserveCreated,
+  [EVENT_TYPE.reserveCallerAuthorized]: ReserveCallerAuthorized,
+  [EVENT_TYPE.reserveCallerDeauthorized]: ReserveCallerDeauthorized,
+  [EVENT_TYPE.reserveFunded]: ReserveFunded,
+  [EVENT_TYPE.reserveWithdrawn]: ReserveWithdrawn,
 } as const;
 
 /**
  * Parse an event's raw BCS payload into the right typed shape. Pass a
  * `parsedJson` event from a Sui RPC response (or a base64 BCS string from
- * an indexer) and the function returns one of the six typed event payloads.
+ * an indexer) and the function returns one of the typed event payloads.
  *
  * Returns null if the event's type string isn't a Kraterion event — useful
  * for filtering a mixed event stream.
@@ -80,6 +96,11 @@ export function parseEvent(input: {
   | { type: typeof EVENT_TYPE.apiAccessGranted; data: typeof ApiAccessGranted.$inferType }
   | { type: typeof EVENT_TYPE.apiAccessRevoked; data: typeof ApiAccessRevoked.$inferType }
   | { type: typeof EVENT_TYPE.bucketVisibilityChanged; data: typeof BucketVisibilityChanged.$inferType }
+  | { type: typeof EVENT_TYPE.reserveCreated; data: typeof ReserveCreated.$inferType }
+  | { type: typeof EVENT_TYPE.reserveCallerAuthorized; data: typeof ReserveCallerAuthorized.$inferType }
+  | { type: typeof EVENT_TYPE.reserveCallerDeauthorized; data: typeof ReserveCallerDeauthorized.$inferType }
+  | { type: typeof EVENT_TYPE.reserveFunded; data: typeof ReserveFunded.$inferType }
+  | { type: typeof EVENT_TYPE.reserveWithdrawn; data: typeof ReserveWithdrawn.$inferType }
   | null {
   const schema = SCHEMA_BY_TYPE[input.type as keyof typeof SCHEMA_BY_TYPE];
   if (!schema || !input.bcs) return null;

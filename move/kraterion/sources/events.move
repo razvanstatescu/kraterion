@@ -28,7 +28,6 @@ public struct KraterionObjectCreated has copy, drop {
     content_type: vector<u8>,
     owner_address: address,
     wrapped_by: address,
-    funded_amount: u64,
 }
 
 public struct KraterionObjectExtended has copy, drop {
@@ -55,6 +54,35 @@ public struct BucketVisibilityChanged has copy, drop {
     new_mode: u8,
 }
 
+public struct ReserveCreated has copy, drop {
+    reserve_id: ID,
+    admin: address,
+}
+
+public struct ReserveCallerAuthorized has copy, drop {
+    reserve_id: ID,
+    admin: address,
+    caller: address,
+}
+
+public struct ReserveCallerDeauthorized has copy, drop {
+    reserve_id: ID,
+    admin: address,
+    caller: address,
+}
+
+public struct ReserveFunded has copy, drop {
+    reserve_id: ID,
+    amount: u64,
+}
+
+public struct ReserveWithdrawn has copy, drop {
+    reserve_id: ID,
+    admin: address,
+    recipient: address,
+    amount: u64,
+}
+
 public(package) fun emit_bucket_created(
     bucket_id: ID,
     owner: address,
@@ -72,7 +100,6 @@ public(package) fun emit_object_created(
     content_type: vector<u8>,
     owner_address: address,
     wrapped_by: address,
-    funded_amount: u64,
 ) {
     event::emit(KraterionObjectCreated {
         bucket_id,
@@ -82,7 +109,6 @@ public(package) fun emit_object_created(
         content_type,
         owner_address,
         wrapped_by,
-        funded_amount,
     });
 }
 
@@ -113,4 +139,37 @@ public(package) fun emit_bucket_visibility_changed(
     new_mode: u8,
 ) {
     event::emit(BucketVisibilityChanged { bucket_id, owner, old_mode, new_mode });
+}
+
+public(package) fun emit_reserve_created(reserve_id: ID, admin: address) {
+    event::emit(ReserveCreated { reserve_id, admin });
+}
+
+public(package) fun emit_reserve_caller_authorized(
+    reserve_id: ID,
+    admin: address,
+    caller: address,
+) {
+    event::emit(ReserveCallerAuthorized { reserve_id, admin, caller });
+}
+
+public(package) fun emit_reserve_caller_deauthorized(
+    reserve_id: ID,
+    admin: address,
+    caller: address,
+) {
+    event::emit(ReserveCallerDeauthorized { reserve_id, admin, caller });
+}
+
+public(package) fun emit_reserve_funded(reserve_id: ID, amount: u64) {
+    event::emit(ReserveFunded { reserve_id, amount });
+}
+
+public(package) fun emit_reserve_withdrawn(
+    reserve_id: ID,
+    admin: address,
+    recipient: address,
+    amount: u64,
+) {
+    event::emit(ReserveWithdrawn { reserve_id, admin, recipient, amount });
 }

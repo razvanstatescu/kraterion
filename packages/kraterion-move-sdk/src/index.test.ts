@@ -85,6 +85,7 @@ describe.skipIf(process.env["KRATERION_LIVE"] !== "1")(
         "access",
         "events",
         "kraterion",
+        "reserve",
       ]);
     });
   },

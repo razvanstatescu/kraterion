@@ -215,3 +215,34 @@ workspace root and need to specify a target package.
 before the post-migrate generate step.
 
 ---
+
+## Symptom: re-publishing the Kraterion package orphans the previous `PlatformReserve`
+
+**Cause:** The reserve is created by the package's `init(ctx)` function,
+which fires exactly once at publish. A re-publish (after clearing
+`Published.toml`) spawns a brand-new reserve at a new object ID. The
+old reserve is still on-chain — shared, with whatever admin/whitelist/
+WAL state it had — but `KRATERION_RESERVE_ID` in `constants.ts` now
+points at the new one, so apps will only see the new one.
+
+**Fix:** before re-publishing, withdraw any WAL still in the old
+reserve to the deployer wallet. Walrus testnet WAL has no value, so on
+testnet the safer cleanup is just "ignore the orphan." On mainnet (post-
+hackathon) the procedure should be:
+1. Use the *old* `KRATERION_RESERVE_ID` to call `withdraw(amount,
+   recipient)` from the admin keypair.
+2. Confirm the old reserve's `wal_balance == 0`.
+3. Clear `Published.toml`'s `[published.testnet]` (or relevant env)
+   entry.
+4. Run `setup-testnet.sh --force`.
+5. Re-fund the new reserve from the platform treasury.
+6. Re-authorize the gateway and worker sub-wallets on the new reserve.
+
+**Observed:** 2026-05-08, after refactoring the contract to use
+`init`-spawned reserve. Logged here for the first mainnet upgrade.
+
+**Notes:** A future improvement would be to use `sui client upgrade`
+(preserves the package ID and the reserve object) instead of fresh
+publishes whenever the ABI is backward-compatible.
+
+---

@@ -370,3 +370,133 @@ index lookup per page; acceptable for hackathon scale and easy to
 denormalize later if it ever becomes hot.
 
 ---
+
+## 2026-05-08 — Walrus integration: SDK + public testnet upload-relay (Architecture D)
+
+**Status:** Accepted (deviates from `docs/implementation-plan.md` §3.1 and §10)
+
+**Context:** Plan §3.1 listed a self-hosted Walrus publisher binary (8
+sub-wallets, JWT-gated) and a self-hosted aggregator. Plan §10.2 already
+softened that to "use the SDK directly." Research into the Walrus
+operator docs and the `@mysten/walrus` SDK source surfaced a third path:
+the SDK can offload the encoding + storage-node fanout to an Upload Relay
+(`https://docs.wal.app/operator-guide/upload-relay.html`) while the
+client retains the on-chain signer.
+
+**Decision:** Use the SDK with the upload-relay write path. For testnet,
+use Mysten's public relay (`https://upload-relay.testnet.walrus.space`)
+and aggregator (`https://aggregator.walrus-testnet.walrus.space`). For
+production, host our own relay (light, stateless, no keypair) but
+continue to skip the publisher binary entirely.
+
+**Consequences:**
+- The gateway always signs every on-chain operation with its own keypair.
+- WAL is paid by the gateway from a single on-chain platform reserve
+  (see the next decision). Storage-extension renewals are also paid
+  from the reserve.
+- The relay never sees plaintext (we Seal-encrypt before upload), never
+  signs anything, and can't substitute the blob ID. Single-request
+  liveness risk only.
+- Atomic PTB composition is preserved — `writeBlobFlow.register()` returns
+  a composable Transaction we can extend with our `wrap_in_shared_blob`
+  call before signing.
+- No publisher droplets, no JWT auth setup, no sub-wallet pool to manage.
+
+**Rejected alternatives:**
+- Architecture A (SDK-only, gateway streams to ~100 storage nodes per
+  write) — too noisy on egress at any real load.
+- Architecture B (public Mysten publisher) — public publisher caps blobs
+  at 10 MiB and is rate-limited; structurally incompatible with our
+  13 GiB target.
+- Architecture C (self-hosted publisher binary) — what Inkray does; loses
+  atomic-PTB composition because the publisher signs its own register tx
+  before we can extend it.
+
+---
+
+## 2026-05-08 — Single platform WAL reserve, no per-bucket funding pools
+
+**Status:** Accepted (replaces plan §4 `funding_pool` field + §3.1 publisher sub-wallet pool)
+
+**Context:** Plan §4.2 had a `funding_pool: Balance<WAL>` on each
+`KraterionBucket`, with `fund_bucket` allowing anyone to top it up and
+`wrap_in_shared_blob` draining it. Plan §3.1 separately specified an 8-
+wallet publisher sub-wallet pool. Both proliferated WAL across many
+on-chain locations and required moving WAL between wallets per-upload —
+expensive (gas) and operationally noisy.
+
+**Decision:** Drop per-bucket pools entirely. Introduce a single shared
+`PlatformReserve` object (in the new `kraterion::reserve` module) that
+holds the platform's WAL. The reserve has:
+- `admin: address` — the deployer; can authorize callers and withdraw.
+- `authorized_callers: vector<address>` — whitelist of platform wallets
+  (gateway, renewal worker) that can drain WAL from the reserve.
+- `wal_balance: Balance<WAL>` — the platform's WAL pot.
+
+WAL leaves the reserve only inside specific atomic operations:
+- `register_blob_for_bucket` — pays for storage reservation + blob
+  registration. Two-check auth: caller must be on the reserve whitelist
+  AND on the target bucket's `api_decryption_addresses` (or be the
+  bucket's owner).
+- `extend_blob_from_reserve` — pays for storage extension on a SharedBlob.
+  One-check auth: caller must be on the reserve whitelist. No bucket
+  reference — the operation is per-blob, not per-bucket.
+
+Anyone can call Walrus's native `register_blob` (paying themselves) and
+`shared_blob::extend` (draining the SharedBlob's own jar). Our wrapped
+versions are *additions* to those, not replacements.
+
+**Consequences:**
+- One WAL pot to top up; one balance to monitor.
+- Two-check auth on register cleanly prevents two abuses: a bucket-
+  authorized address that's not on the reserve whitelist (a user, an
+  ex-platform-wallet) can't drain platform funds; a reserve-whitelisted
+  address that's not authorized for a bucket can't write into someone
+  else's bucket.
+- `KraterionBucket.funding_pool` field is gone. So is `fund_bucket`.
+  `KraterionObjectCreated.funded_amount` event field is also gone — we
+  no longer pre-fund the SharedBlob's jar at wrap time. The jar starts
+  empty; renewals pump WAL into it on demand.
+- Users can self-fund by calling Walrus's own `shared_blob::fund` /
+  `shared_blob::extend` — works for the cancellation-persistence demo
+  (anyone can keep your blob alive after we cancel your account).
+
+---
+
+## 2026-05-08 — `PlatformReserve` is spawned by Move's `init`, not via a follow-up tx
+
+**Status:** Accepted
+
+**Context:** With the `kraterion::reserve` module added, deploy now needs
+two on-chain entities: the package, and the singleton reserve. We could
+require a second tx after publish (`create_and_share_reserve`) to spawn
+the reserve, or use Sui's package-`init` mechanism to do it atomically
+during publish.
+
+**Decision:** Make creation part of `init(ctx)` in the reserve module.
+Sui calls `init` exactly once at publish time, with `ctx.sender()` set to
+the publisher's address — that becomes the reserve's `admin`. The
+package is fully operational the moment `sui client publish` returns.
+
+The previously-public `create_and_share_reserve` is gone. A
+`#[test_only] public fun init_for_testing(ctx)` mirror lets unit tests
+drive the same construction path (Move's test framework doesn't run
+package `init` automatically).
+
+**Consequences:**
+- One-step deploy: `setup-testnet.sh --force` lands the package AND the
+  reserve in a single tx. No "did you remember to spawn the reserve"
+  failure mode.
+- Deployer becomes admin automatically — no extra step to assign.
+- The reserve's object ID is captured by `setup-testnet.sh` from the
+  publish response's `objectChanges` filtered by type
+  `${PACKAGE_ID}::reserve::PlatformReserve`, then written into
+  `packages/shared/src/constants.ts` as `KRATERION_RESERVE_ID`.
+- Re-publishing creates a fresh reserve at a new object ID. The old one
+  is orphaned but harmless (its WAL is still recoverable via
+  `withdraw` if it had any). Worth flagging in the runbook.
+- Future "v2" reserves (e.g. region-sharded) would need to be created
+  via a separate dedicated entry function. We can add that when the
+  need actually arises.
+
+---

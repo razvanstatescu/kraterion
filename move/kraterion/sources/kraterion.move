@@ -1,5 +1,7 @@
-/// Kraterion on-chain bucket: a user-owned, shared Sui object that pools
-/// WAL funding for SharedBlobs and gates who can read / write its files.
+/// Kraterion on-chain bucket: a user-owned, shared Sui object that gates
+/// who can read and write its files. Funding for paid operations comes
+/// from a single platform-managed `kraterion::reserve::PlatformReserve` —
+/// not from per-bucket pools.
 ///
 /// Invariants:
 ///   - Every KraterionBucket is a Sui shared object. The API surface only
@@ -11,26 +13,30 @@
 ///     bucket-scoped, not file-scoped.
 ///   - Encryption is always on at the gateway. The bucket's mode controls
 ///     who Seal will release shares to (see kraterion::access).
+///   - Paid operations (register, extend) drain the platform reserve; both
+///     require platform whitelist. Register additionally requires bucket
+///     access.
+///   - Permissionless paths stay open: anyone can use Walrus's native
+///     `system::register_blob` (paying themselves) or
+///     `shared_blob::extend` (draining the SharedBlob's own jar).
 ///
 /// See /docs/implementation-plan.md §4 and the Move package design notes
 /// in /docs/decisions.md.
 module kraterion::kraterion;
 
-use sui::balance::{Self, Balance};
-use sui::coin::{Self, Coin};
 use sui::tx_context::epoch;
-use wal::wal::WAL;
 use walrus::blob::{Self, Blob};
 use walrus::shared_blob::{Self, SharedBlob};
-use walrus::system::System;
+use walrus::storage_resource::Storage;
+use walrus::system::{Self as walrus_system, System};
 use kraterion::events;
+use kraterion::reserve::{Self, PlatformReserve};
 
 // === Errors ===
 
 const ENotOwner: u64 = 0;
 const ENotAuthorized: u64 = 1;
-const EInsufficientFunds: u64 = 2;
-const EUnknownEncryptionMode: u64 = 3;
+const EUnknownEncryptionMode: u64 = 2;
 
 // === Constants ===
 
@@ -43,7 +49,6 @@ public struct KraterionBucket has key {
     id: UID,
     owner: address,
     name: vector<u8>,
-    funding_pool: Balance<WAL>,
     encryption_mode: u8,
     api_decryption_addresses: vector<address>,
     created_epoch: u64,
@@ -71,10 +76,6 @@ public fun encryption_mode(bucket: &KraterionBucket): u8 {
 
 public fun api_addresses(bucket: &KraterionBucket): &vector<address> {
     &bucket.api_decryption_addresses
-}
-
-public fun funding_pool_value(bucket: &KraterionBucket): u64 {
-    balance::value(&bucket.funding_pool)
 }
 
 public fun id(bucket: &KraterionBucket): &UID {
@@ -134,20 +135,10 @@ fun new_bucket(
         id: object::new(ctx),
         owner: ctx.sender(),
         name,
-        funding_pool: balance::zero<WAL>(),
         encryption_mode,
         api_decryption_addresses: vector::empty<address>(),
         created_epoch: epoch(ctx),
     }
-}
-
-// === Funding ===
-
-/// Anyone can top up a bucket's WAL pool. Mirrors Walrus's "anyone can fund a
-/// SharedBlob" property at the bucket level — useful for the
-/// post-cancellation persistence demo (others can keep your files alive).
-public fun fund_bucket(bucket: &mut KraterionBucket, coin: Coin<WAL>) {
-    balance::join(&mut bucket.funding_pool, coin::into_balance(coin));
 }
 
 // === Access list management (owner-only) ===
@@ -202,43 +193,96 @@ public fun set_bucket_visibility(
     }
 }
 
-// === SharedBlob lifecycle ===
+// === Paid blob operations (drain the platform reserve) ===
 
-/// Wrap a Walrus Blob into a SharedBlob, drawing `initial_fund_amount` WAL
-/// from the bucket's pool to seed its renewal jar. Authorized for owner OR
-/// any address in `api_decryption_addresses` — the gateway uses its API
-/// keypair, the user uses their wallet.
+/// Register a Walrus blob for a specific bucket, paying from the platform
+/// reserve. Two access checks:
+///   1. caller is on the reserve whitelist (admin or authorized_callers)
+///   2. caller is authorized for the bucket (owner or api_decryption_addresses)
 ///
-/// Encryption is performed off-chain at the gateway; this function does not
-/// touch the file bytes. Files are always Seal-encrypted; whether they're
-/// publicly readable is decided by `bucket.encryption_mode` at decrypt time.
+/// Pulls `payment_amount` WAL from the reserve, uses it for both the storage
+/// reservation and the registration write payment, and returns any leftover
+/// to the reserve. Returns the new `Blob` so the same PTB can compose it
+/// further (e.g. immediately go to upload-relay or chain into wrap).
+///
+/// Caller-supplied parameters mirror Walrus's `reserve_space` +
+/// `register_blob` flow:
+///   - `storage_amount`: encoded blob size (post-RS encoding) in bytes
+///   - `epochs_ahead`: number of Walrus epochs to keep the blob alive
+///   - `blob_id`, `root_hash`, `size`, `encoding_type`: blob metadata the
+///     SDK computes off-chain during local encoding
+///   - `payment_amount`: budget pulled from reserve. Should over-estimate
+///     storage + write cost; leftover is returned automatically.
+public fun register_blob_for_bucket(
+    reserve: &mut PlatformReserve,
+    bucket: &KraterionBucket,
+    system: &mut System,
+    payment_amount: u64,
+    storage_amount: u64,
+    epochs_ahead: u32,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    ctx: &mut TxContext,
+): Blob {
+    // Check 1: caller must be authorized to spend the reserve.
+    reserve::assert_caller_authorized(reserve, ctx);
+    // Check 2: caller must be authorized to write into this bucket.
+    assert_caller_authorized_for_bucket(bucket, ctx);
+
+    let mut payment = reserve::pull_wal(reserve, payment_amount, ctx);
+    let storage: Storage = walrus_system::reserve_space(
+        system,
+        storage_amount,
+        epochs_ahead,
+        &mut payment,
+        ctx,
+    );
+    let new_blob = walrus_system::register_blob(
+        system,
+        storage,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        false, // deletable: kraterion blobs are non-deletable; lifecycle is via SharedBlob
+        &mut payment,
+        ctx,
+    );
+
+    // Return any leftover to the reserve.
+    reserve::deposit_wal(reserve, payment);
+
+    new_blob
+}
+
+/// Wrap an already-certified Walrus Blob into a SharedBlob attached to this
+/// bucket. The SharedBlob is created with an **empty jar** — we don't pre-
+/// fund storage extensions. Callers can extend later via either:
+///   - `extend_blob_from_reserve` (paid by platform, whitelist-gated), or
+///   - `walrus::shared_blob::extend` (drains the SharedBlob's own jar,
+///     anyone can fund it via `walrus::shared_blob::fund`).
+///
+/// Emits `KraterionObjectCreated`. Authorization: caller must be authorized
+/// for the bucket (owner or api_decryption_addresses).
 public fun wrap_in_shared_blob(
     bucket: &mut KraterionBucket,
     blob: Blob,
     s3_key: vector<u8>,
     content_type: vector<u8>,
-    initial_fund_amount: u64,
     ctx: &mut TxContext,
 ) {
-    assert_caller_authorized(bucket, ctx);
-    assert!(
-        balance::value(&bucket.funding_pool) >= initial_fund_amount,
-        EInsufficientFunds,
-    );
+    assert_caller_authorized_for_bucket(bucket, ctx);
 
-    // Capture identifiers BEFORE moving `blob` into shared_blob::new_funded.
+    // Capture identifiers BEFORE moving `blob` into shared_blob::new.
     let walrus_blob_object_id = object::id(&blob);
     let walrus_blob_id = blob::blob_id(&blob);
 
-    let funds = coin::from_balance(
-        balance::split(&mut bucket.funding_pool, initial_fund_amount),
-        ctx,
-    );
-
-    // Walrus's new_funded shares the wrapped object internally — no return
-    // value. The off-chain indexer joins the SharedBlob's ID to this event
-    // by transaction digest (created-objects list ↔ event payload).
-    shared_blob::new_funded(blob, funds, ctx);
+    // shared_blob::new shares the wrapped object internally with an empty
+    // jar — no return. The off-chain indexer joins the SharedBlob's ID to
+    // this event by transaction digest (created-objects list ↔ event payload).
+    shared_blob::new(blob, ctx);
 
     events::emit_object_created(
         object::id(bucket),
@@ -248,13 +292,38 @@ public fun wrap_in_shared_blob(
         content_type,
         bucket.owner,
         ctx.sender(),
-        initial_fund_amount,
     );
 }
 
-/// Renew a SharedBlob's storage by `epochs_ahead`. Anyone can call this —
-/// Walrus's underlying `extend` is permissionless and uses the SharedBlob's
-/// own jar. Emits `KraterionObjectExtended` for the indexer.
+/// Extend a SharedBlob's storage by `epochs` epochs, paying from the
+/// platform reserve. Whitelist-gated only — no bucket access check, because
+/// extending an already-existing SharedBlob doesn't create or modify a
+/// bucket. The renewal worker uses this on its hourly scan loop.
+///
+/// `payment_amount` is pulled from the reserve and added to the SharedBlob's
+/// jar; `walrus::shared_blob::extend` then drains the jar to extend storage.
+/// Any leftover stays in the jar (acts as a tiny per-blob cushion).
+public fun extend_blob_from_reserve(
+    reserve: &mut PlatformReserve,
+    shared: &mut SharedBlob,
+    system: &mut System,
+    payment_amount: u64,
+    epochs: u32,
+    ctx: &mut TxContext,
+) {
+    let payment = reserve::pull_wal(reserve, payment_amount, ctx);
+    shared_blob::fund(shared, payment);
+
+    let shared_blob_id = object::id(shared);
+    shared_blob::extend(shared, system, epochs, ctx);
+
+    events::emit_object_extended(shared_blob_id, epochs, ctx.sender());
+}
+
+/// Permissionless extend: drains the SharedBlob's own jar, no platform
+/// involvement. Anyone can call. Provided so users can self-renew a blob
+/// after they've called `walrus::shared_blob::fund(shared, coin)` from
+/// their own wallet — useful for the cancellation-persistence demo.
 public fun extend_shared_blob(
     shared: &mut SharedBlob,
     system: &mut System,
@@ -268,7 +337,13 @@ public fun extend_shared_blob(
 
 // === Internal helpers ===
 
-fun assert_caller_authorized(bucket: &KraterionBucket, ctx: &TxContext) {
+/// Bucket access policy: caller must be the owner or an address on
+/// `api_decryption_addresses`. Public so `kraterion::access::seal_approve`
+/// can reuse the same predicate for the read side.
+public(package) fun assert_caller_authorized_for_bucket(
+    bucket: &KraterionBucket,
+    ctx: &TxContext,
+) {
     let caller = ctx.sender();
     let is_owner = caller == bucket.owner;
     let is_api = vector::contains(&bucket.api_decryption_addresses, &caller);

@@ -188,10 +188,22 @@ GAS_COST=$(jq -r '
     | (.computationCost|tonumber) + (.storageCost|tonumber) - (.storageRebate|tonumber)
 ' "$RAW_LOG")
 
+# The package's `init` function spawns the singleton PlatformReserve and
+# shares it. We extract its object ID from objectChanges by matching the
+# fully-qualified type — the package ID is in the type so we resolve it
+# inline. If the reserve module is renamed or the `init` is deleted, this
+# will silently come back empty and we surface that explicitly below.
+RESERVE_ID=$(jq -r --arg pkg "$PACKAGE_ID" '
+    .objectChanges[]?
+    | select(.type=="created" and .objectType==($pkg + "::reserve::PlatformReserve"))
+    | .objectId
+' "$RAW_LOG")
+
 [[ -n "$PACKAGE_ID" && "$PACKAGE_ID" != "null" ]] || die "could not extract packageId from publish response"
 
 info "package id:    $PACKAGE_ID"
 info "upgrade cap:   ${UPGRADE_CAP:-(none captured)}"
+info "reserve id:    ${RESERVE_ID:-(none captured)}"
 info "tx digest:     $TX_DIGEST"
 info "net gas cost:  $GAS_COST MIST"
 
@@ -232,6 +244,26 @@ else
     } >> "$CONSTANTS_FILE"
 fi
 info "wrote KRATERION_UPGRADE_CAP_ID"
+
+# Same pattern for the singleton PlatformReserve. Spawned by the package's
+# `init` function at publish; every paid operation takes it as a tx input.
+if [[ -n "$RESERVE_ID" && "$RESERVE_ID" != "null" ]]; then
+    if grep -qE '^export const KRATERION_RESERVE_ID' "$CONSTANTS_FILE"; then
+        sed -E -i.bak "s|^(export const KRATERION_RESERVE_ID = \")[^\"]*(\";.*)$|\1${RESERVE_ID}\2|" \
+            "$CONSTANTS_FILE"
+        rm -f "$CONSTANTS_FILE.bak"
+    else
+        {
+            echo ""
+            echo "// Singleton PlatformReserve, spawned by the package's init function"
+            echo "// at publish. Required as a tx input by every paid operation."
+            echo "export const KRATERION_RESERVE_ID = \"${RESERVE_ID}\";"
+        } >> "$CONSTANTS_FILE"
+    fi
+    info "wrote KRATERION_RESERVE_ID"
+else
+    warn "no PlatformReserve created at publish — KRATERION_RESERVE_ID not updated. Did the package's init() function get removed?"
+fi
 
 # ---------- summary ----------
 

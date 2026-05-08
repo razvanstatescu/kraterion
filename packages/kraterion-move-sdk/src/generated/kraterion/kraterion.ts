@@ -4,8 +4,10 @@
 
 
 /**
- * Kraterion on-chain bucket: a user-owned, shared Sui object that pools WAL
- * funding for SharedBlobs and gates who can read / write its files.
+ * Kraterion on-chain bucket: a user-owned, shared Sui object that gates who can
+ * read and write its files. Funding for paid operations comes from a single
+ * platform-managed `kraterion::reserve::PlatformReserve` — not from per-bucket
+ * pools.
  * 
  * Invariants:
  * 
@@ -17,6 +19,11 @@
  *   bucket-scoped, not file-scoped.
  * - Encryption is always on at the gateway. The bucket's mode controls who Seal
  *   will release shares to (see kraterion::access).
+ * - Paid operations (register, extend) drain the platform reserve; both require
+ *   platform whitelist. Register additionally requires bucket access.
+ * - Permissionless paths stay open: anyone can use Walrus's native
+ *   `system::register_blob` (paying themselves) or `shared_blob::extend` (draining
+ *   the SharedBlob's own jar).
  * 
  * See /docs/implementation-plan.md §4 and the Move package design notes in
  * /docs/decisions.md.
@@ -25,13 +32,11 @@
 import { MoveStruct, normalizeMoveArguments, type RawTransactionArgument } from '../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
 import { type Transaction } from '@mysten/sui/transactions';
-import * as balance from './deps/sui/balance.js';
 const $moduleName = '@local-pkg/kraterion::kraterion';
 export const KraterionBucket = new MoveStruct({ name: `${$moduleName}::KraterionBucket`, fields: {
         id: bcs.Address,
         owner: bcs.Address,
         name: bcs.vector(bcs.u8()),
-        funding_pool: balance.Balance,
         encryption_mode: bcs.u8(),
         api_decryption_addresses: bcs.vector(bcs.Address),
         created_epoch: bcs.u64()
@@ -150,28 +155,6 @@ export function apiAddresses(options: ApiAddressesOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
-export interface FundingPoolValueArguments {
-    bucket: RawTransactionArgument<string>;
-}
-export interface FundingPoolValueOptions {
-    package?: string;
-    arguments: FundingPoolValueArguments | [
-        bucket: RawTransactionArgument<string>
-    ];
-}
-export function fundingPoolValue(options: FundingPoolValueOptions) {
-    const packageAddress = options.package ?? '@local-pkg/kraterion';
-    const argumentsTypes = [
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["bucket"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'kraterion',
-        function: 'funding_pool_value',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
 export interface IdArguments {
     bucket: RawTransactionArgument<string>;
 }
@@ -254,36 +237,6 @@ export function createGrantAndShareBucket(options: CreateGrantAndShareBucketOpti
         package: packageAddress,
         module: 'kraterion',
         function: 'create_grant_and_share_bucket',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface FundBucketArguments {
-    bucket: RawTransactionArgument<string>;
-    coin: RawTransactionArgument<string>;
-}
-export interface FundBucketOptions {
-    package?: string;
-    arguments: FundBucketArguments | [
-        bucket: RawTransactionArgument<string>,
-        coin: RawTransactionArgument<string>
-    ];
-}
-/**
- * Anyone can top up a bucket's WAL pool. Mirrors Walrus's "anyone can fund a
- * SharedBlob" property at the bucket level — useful for the post-cancellation
- * persistence demo (others can keep your files alive).
- */
-export function fundBucket(options: FundBucketOptions) {
-    const packageAddress = options.package ?? '@local-pkg/kraterion';
-    const argumentsTypes = [
-        null,
-        null
-    ] satisfies (string | null)[];
-    const parameterNames = ["bucket", "coin"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'kraterion',
-        function: 'fund_bucket',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
@@ -375,12 +328,82 @@ export function setBucketVisibility(options: SetBucketVisibilityOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
+export interface RegisterBlobForBucketArguments {
+    reserve: RawTransactionArgument<string>;
+    bucket: RawTransactionArgument<string>;
+    system: RawTransactionArgument<string>;
+    paymentAmount: RawTransactionArgument<number | bigint>;
+    storageAmount: RawTransactionArgument<number | bigint>;
+    epochsAhead: RawTransactionArgument<number>;
+    blobId: RawTransactionArgument<number | bigint>;
+    rootHash: RawTransactionArgument<number | bigint>;
+    size: RawTransactionArgument<number | bigint>;
+    encodingType: RawTransactionArgument<number>;
+}
+export interface RegisterBlobForBucketOptions {
+    package?: string;
+    arguments: RegisterBlobForBucketArguments | [
+        reserve: RawTransactionArgument<string>,
+        bucket: RawTransactionArgument<string>,
+        system: RawTransactionArgument<string>,
+        paymentAmount: RawTransactionArgument<number | bigint>,
+        storageAmount: RawTransactionArgument<number | bigint>,
+        epochsAhead: RawTransactionArgument<number>,
+        blobId: RawTransactionArgument<number | bigint>,
+        rootHash: RawTransactionArgument<number | bigint>,
+        size: RawTransactionArgument<number | bigint>,
+        encodingType: RawTransactionArgument<number>
+    ];
+}
+/**
+ * Register a Walrus blob for a specific bucket, paying from the platform reserve.
+ * Two access checks:
+ *
+ * 1.  caller is on the reserve whitelist (admin or authorized_callers)
+ * 2.  caller is authorized for the bucket (owner or api_decryption_addresses)
+ *
+ * Pulls `payment_amount` WAL from the reserve, uses it for both the storage
+ * reservation and the registration write payment, and returns any leftover to the
+ * reserve. Returns the new `Blob` so the same PTB can compose it further (e.g.
+ * immediately go to upload-relay or chain into wrap).
+ *
+ * Caller-supplied parameters mirror Walrus's `reserve_space` + `register_blob`
+ * flow:
+ *
+ * - `storage_amount`: encoded blob size (post-RS encoding) in bytes
+ * - `epochs_ahead`: number of Walrus epochs to keep the blob alive
+ * - `blob_id`, `root_hash`, `size`, `encoding_type`: blob metadata the SDK
+ *   computes off-chain during local encoding
+ * - `payment_amount`: budget pulled from reserve. Should over-estimate storage +
+ *   write cost; leftover is returned automatically.
+ */
+export function registerBlobForBucket(options: RegisterBlobForBucketOptions) {
+    const packageAddress = options.package ?? '@local-pkg/kraterion';
+    const argumentsTypes = [
+        null,
+        null,
+        null,
+        'u64',
+        'u64',
+        'u32',
+        'u256',
+        'u256',
+        'u64',
+        'u8'
+    ] satisfies (string | null)[];
+    const parameterNames = ["reserve", "bucket", "system", "paymentAmount", "storageAmount", "epochsAhead", "blobId", "rootHash", "size", "encodingType"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'kraterion',
+        function: 'register_blob_for_bucket',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
 export interface WrapInSharedBlobArguments {
     bucket: RawTransactionArgument<string>;
     blob: RawTransactionArgument<string>;
     s3Key: RawTransactionArgument<Array<number>>;
     contentType: RawTransactionArgument<Array<number>>;
-    initialFundAmount: RawTransactionArgument<number | bigint>;
 }
 export interface WrapInSharedBlobOptions {
     package?: string;
@@ -388,19 +411,20 @@ export interface WrapInSharedBlobOptions {
         bucket: RawTransactionArgument<string>,
         blob: RawTransactionArgument<string>,
         s3Key: RawTransactionArgument<Array<number>>,
-        contentType: RawTransactionArgument<Array<number>>,
-        initialFundAmount: RawTransactionArgument<number | bigint>
+        contentType: RawTransactionArgument<Array<number>>
     ];
 }
 /**
- * Wrap a Walrus Blob into a SharedBlob, drawing `initial_fund_amount` WAL from the
- * bucket's pool to seed its renewal jar. Authorized for owner OR any address in
- * `api_decryption_addresses` — the gateway uses its API keypair, the user uses
- * their wallet.
+ * Wrap an already-certified Walrus Blob into a SharedBlob attached to this bucket.
+ * The SharedBlob is created with an **empty jar** — we don't pre- fund storage
+ * extensions. Callers can extend later via either:
  *
- * Encryption is performed off-chain at the gateway; this function does not touch
- * the file bytes. Files are always Seal-encrypted; whether they're publicly
- * readable is decided by `bucket.encryption_mode` at decrypt time.
+ * - `extend_blob_from_reserve` (paid by platform, whitelist-gated), or
+ * - `walrus::shared_blob::extend` (drains the SharedBlob's own jar, anyone can
+ *   fund it via `walrus::shared_blob::fund`).
+ *
+ * Emits `KraterionObjectCreated`. Authorization: caller must be authorized for the
+ * bucket (owner or api_decryption_addresses).
  */
 export function wrapInSharedBlob(options: WrapInSharedBlobOptions) {
     const packageAddress = options.package ?? '@local-pkg/kraterion';
@@ -408,14 +432,57 @@ export function wrapInSharedBlob(options: WrapInSharedBlobOptions) {
         null,
         null,
         'vector<u8>',
-        'vector<u8>',
-        'u64'
+        'vector<u8>'
     ] satisfies (string | null)[];
-    const parameterNames = ["bucket", "blob", "s3Key", "contentType", "initialFundAmount"];
+    const parameterNames = ["bucket", "blob", "s3Key", "contentType"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'kraterion',
         function: 'wrap_in_shared_blob',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
+export interface ExtendBlobFromReserveArguments {
+    reserve: RawTransactionArgument<string>;
+    shared: RawTransactionArgument<string>;
+    system: RawTransactionArgument<string>;
+    paymentAmount: RawTransactionArgument<number | bigint>;
+    epochs: RawTransactionArgument<number>;
+}
+export interface ExtendBlobFromReserveOptions {
+    package?: string;
+    arguments: ExtendBlobFromReserveArguments | [
+        reserve: RawTransactionArgument<string>,
+        shared: RawTransactionArgument<string>,
+        system: RawTransactionArgument<string>,
+        paymentAmount: RawTransactionArgument<number | bigint>,
+        epochs: RawTransactionArgument<number>
+    ];
+}
+/**
+ * Extend a SharedBlob's storage by `epochs` epochs, paying from the platform
+ * reserve. Whitelist-gated only — no bucket access check, because extending an
+ * already-existing SharedBlob doesn't create or modify a bucket. The renewal
+ * worker uses this on its hourly scan loop.
+ *
+ * `payment_amount` is pulled from the reserve and added to the SharedBlob's jar;
+ * `walrus::shared_blob::extend` then drains the jar to extend storage. Any
+ * leftover stays in the jar (acts as a tiny per-blob cushion).
+ */
+export function extendBlobFromReserve(options: ExtendBlobFromReserveOptions) {
+    const packageAddress = options.package ?? '@local-pkg/kraterion';
+    const argumentsTypes = [
+        null,
+        null,
+        null,
+        'u64',
+        'u32'
+    ] satisfies (string | null)[];
+    const parameterNames = ["reserve", "shared", "system", "paymentAmount", "epochs"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'kraterion',
+        function: 'extend_blob_from_reserve',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
@@ -433,9 +500,10 @@ export interface ExtendSharedBlobOptions {
     ];
 }
 /**
- * Renew a SharedBlob's storage by `epochs_ahead`. Anyone can call this — Walrus's
- * underlying `extend` is permissionless and uses the SharedBlob's own jar. Emits
- * `KraterionObjectExtended` for the indexer.
+ * Permissionless extend: drains the SharedBlob's own jar, no platform involvement.
+ * Anyone can call. Provided so users can self-renew a blob after they've called
+ * `walrus::shared_blob::fund(shared, coin)` from their own wallet — useful for the
+ * cancellation-persistence demo.
  */
 export function extendSharedBlob(options: ExtendSharedBlobOptions) {
     const packageAddress = options.package ?? '@local-pkg/kraterion';
