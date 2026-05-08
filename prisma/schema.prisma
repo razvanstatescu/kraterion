@@ -1,5 +1,17 @@
 // Kraterion authoritative metadata schema.
-// See /docs/implementation-plan.md §5 for the full data model.
+//
+// This schema is the off-chain source of truth for accounts, projects,
+// buckets, objects, API keys, and usage events. Every field that mirrors
+// on-chain state (Bucket.kraterion_bucket_object_id, S3Object.shared_blob_object_id,
+// etc) is populated by the indexer reading events emitted by the Move
+// package — see `move/kraterion/sources/events.move`.
+//
+// See /docs/implementation-plan.md §5 for the full data-model rationale.
+// Two corrections to plan §5 reflect decisions logged in /docs/decisions.md:
+//   1. encryption_mode is per-bucket, not per-file. The S3Object table
+//      drops the column entirely; clients derive it from the parent bucket.
+//   2. seal_identity format is [bucket_uid (32) || object_uuid (16)] = 48
+//      bytes — no package-id prefix (the Seal SDK adds that at IBE time).
 
 generator client {
   provider = "prisma-client-js"
@@ -10,5 +22,171 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models live here. Add accounts, projects, buckets, objects, api_keys, etc.
-// per the spec — not scaffolded in this commit.
+// === Identity & ownership ===
+
+model Account {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  zklogin_sub String   @unique
+  sui_address String   @unique
+  status      String   @default("active") // active | cancelled | suspended
+  created_at  DateTime @default(now())
+
+  projects                 Project[]
+  api_decryption_subwallet SubWallet? @relation("api_decryption_for_account")
+
+  @@index([sui_address])
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  account_id     String
+  name           String
+  default_region String   @default("eu-central-1")
+  created_at     DateTime @default(now())
+
+  account  Account  @relation(fields: [account_id], references: [id])
+  buckets  Bucket[]
+  api_keys ApiKey[]
+
+  @@index([account_id])
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  project_id     String
+  name           String
+  // Public, AWS-style "AKIA..." identifier returned to the user.
+  access_key_id  String    @unique
+  // KMS-wrapped secret bytes; never persisted in plaintext.
+  secret_wrapped Bytes
+  last_used_at   DateTime?
+  created_at     DateTime  @default(now())
+  revoked_at     DateTime?
+
+  project Project @relation(fields: [project_id], references: [id])
+
+  @@index([project_id])
+  @@index([access_key_id])
+}
+
+// === Buckets & objects ===
+
+model Bucket {
+  id              String @id @default(uuid())
+  project_id      String
+  name            String
+  region          String @default("eu-central-1")
+  // "private" | "public-read". Mirrors on-chain KraterionBucket.encryption_mode.
+  // Switching modes is a one-call on-chain flip (set_bucket_visibility) that
+  // affects every object in the bucket — there is no per-object override.
+  encryption_mode String @default("private")
+
+  // === On-chain bindings ===
+  // Sui object ID of the KraterionBucket shared object. Set at bucket
+  // creation; never changes.
+  kraterion_bucket_object_id String  @unique
+  // Application-layer mirror of the on-chain api_decryption_addresses list:
+  // true if the gateway is currently authorized to read+write into this
+  // bucket. Flipped immediately by the control plane on
+  // `revoke_all_api_access`, before the on-chain change has propagated to
+  // Seal key servers (which can take seconds).
+  api_access_granted         Boolean @default(true)
+  // Mirror of bucket.funding_pool balance, refreshed periodically by the
+  // health-check worker. BigInt because WAL is u64 on-chain.
+  funding_pool_wal_balance   BigInt  @default(0)
+
+  // === Bookkeeping ===
+  created_at DateTime  @default(now())
+  // Soft delete. The on-chain SharedBlob persists regardless — that's the
+  // whole point.
+  deleted_at DateTime?
+
+  project Project    @relation(fields: [project_id], references: [id])
+  objects S3Object[]
+
+  @@unique([project_id, name])
+  @@index([project_id])
+  @@index([kraterion_bucket_object_id])
+}
+
+model S3Object {
+  id           String  @id @default(uuid())
+  bucket_id    String
+  s3_key       String
+  size_bytes   BigInt
+  content_type String?
+  // MD5 hex of plaintext bytes (S3 API contract — clients verify this).
+  etag         String
+
+  // === Walrus / Sui binding ===
+  // u256 in URL-safe base64. Walrus's content-addressed blob identifier.
+  walrus_blob_id        String
+  // Sui object ID of the wrapping SharedBlob (derived by the indexer from
+  // the publish-time tx's created-objects list — see decisions.md).
+  shared_blob_object_id String @unique
+  storage_end_epoch     Int
+
+  // === Encryption ===
+  // Every file is Seal-encrypted at the gateway, regardless of the bucket's
+  // encryption_mode. The bucket mode only controls the seal_approve policy
+  // on read; encryption is unconditional.
+  // Identity bytes used at IBE encryption time:
+  //   [bucket_uid (32) || object_uuid (16)] = 48 bytes.
+  // The Seal SDK prepends the package-id prefix; we don't store it.
+  seal_identity       Bytes
+  // Seal-encrypted symmetric key (~200 bytes).
+  encryption_envelope Bytes
+
+  // === Bookkeeping ===
+  uploaded_at DateTime  @default(now())
+  deleted_at  DateTime?
+
+  bucket Bucket @relation(fields: [bucket_id], references: [id])
+
+  // Latest non-deleted version per (bucket, key). Soft-delete is via
+  // deleted_at; we don't keep historical versions for hackathon.
+  @@unique([bucket_id, s3_key])
+  @@index([bucket_id, s3_key])
+  // Renewal worker scans by storage_end_epoch.
+  @@index([storage_end_epoch])
+  @@index([shared_blob_object_id])
+}
+
+// === Operational tables ===
+
+model UsageEvent {
+  id          BigInt   @id @default(autoincrement())
+  project_id  String
+  bucket_id   String?
+  // PUT | GET | HEAD | DELETE | LIST
+  kind        String
+  bytes_in    Int      @default(0)
+  bytes_out   Int      @default(0)
+  occurred_at DateTime @default(now())
+
+  @@index([project_id, occurred_at])
+  @@index([bucket_id, occurred_at])
+}
+
+model SubWallet {
+  id               String  @id @default(uuid())
+  sui_address      String  @unique
+  // KMS-wrapped Ed25519 seed/mnemonic. Never persisted in plaintext.
+  mnemonic_wrapped Bytes
+  // "publisher" | "renewal" | "api_decryption"
+  role             String
+  // Set for "api_decryption" role (one wallet per account). Null for
+  // shared-pool roles (publisher, renewal).
+  account_id       String? @unique
+
+  // Last-known balances, refreshed by the health-check worker. Used to
+  // decide when to top up; not authoritative — Sui RPC is.
+  sui_balance   BigInt    @default(0)
+  wal_balance   BigInt    @default(0)
+  last_topup_at DateTime?
+
+  account Account? @relation("api_decryption_for_account", fields: [account_id], references: [id])
+
+  @@index([role])
+}

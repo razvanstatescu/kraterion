@@ -31,8 +31,9 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 - **Days to submission:** 44
 - **Last reviewed:** 2026-05-08
 - **W1 status:** Move package live on testnet (`0x853c…818f5`), TS bindings
-  generated and committed, 24/24 Move unit tests + 7/7 SDK tests green.
-  Remaining W1 work: zkLogin, Walrus publisher infra, Prisma schema, KMS.
+  generated and committed, Prisma schema landed and migrated, 24/24 Move
+  unit tests + 7/7 SDK tests green. Remaining W1 work: zkLogin, Walrus
+  publisher infra, sub-wallets, KMS.
 
 ## Cadence
 

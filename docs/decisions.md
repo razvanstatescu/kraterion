@@ -322,3 +322,51 @@ escape hatch: `pnpm --filter @kraterion/kraterion-move-sdk generate`.
 - CI-only check: doesn't help local dev iteration.
 
 ---
+
+## 2026-05-08 — Single Prisma schema at the repo root, generated client at workspace root
+
+**Status:** Accepted
+
+**Context:** Three NestJS apps (control-plane, gateway, worker) all share
+the same Postgres. The plan §3.3 puts `prisma/schema.prisma` at the repo
+root. Possible alternatives: per-app schemas (drift), a `packages/db`
+package re-exporting `PrismaClient` (extra package boundary, marginal
+benefit at this scale).
+
+**Decision:** Keep `prisma/schema.prisma` at the repo root; install
+`prisma` and `@prisma/client` at the workspace root (devDeps); apps import
+`@prisma/client` directly. Root `pnpm db:*` scripts wrap the CLI with the
+schema path baked in. The `.env` file at the root carries `DATABASE_URL`
+and is loaded automatically by Prisma; apps consume the same env via
+`process.env`.
+
+**Consequences:** One schema, one truth, one migration history. Cost: one
+extra workspace-root devDep instead of per-app; outweighed by avoiding
+schema duplication. Future move to `packages/db` is a refactor, not a
+rewrite — if an app needs a custom Prisma extension or a typed
+`PrismaService`, that's the time.
+
+---
+
+## 2026-05-08 — `encryption_mode` lives on `Bucket` only, not on `S3Object`
+
+**Status:** Accepted (deviates from `docs/implementation-plan.md` §5)
+
+**Context:** Plan §5 carries `encryption_mode` on `S3Object`. That made
+sense when the design allowed per-file modes. Our final Move design (per
+the per-bucket-policy decision recorded above) makes mode a bucket-wide
+property — flipping `set_bucket_visibility` changes access for *every*
+object in the bucket instantly.
+
+**Decision:** Drop `encryption_mode` from `S3Object`. Read it off the
+parent `Bucket` row. `seal_identity` and `encryption_envelope` are
+unconditionally populated for every object (since encryption is always on
+at the gateway).
+
+**Consequences:** No way for `S3Object.encryption_mode` to disagree with
+`Bucket.encryption_mode` — the row simply doesn't exist. ListObjectsV2
+needs to JOIN on `Bucket` to surface mode in the response, which adds one
+index lookup per page; acceptable for hackathon scale and easy to
+denormalize later if it ever becomes hot.
+
+---

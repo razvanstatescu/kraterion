@@ -172,3 +172,46 @@ expected and required.
 **Observed:** 2026-05-08, while smoke-testing the pre-publish dry-run path.
 
 ---
+
+## Symptom: `pnpm db:migrate -- --name init` hangs and never completes; `prisma migrate dev` waits for input
+
+**Cause:** pnpm's `--` separator gets passed to the underlying script,
+turning the command into `prisma migrate dev --schema … -- --name init`.
+Prisma sees `--` as the end-of-args sentinel and ignores `--name init`,
+falling back to its interactive prompt for a migration name. The script
+appears to hang because Prisma is waiting for stdin.
+
+**Fix:** invoke prisma directly via `pnpm exec` and place all flags
+inline:
+```bash
+pnpm exec prisma migrate dev --schema prisma/schema.prisma --name init
+```
+Or run it with the script wrapper but no `--`:
+```bash
+pnpm db:migrate --name init
+```
+(works on pnpm 9.x; older pnpm requires the explicit `pnpm exec` form).
+
+**Observed:** 2026-05-08, applying the initial Prisma migration to the
+local Postgres in docker compose.
+
+---
+
+## Symptom: `prisma generate` fails with `Error: Command failed with exit code 1: pnpm add @prisma/client@5.22.0 --silent`
+
+**Cause:** `prisma generate` auto-tries to install `@prisma/client` if it
+isn't found in the same `package.json` as `prisma`. In a pnpm workspace,
+the root `package.json` had only `prisma` (devDep) but not `@prisma/client`,
+so Prisma's auto-install kicked in and pnpm rejected the package addition.
+
+**Fix:** add `@prisma/client` as a devDep to the workspace root:
+```bash
+pnpm add -D -w @prisma/client@5.22.0
+```
+Note the `-w` flag — without it, pnpm complains that you're at the
+workspace root and need to specify a target package.
+
+**Observed:** 2026-05-08, after the initial migration succeeded but
+before the post-migrate generate step.
+
+---

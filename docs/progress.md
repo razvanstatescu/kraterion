@@ -28,7 +28,7 @@ _Calendar weeks anchored in `docs/timeline.md`._
       `packages/shared/src/constants.ts`
 - [ ] `[infra]` Sub-wallets funded with testnet SUI + WAL
 - [ ] `[infra]` KMS configured for per-account API decryption keys
-- [ ] `[control-plane]` Prisma schema implements §5 of the plan, migrations
+- [x] `[control-plane]` Prisma schema implements §5 of the plan, migrations
       apply cleanly
 - [ ] `[dashboard]` zkLogin sign-in working end-to-end with Google
 - [ ] `[gateway]` Healthcheck reachable, body limit verified at 13 GiB
@@ -105,6 +105,24 @@ _Calendar weeks anchored in `docs/timeline.md`._
   - Two new runbook entries logged: SDK 2.x rename
     (`SuiClient`→`SuiJsonRpcClient`) and the `Uint8Array` vs `number[]`
     typing footgun for `vector<u8>` PTB args.
+- `[control-plane]` 2026-05-08 — Prisma schema landed, initial migration
+  applied to local Postgres.
+  - 7 models: `Account`, `Project`, `ApiKey`, `Bucket`, `S3Object`,
+    `UsageEvent`, `SubWallet` — covers identity, on-chain bucket bindings,
+    object metadata with Seal envelope storage, sub-wallet inventory, and
+    usage logs.
+  - Two corrections vs plan §5, both flowing from the Move design:
+    `encryption_mode` lives only on `Bucket` (not `S3Object`) since access
+    policy is per-bucket; `seal_identity` comment updated to reflect the
+    48-byte format `[bucket_uid (32) || object_uuid (16)]`.
+  - Migration `20260508070133_init` applied. All 7 tables verified via
+    `psql \\dt` plus a tsx smoke test that counted rows on every model.
+  - Root `pnpm db:*` scripts: `generate`, `migrate`, `deploy`, `studio`,
+    `format`, `reset`. Run from repo root; `.env` carries
+    `DATABASE_URL` (postgresql://kraterion:kraterion@localhost:5432).
+  - Workflow: `docker compose -f infra/compose/docker-compose.yml up -d`
+    → `pnpm db:migrate` (interactive, names migrations) →
+    `pnpm db:generate` (regenerates client).
 - `[move-sdk]` 2026-05-08 — Bindings auto-sync wired in.
   - `turbo.json` declares `@kraterion/kraterion-move-sdk#generate` with
     Move source as inputs; `build`/`typecheck`/`test` all depend on it.
