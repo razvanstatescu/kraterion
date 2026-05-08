@@ -1253,3 +1253,108 @@ fork is a maintenance liability; the indexer-side recovery is a
   phases is gone.
 
 ---
+
+## 2026-05-08 — Indexer adopts gRPC `SubscribeCheckpoints` directly (no JSON-RPC adapter); read_mask paths root at `Checkpoint`
+
+**Status:** Accepted (locked in by user instruction)
+
+**Context:** Sui's JSON-RPC sunsets 2026-07-31 — 10 days after our June
+21 submission. Building a JSON-RPC adapter that breaks one month
+later is wasted code; the user explicitly directed us to skip it. The
+indexer ships on `@mysten/sui/grpc`'s `SubscriptionService.SubscribeCheckpoints`
+from day 1, with `LedgerService.GetCheckpoint` as the unary call for
+backfill.
+
+Two implementation findings that shape the code:
+
+1. **`@mysten/sui/grpc`'s default transport is gRPC-Web over fetch.**
+   That has no keepalive knobs and silently drops long-lived streams
+   when intermediaries idle them out. For a Node.js indexer running
+   `SubscribeCheckpoints` indefinitely, native HTTP/2 gRPC with
+   explicit keepalives is mandatory: `@protobuf-ts/grpc-transport`
+   + `@grpc/grpc-js` with channel options
+   `keepalive_time_ms=60_000`, `keepalive_timeout_ms=20_000`,
+   `keepalive_permit_without_calls=1`,
+   `http2.max_pings_without_data=0`, and a 256 MiB receive cap (vs
+   the 4 MiB default). See `sui-grpc.client.provider.ts`.
+
+2. **`read_mask` paths root at `Checkpoint`, not the subscribe
+   response.** The official proto comments don't disambiguate this.
+   Day-1 probe (`apps/worker/src/indexer/cli/probe-readmask.ts`)
+   subscribed with both candidate shapes:
+   - `["checkpoint.transactions...", "cursor"]` — returned an empty
+     wrapper (~55 bytes), no events.
+   - `["transactions.events.events...", ...]` — returned the full
+     payload (~3 KB for a busy checkpoint), events present.
+
+   The checkpoint-rooted paths are correct. ALSO: the response-level
+   `cursor` field is populated automatically — it's not subject to
+   the mask. We don't need to include `"cursor"` in the path list.
+
+   No mask at all returns near-empty (~55 bytes). Specifying a mask
+   is mandatory.
+
+**Decision:** Indexer's mask paths live in
+`apps/worker/src/indexer/read-mask.ts`. The minimum useful set
+includes per-event fields (`package_id`, `module`, `event_type`,
+`sender`, `json`) plus tx digest plus the effects fragments needed
+to recover `shared_blob_object_id` from
+`tx.effects.changed_objects[]` (per the previous Move-event-surgery
+ADR — walrus's `shared_blob::new` doesn't expose the SharedBlob ID
+in its return).
+
+The `SubscribeCheckpoints` and `GetCheckpoint` mask shapes are
+identical because both target the `Checkpoint` proto.
+
+**Consequences:**
+- One adapter, one wire format, one set of mask paths to maintain.
+- No JSON-RPC code that would need ripping out at sunset.
+- The day-1 probe is committed as a CLI
+  (`pnpm -F @kraterion/worker indexer:probe-readmask`) so future
+  Sui SDK updates can be re-validated cheaply if the mask
+  semantics ever change.
+- gRPC stream has no built-in reconnect; we wrap it in an explicit
+  forever-loop with exponential backoff in `run-loop.ts`.
+
+---
+
+## 2026-05-08 — Public testnet fullnode: backfill rate-limit gate at 8 rps
+
+**Status:** Accepted
+
+**Context:** First end-to-end indexer run hit `429 Too Many Requests`
+from the public testnet fullnode (`fullnode.testnet.sui.io:443`)
+within ~5s of starting backfill at concurrency=4. Sui Foundation's
+public RPC quota is 10 rps; bursts over that get rejected immediately,
+not throttled.
+
+The existing exponential-backoff path on `RpcError` (`UNAVAILABLE`
+code) DID recover correctness — cursor never advanced past
+unprocessed events, retries resumed from the right place — but the
+churn was painful: every 5 seconds we'd backfill ~200 checkpoints,
+hit 429, back off, restart from the new cursor. ~4-minute backfill
+turned into a ~10-minute exercise.
+
+**Decision:** Add an explicit token-bucket rate gate inside
+`backfillRange`. Each call to `getCheckpoint` waits until
+`nextAllowedFetchAtMs`, which advances by
+`BACKFILL_MIN_INTERVAL_MS = 125ms` per call. With
+`BACKFILL_CONCURRENCY = 2`, that's ~16 calls per 2 seconds = 8 rps,
+leaving 2 rps headroom under the 10 rps cap. Both knobs are env-
+overridable for paid endpoints (Shinami, Triton, BlockVision) where
+limits are higher.
+
+The `RpcError` exponential-backoff path stays as the safety net for
+non-rate-limit failures (network blips, stream timeouts).
+
+**Consequences:**
+- Backfill latency is bounded: live-tip-minus-cursor checkpoints at
+  ~8 rps. ~10k checkpoints (a typical "stale for a few hours" gap)
+  = ~20 minutes. Acceptable for hackathon scale.
+- Once caught up, the live `SubscribeCheckpoints` stream emits ~1
+  msg/sec — well under any quota.
+- Move to a paid RPC the moment we have demo traffic; document
+  `INDEXER_BACKFILL_INTERVAL_MS=50` (20 rps) as the recommended
+  setting on Shinami / similar.
+
+---

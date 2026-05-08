@@ -667,3 +667,87 @@ _Calendar weeks anchored in `docs/timeline.md`._
   Day-1 read-mask probe.
 
 ---
+
+- `[indexer]` 2026-05-08 — **Phase 1 of indexer plan: schema + worker
+  skeleton + first handler end-to-end on testnet gRPC.**
+
+  **What shipped:**
+  - Schema migration `indexer_init`: new `IndexerCursor` and
+    `IndexerDeadLetter` tables; `(tx_digest BYTEA, event_seq INT)`
+    + `event_payload JSONB` columns on `Bucket` and `S3Object` with
+    composite UNIQUE for indexer idempotency. Columns are nullable
+    until Phase 2 removes the gateway-direct write path.
+  - `apps/worker` ESM-ified (NodeNext, `.js` extensions). Picked up
+    `@mysten/sui` (gRPC client), `@protobuf-ts/grpc-transport`,
+    `@grpc/grpc-js`, `prom-client`, `zod`.
+  - `apps/worker/src/main.ts` rewritten as a Nest+Fastify app with
+    `/health`, `/health/ready`, and `/metrics` endpoints.
+  - `apps/worker/src/indexer/` module:
+    - `sui-grpc.client.provider.ts` — native HTTP/2 transport with
+      explicit keepalive options + 256 MiB receive cap.
+    - `read-mask.ts` — checkpoint-rooted mask paths covering events
+      + tx effects.
+    - `event-types.ts` — Zod schemas for all 6 user-facing event
+      structs (BucketCreated, ObjectCreated, ObjectExtended,
+      ApiAccessGranted/Revoked, BucketVisibilityChanged) with
+      lenient `.passthrough()` for Move-upgrade-resilience.
+    - `handlers/handler.interface.ts` — typed per-event handler
+      contract; handlers run inside the per-checkpoint Prisma tx.
+    - `handlers/bucket-created.handler.ts` — first active handler.
+      Resolves `project_id` via `Account.sui_address` → first
+      project lookup; upserts `Bucket` keyed on
+      `kraterion_bucket_object_id`; backfills indexer-provenance
+      columns when the row already exists from gateway-direct
+      writes.
+    - `cursor.repo.ts` — `(read, advance, reset)` bracket; advance
+      runs inside the open Prisma tx for atomicity with row writes.
+    - `dispatcher.service.ts` — type-suffix routing
+      (`::events::Kraterion...`); package-id-stripped so a redeploy
+      doesn't churn the dispatcher.
+    - `dead-letter.service.ts` — DLQ insert + retry-counter bump,
+      `parked` after 3 attempts. `(source_id, tx_digest,
+      event_seq)` natural key.
+    - `run-loop.ts` — the meaty file. Subscribe → first message →
+      cursor diff → unary `GetCheckpoint` backfill (concurrency=2,
+      8 rps token-bucket gate) → drain live stream forward.
+      Per-checkpoint Prisma transaction: events + cursor advance
+      atomic. Poison-pill recovery via "find failing event by
+      bisect, DLQ it, retry without it" pattern.
+    - `metrics.ts` — `prom-client` registry + 6 indexer-specific
+      gauges/counters.
+    - `cli/probe-readmask.ts` — Day-1 probe; resolved the path-
+      rooting question (rooted at `Checkpoint`, not response).
+    - `cli/reset-cursor.ts` — operational tool.
+    - `indexer.service.ts` — Nest lifecycle bridge
+      (`OnApplicationBootstrap` → spawn loop on detached promise;
+      `OnApplicationShutdown` → AbortController.abort()).
+
+  **End-to-end verified.** Worker boots from
+  `INDEXER_INITIAL_CHECKPOINT=334601968` (the package publish
+  checkpoint), backfills the gap, hits the bucket-create checkpoint
+  at 334605108, and `BucketCreatedHandler` runs against the
+  `KraterionBucketCreated` event. Result: the existing test-bucket
+  row (created by `bootstrap-gateway.ts`) is backfilled with
+  `tx_digest = CKjPGvRt6ARsjw9wtLka2nLGmMaY7HWAFHf7oQM2HNy2`,
+  `event_seq = 0`, and `event_payload` populated. Cursor advances
+  past the bucket-create checkpoint and onward toward live tip.
+
+  **Two ADRs written:**
+  - `Indexer adopts gRPC SubscribeCheckpoints directly; read_mask
+    paths root at Checkpoint` — why we skipped the JSON-RPC
+    adapter and what the Day-1 probe established about mask
+    semantics.
+  - `Public testnet fullnode: backfill rate-limit gate at 8 rps` —
+    why `BACKFILL_MIN_INTERVAL_MS=125` + concurrency=2 is the
+    public-testnet sweet spot, with the env override path for
+    paid endpoints.
+
+  **One runbook entry:** `Indexer worker hits 429s during backfill`
+  — symptoms, root cause, and the env-tuning paths.
+
+  **Next up:** Phase 2 (gateway cleanup — replace gateway-direct
+  Bucket/S3Object writes with `waitForS3Object` polling for the
+  indexer's row), Phase 3 (remaining 4 active handlers + reserve
+  log-only handlers).
+
+---

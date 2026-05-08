@@ -1,8 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // Worker is ESM (`"type": "module"` in package.json) so it can import
+    // workspace packages (which all ship ESM dist) and `@mysten/sui/grpc`
+    // (also ESM). Same architecture as `apps/gateway` — see
+    // `docs/decisions.md` "Gateway is ESM; workspace packages export
+    // from `dist/`, not `src/`".
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "target": "ES2022",
     "outDir": "./dist",
     "rootDir": "./src",

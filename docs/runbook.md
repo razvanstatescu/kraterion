@@ -461,3 +461,37 @@ surgery). The error is specifically deterministic, not a transient
 flake — repeats every smoke run until the stale Bucket row is purged.
 
 ---
+
+## Indexer worker hits 429s during backfill against public testnet
+
+**Symptom:** `apps/worker` logs:
+`subscribe loop error code=UNAVAILABLE attempt=N retry-in=...ms: 429 Too Many Requests`
+in a steady stream during the initial backfill, with cursor
+advancing in 200-checkpoint bursts before each backoff.
+
+**Cause:** Public Sui testnet RPC is capped at 10 rps. The indexer's
+backfill (`run-loop.ts:backfillRange`) fires `getCheckpoint` calls
+in parallel; without a rate gate, even a moderate concurrency
+overshoots the cap.
+
+**Fix:** the rate gate is already in place
+(`BACKFILL_MIN_INTERVAL_MS = 125ms`, `BACKFILL_CONCURRENCY = 2` =
+~8 rps). If you're STILL seeing 429s:
+- Check `INDEXER_BACKFILL_INTERVAL_MS` env override — too low?
+- Confirm you're on the public `fullnode.testnet.sui.io:443`. A
+  paid endpoint (Shinami, Triton, BlockVision, GetBlock) has
+  higher limits; bump the interval down (e.g. 50ms = 20 rps).
+- Other workloads on the same host hammering the same fullnode?
+
+**Detail on correctness during 429 churn:** the 429 surfaces as
+`RpcError { code: 'UNAVAILABLE' }`. The run-loop's catch block
+treats this as a retryable transport error: cursor is never advanced
+past an unprocessed checkpoint, the in-flight backfill calls share
+the run-loop's abort signal so they cancel together, and the next
+subscribe-and-resume reads the persisted cursor. Worst case is a
+slow backfill, never a lost event.
+
+**First seen:** 2026-05-08 during Phase 1 of indexer build, public
+testnet at concurrency=4 with no rate gate.
+
+---

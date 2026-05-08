@@ -96,6 +96,19 @@ model Bucket {
   // health-check worker. BigInt because WAL is u64 on-chain.
   funding_pool_wal_balance   BigInt  @default(0)
 
+  // === Indexer provenance ===
+  // The Sui transaction digest + per-tx event index that produced this
+  // row. Populated by the gRPC checkpoint indexer at
+  // `KraterionBucketCreated`. Nullable today because the gateway's
+  // bootstrap script can also create rows directly (until Phase 2
+  // removes the gateway-direct write); once the indexer is the sole
+  // writer these become NOT NULL.
+  tx_digest     Bytes?
+  event_seq     Int?
+  // Raw `event.parsedJson` archived for re-derivation on Move
+  // upgrades. Cheap; replaces the need for a separate audit log.
+  event_payload Json?
+
   // === Bookkeeping ===
   created_at DateTime  @default(now())
   // Soft delete. The on-chain SharedBlob persists regardless — that's the
@@ -106,6 +119,11 @@ model Bucket {
   objects S3Object[]
 
   @@unique([project_id, name])
+  // Idempotency key for the indexer: `(tx_digest, event_seq)` is unique
+  // per Sui event. Postgres treats multi-NULL composites as distinct,
+  // so rows with NULL tx_digest (gateway-direct, pre-Phase-2) coexist
+  // with indexer-written rows.
+  @@unique([tx_digest, event_seq], map: "Bucket_indexer_event_key")
   @@index([project_id])
   @@index([kraterion_bucket_object_id])
 }
@@ -141,6 +159,14 @@ model S3Object {
   // GET time by reading from the aggregator and calling `client.decrypt`.
   seal_identity Bytes
 
+  // === Indexer provenance ===
+  // Same shape as `Bucket.tx_digest/event_seq/event_payload`. Populated
+  // by `ObjectCreatedHandler` at `KraterionObjectCreated`; nullable
+  // until Phase 2 removes the gateway-direct upsert.
+  tx_digest     Bytes?
+  event_seq     Int?
+  event_payload Json?
+
   // === Bookkeeping ===
   uploaded_at DateTime  @default(now())
   deleted_at  DateTime?
@@ -150,6 +176,7 @@ model S3Object {
   // Latest non-deleted version per (bucket, key). Soft-delete is via
   // deleted_at; we don't keep historical versions for hackathon.
   @@unique([bucket_id, s3_key])
+  @@unique([tx_digest, event_seq], map: "S3Object_indexer_event_key")
   @@index([bucket_id, s3_key])
   // Renewal worker scans by storage_end_epoch.
   @@index([storage_end_epoch])
@@ -192,4 +219,58 @@ model SubWallet {
   account Account? @relation("api_decryption_for_account", fields: [account_id], references: [id])
 
   @@index([role])
+}
+
+// === Indexer bookkeeping ===
+//
+// One `IndexerCursor` row per gRPC pipeline source. Today we run a
+// single source `kraterion-package-v1` covering all 11 events from
+// the kraterion package (the kraterion + reserve modules emit them
+// all under one packageId). The cursor advances per checkpoint.
+//
+// `last_checkpoint_seq` is the gRPC-native unit of progress. The
+// per-checkpoint commit transaction sets it to the checkpoint's
+// `sequence_number` after every event in that checkpoint has been
+// processed (or DLQ'd). Skipping empty checkpoints is fine — the
+// cursor advances regardless, otherwise we re-scan them forever.
+//
+// `last_tx_digest` and `last_event_seq` are diagnostic only: they
+// record the last event we saw inside the last checkpoint, so a human
+// reading the row can pinpoint the watermark without grepping logs.
+model IndexerCursor {
+  source_id           String   @id
+  last_checkpoint_seq BigInt
+  last_tx_digest      Bytes?
+  last_event_seq      Int?
+  updated_at          DateTime @default(now()) @updatedAt
+}
+
+// Failed event quarantine. Per-event try/catch in the run-loop writes
+// rows here on parse error / handler throw / schema mismatch; the
+// cursor still advances past the offending event so a poison pill
+// never freezes the queue.
+//
+// `(source_id, tx_digest, event_seq)` is the natural idempotency key:
+// re-encountering the same event on a backfill bumps `retries` rather
+// than creating a duplicate row.
+model IndexerDeadLetter {
+  id              String   @id @default(uuid())
+  source_id       String
+  checkpoint_seq  BigInt
+  tx_digest       Bytes
+  event_seq       Int
+  // Fully-qualified Move type, e.g.
+  // "0x27e1…::events::KraterionObjectCreated".
+  event_type      String
+  payload         Json
+  error_message   String
+  error_stack     String?
+  retries         Int      @default(0)
+  // pending | parked | resolved
+  status          String   @default("pending")
+  first_seen_at   DateTime @default(now())
+  last_attempt_at DateTime @default(now())
+
+  @@unique([source_id, tx_digest, event_seq])
+  @@index([source_id, status])
 }
