@@ -1077,3 +1077,100 @@ ever signs PTBs.
   on-chain audit trail. That's fine.
 
 ---
+
+## 2026-05-08 — `S3Object.s3_key` uses Postgres `COLLATE "C"` (byte-wise sort)
+
+**Status:** Accepted
+
+**Context:** AWS S3 ListObjectsV2 specifies byte-wise UTF-8 ascending
+sort order. Postgres `text` defaults to the cluster's locale collation
+(typically `en_US.UTF-8`), which sorts case-insensitively in some
+contexts and groups punctuation locale-specifically. The two diverge
+visibly on:
+- ASCII case: `Aaa` vs `aaa` — locale collates them adjacently; AWS
+  puts `A` (0x41) before `a` (0x61).
+- Punctuation: `_` vs `/` — locale-specific; AWS is byte-wise.
+- Mixed unicode: locale-specific Asian-character ordering vs raw UTF-8
+  byte order.
+
+These differences would let `aws s3 sync` and other tools that depend
+on stable byte-wise key order get out of sync between AWS and our
+gateway, plus break our continuation-token pagination (which assumes
+monotonic byte-wise order to skip past common prefixes).
+
+**Decision:** Migration `s3object_skey_collate_c` runs `ALTER TABLE
+"S3Object" ALTER COLUMN "s3_key" TYPE TEXT COLLATE "C"`. The `"C"`
+collation is Postgres's byte-wise mode. Indexes on `s3_key` (the
+unique `(bucket_id, s3_key)` index) inherit the column's collation
+automatically, so `ORDER BY s3_key ASC` in any Prisma query produces
+AWS-equivalent ordering with index support.
+
+**Rejected alternatives:**
+- *Per-query `ORDER BY s3_key COLLATE "C"`* — works but bypasses the
+  index (Postgres can't use an index whose collation differs from the
+  ORDER BY clause). Catastrophic for buckets with millions of keys.
+- *Cast to `bytea` for ORDER BY* — bulletproof but no index can
+  satisfy. Same problem.
+- *Accept locale-aware sort as a documented limitation* — breaks
+  pagination correctness for unicode buckets and silently diverges
+  from AWS.
+
+**Consequences:**
+- All `s3_key` comparisons (`>`, `>=`, `LIKE`, `BETWEEN`) are now
+  byte-wise. The continuation-token cursor advance in
+  `ObjectsListController` (`commonPrefixSuccessor`) produces a string
+  that's compared byte-wise against the column, so skipping past a
+  common prefix works correctly.
+- One-time cost: rebuilds indexes on the column. Empty in our
+  hackathon DB; on a populated table the cost is `O(n log n)` of
+  index size.
+- Future Prisma schema regenerations preserve the collation because
+  Postgres stores it column-level — `prisma migrate dev` won't strip
+  it on schema-only diffs.
+
+---
+
+## 2026-05-08 — ListObjectsV2: opaque-versioned continuation tokens with kind discrimination
+
+**Status:** Accepted
+
+**Context:** S3 specifies the continuation token as opaque to clients.
+Implementations choose their own format. Two cursor scenarios:
+1. **Pagination terminating on a `<Contents>` entry** — the next page
+   wants `s3_key > last_key`.
+2. **Pagination terminating on a `<CommonPrefixes>` entry** — the next
+   page wants `s3_key >= byteWiseSuccessor(common_prefix)` so we
+   don't re-emit the same common prefix on the next page.
+
+A naive cursor that's just "the last raw key processed" works for (1)
+but breaks (2): if the next page's first row is also under the same
+common prefix, we'd add it to `<CommonPrefixes>` again. boto3's
+paginator doesn't dedup across pages, so the user would see the same
+prefix twice.
+
+**Decision:** Continuation token is `base64url(JSON({ v: 1, kind:
+"key" | "prefix", value: string }))`. The discriminant lets the next
+page apply the correct comparison:
+- `kind: "key"` → `s3_key > value` (strict, normal cursor).
+- `kind: "prefix"` → `s3_key >= commonPrefixSuccessor(value)`,
+  where `commonPrefixSuccessor(s)` is `s` with its last byte
+  incremented (handling 0xFF cascades). For ASCII delimiters (the
+  realistic case) this stays valid UTF-8.
+
+The `v: 1` version tag lets us evolve the format without breaking
+outstanding tokens — future versions add a new tag, old tokens still
+decode under their original handler.
+
+**Consequences:**
+- No duplicate `<CommonPrefixes>` across pages.
+- Malformed tokens (bad base64, bad JSON, wrong version) → 400
+  `InvalidArgument` with the canonical AWS message "The continuation
+  token provided is incorrect."
+- For pathological all-0xFF inputs to `commonPrefixSuccessor` we
+  append ` ` (space) — produces a valid UTF-8 string that still
+  sorts past the original. Edge case unreachable for normal inputs.
+- Tested in the conformance suite via the "paginate through MaxKeys=2"
+  case which exercises both `kind: "key"` and `kind: "prefix"`
+  cursors.
+
+---

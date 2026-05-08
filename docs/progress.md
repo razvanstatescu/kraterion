@@ -531,3 +531,78 @@ _Calendar weeks anchored in `docs/timeline.md`._
     drop, or honor.
 
 ---
+
+- `[gateway]` 2026-05-08 — **Phase 6 done — ListObjectsV2 conformant
+  end-to-end against testnet via boto3.**
+
+  Replaced the 501 stub in `ObjectsListController` with full V2
+  support: prefix filter, delimiter rollup with proper `CommonPrefixes`
+  emission, MaxKeys clamping (silent to ≤1000), pagination via
+  `continuation-token` (opaque base64url JSON with `kind` discriminant
+  to skip past common prefixes), `start-after`, `encoding-type=url`
+  (URL-encodes Key/Prefix/Delimiter/StartAfter/CommonPrefixes), and
+  `fetch-owner=true` (Owner element with accountId).
+
+  Routing decision tree on `GET /:bucket`:
+  - any of 24 known bucket sub-resource params (`?location`,
+    `?versioning`, `?lifecycle`, `?acl`, etc.) → 501 with the sub-
+    resource named in the message.
+  - `list-type=2` → V2 list handler.
+  - otherwise → 501 (V1 not supported).
+
+  **What shipped:**
+  - `ObjectsListController` rewrite (~370 LoC; all the sort/pagination
+    edge cases live here, not the controller).
+  - Migration `s3object_skey_collate_c` — `ALTER TABLE "S3Object"
+    ALTER COLUMN "s3_key" TYPE TEXT COLLATE "C"`. Byte-wise UTF-8
+    sort matches AWS semantics; indexes inherit the collation so
+    Prisma's normal `orderBy: { s3_key: 'asc' }` is index-backed.
+  - Continuation token codec: `base64url(JSON({v:1, kind, value}))`
+    with `kind` ∈ `{"key", "prefix"}` to apply the right cursor
+    comparison on the next page (skip past common prefix vs strict
+    `>` on a key).
+  - Element ordering in the XML response matches AWS exactly (Name,
+    Prefix, KeyCount, MaxKeys, Delimiter, IsTruncated,
+    ContinuationToken, NextContinuationToken, StartAfter,
+    EncodingType, Contents*, CommonPrefixes*) — rclone's strict XML
+    parser depends on this.
+  - LastModified format = `Date.toISOString()` (ISO 8601 with
+    milliseconds) — distinct from the IMF-fixdate format used in
+    `Last-Modified` HTTP headers (the GET response).
+
+  **Test summary:**
+  - 15/15 workspace typecheck green.
+  - boto3 (`/tmp/boto-test.py`) — **36/36 cases pass** end-to-end:
+    Phase-3 (5) + Phase-4 (8) + Phase-5 (12) + Phase-6 (11). New
+    Phase-6 cases:
+    - flat list (no prefix) → 7 keys, byte-wise sorted, IsTruncated=false
+    - prefix filter → 6 keys, no prefix leak
+    - pagination via `MaxKeys=2` + `ContinuationToken` → 4 pages, no
+      duplicates, full ordering preserved
+    - delimiter at root (`/`) → 0 Contents, 2 CommonPrefixes
+      (`phase5/`, `smoke/`)
+    - nested delimiter (Prefix=`phase5/`, Delimiter=`/`) → 5 flat
+      keys + 1 sub-prefix (`phase5/中文 名/`)
+    - StartAfter cursor → skips byte-wise-≤
+    - EncodingType=url → unicode key returned percent-encoded
+    - FetchOwner=true → Owner element present; false → omitted
+    - malformed ContinuationToken → InvalidArgument 400
+    - MaxKeys=10000 → silently clamped to 1000
+    - sub-resource queries (?location, ?versioning) → NotImplemented
+    - ListObjectsV1 (no list-type=2) → NotImplemented
+    - missing bucket → NoSuchBucket
+
+  ADRs written:
+  - `S3Object.s3_key uses Postgres COLLATE "C" (byte-wise sort)` —
+    why we couldn't keep the locale collation and what the cost was.
+  - `ListObjectsV2: opaque-versioned continuation tokens with kind
+    discrimination` — the cross-page common-prefix duplicate-emission
+    problem and how the kind-tagged cursor solves it.
+
+  **Next up:** Phase 7 polish — `If-None-Match` → 304 honoring,
+  `x-amz-meta-*` pass-through, `Content-Disposition` /
+  `Content-Encoding` / `Cache-Control` pass-through, public read
+  endpoint at `/public/:bucket/*`. None of these block the demo;
+  they're "if time permits" items per the timeline.
+
+---

@@ -28,27 +28,29 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 ## Status
 
 - **Current week:** W2 (Storage path) — May 14 to May 20 (currently
-  running ahead — Phase 5 landed during W1)
+  running ahead — Phases 0–6 all landed during W1)
 - **Days to submission:** 44
 - **Last reviewed:** 2026-05-08
-- **W1 status (complete):** Move package + bindings + Prisma + crypto
-  pipeline + full S3 surface (bucket + object read + object write)
-  green. Phases 0–5 of the gateway build done.
+- **Status (complete):** Move package + bindings + Prisma + crypto
+  pipeline + **full S3 surface** (bucket + object read + object write
+  + paginated list with delimiter) all green. Phases 0–6 of the
+  gateway build done.
   - On-chain: Move package `0x5dfc…64db`, init-spawned reserve, TS
     bindings auto-synced.
   - Off-chain crypto: smoke test round-trips encrypt → register →
     upload-relay → certify+wrap → aggregator-read → decrypt.
   - HTTP: gateway is ESM, boots clean under `node dist/main.js`.
-    GetObject/HeadObject/PutObject/DeleteObject all wired to the
-    encrypt + on-chain pipeline. ListObjectsV2 is a 501 stub awaiting
-    Phase 6.
+    Every S3 verb that boto3/aws-cli exercises is implemented. The
+    bucket sort order is byte-wise UTF-8 (Postgres `COLLATE "C"`)
+    matching AWS exactly.
   - 15/15 workspace typecheck green. 33/33 Move unit tests + 7/7 SDK
-    tests + **24/24 boto3 cases** green (Phase-3 bucket level,
-    Phase-4 read path conformance, Phase-5 write path conformance).
-  Next: Phase 6 — ListObjectsV2 implementation (paginated key listing
-  with prefix + delimiter), DeleteBucket-with-objects, then Phase 7
-  polish (`/public/*`, `x-amz-meta-*` pass-through, `If-None-Match`
-  → 304).
+    tests + **36/36 boto3 cases** green covering every phase.
+  Next: Phase 7 polish — `If-None-Match` → 304, `x-amz-meta-*` and
+  HTTP-metadata pass-through (`Content-Disposition`,
+  `Content-Encoding`, `Cache-Control`), public-read endpoint
+  (`/public/:bucket/*`). All optional time-permitting items.
+  Then: dashboard build + indexer migration (replaces every direct DB
+  write the gateway does today).
 
 ## Cadence
 

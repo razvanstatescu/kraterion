@@ -1,0 +1,14 @@
+-- Force byte-wise sort on s3_key.
+--
+-- Postgres `text` defaults to the cluster locale (typically en_US.UTF-8),
+-- which sorts "A"/"a" as adjacent and treats punctuation in locale-
+-- specific ways. AWS S3 ListObjectsV2 specifies byte-wise UTF-8
+-- ascending — that's collation `"C"` in Postgres. Without this, mixed-
+-- unicode buckets list in a different order than AWS would, which
+-- breaks `aws s3 sync`'s ordering invariants and produces non-AWS
+-- pagination boundaries.
+--
+-- The ALTER rebuilds the existing index `S3Object_bucket_id_s3_key_idx`
+-- and the unique index on `(bucket_id, s3_key)` automatically because
+-- they inherit the column's collation.
+ALTER TABLE "S3Object" ALTER COLUMN "s3_key" TYPE TEXT COLLATE "C";
