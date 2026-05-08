@@ -69,6 +69,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { REDIS } from "../redis/redis.module.js";
 import { S3Error } from "./s3-error.js";
 import { requireKraterion, requireBucket, requireKey } from "./request-context.js";
+import { waitForS3Object } from "../indexer-wait/wait-for-row.js";
 import {
   KRATERION_PACKAGE_ID,
   KRATERION_RESERVE_ID,
@@ -140,9 +141,12 @@ export class ObjectsWriteController {
     validateContentMd5(headers, plaintext);
     validateContentSha256(headers, plaintext);
 
-    // ETag is plaintext MD5 (lowercase hex), per the S3 spec for
-    // single-part uploads. Always computed before encryption.
-    const etag = createHash("md5").update(plaintext).digest("hex");
+    // ETag is plaintext MD5, per the S3 spec for single-part uploads.
+    // Compute once as raw bytes (passed to the Move event so the
+    // indexer can populate `S3Object.etag`) and as lowercase hex
+    // (returned in the response `ETag:` header, stored in DB).
+    const etagRaw = createHash("md5").update(plaintext).digest();
+    const etag = etagRaw.toString("hex");
     const contentType = pickContentType(headers);
 
     // Bucket lookup — same shape as GetObject. Reject revoked access at
@@ -189,12 +193,14 @@ export class ObjectsWriteController {
 
     // Compute blob metadata + encoded size locally (Walrus expects the
     // *encoded* size as the storage_amount, not the raw byte count).
+    // The Walrus storage end-epoch is derived in Move from the inner
+    // Blob (via `walrus::blob::end_epoch`) and surfaced via the
+    // `KraterionObjectCreated` event — gateway no longer needs it.
     const walrus = getWalrusClient();
     const meta = await walrus.computeBlobMetadata({ bytes: encrypted });
     const systemState = await walrus.systemState();
     const nShards = systemState.committee.n_shards;
     const encodedSize = getEncodedBlobLength(encrypted.length, nShards);
-    const endEpoch = systemState.committee.epoch + EPOCHS_AHEAD;
 
     const gatewayKp = this.gatewayKeypair.getKeypair();
     const gatewayAddress = this.gatewayKeypair.getAddress();
@@ -310,6 +316,9 @@ export class ObjectsWriteController {
           // size; passed explicitly because the inner Blob only carries
           // the encrypted size.
           sizeBytes: BigInt(plaintext.byteLength),
+          // 16-byte raw MD5 of the plaintext = the S3 ETag's underlying
+          // hash. Indexer hex-encodes it for `S3Object.etag`.
+          etagMd5: Array.from(etagRaw),
         },
       }),
     );
@@ -350,54 +359,14 @@ export class ObjectsWriteController {
       throw new S3Error("InternalError", "PTB2 produced no SharedBlob object.");
     }
 
-    // === DB upsert ===
-    // On overwrite, log the prior walrus_blob_id + shared_blob_object_id
-    // so a future reaper job can refund the WAL from the orphaned
-    // SharedBlob. The new row is the source of truth from this point on.
-    try {
-      const previous = await this.prisma.s3Object.findUnique({
-        where: { bucket_id_s3_key: { bucket_id: bucketRow.id, s3_key: s3Key } },
-        select: { walrus_blob_id: true, shared_blob_object_id: true, deleted_at: true },
-      });
-      if (previous && previous.deleted_at === null) {
-        this.logger.warn(
-          `ORPHAN BLOB (overwritten): bucket=${bucketName} key=${s3Key} ` +
-            `prev_blob_id=${previous.walrus_blob_id} prev_shared=${previous.shared_blob_object_id}`,
-        );
-      }
-      await this.prisma.s3Object.upsert({
-        where: { bucket_id_s3_key: { bucket_id: bucketRow.id, s3_key: s3Key } },
-        create: {
-          bucket_id: bucketRow.id,
-          s3_key: s3Key,
-          size_bytes: BigInt(plaintext.byteLength),
-          content_type: contentType,
-          etag,
-          walrus_blob_id: meta.blobId,
-          shared_blob_object_id: sharedBlobObjectId,
-          storage_end_epoch: endEpoch,
-          seal_identity: Buffer.from(sealIdentity),
-          deleted_at: null,
-        },
-        update: {
-          size_bytes: BigInt(plaintext.byteLength),
-          content_type: contentType,
-          etag,
-          walrus_blob_id: meta.blobId,
-          shared_blob_object_id: sharedBlobObjectId,
-          storage_end_epoch: endEpoch,
-          seal_identity: Buffer.from(sealIdentity),
-          deleted_at: null,
-          uploaded_at: new Date(),
-        },
-      });
-    } catch (e) {
-      this.logger.error(
-        `ORPHAN SHAREDBLOB (DB upsert failed): shared=${sharedBlobObjectId} ` +
-          `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${(e as Error).message}`,
-      );
-      throw new S3Error("InternalError", "Failed to record object metadata.");
-    }
+    // === Hand off to indexer ===
+    // The indexer is now the single writer of `S3Object` (per ADR
+    // "DB writes are gateway-direct today; replace with event-driven
+    // indexer when the dashboard lands"). Wait for the row to appear,
+    // then return success. If the indexer is down or far behind, we
+    // 503 — the data IS on chain, boto3 retries, by then the
+    // indexer has caught up.
+    await waitForS3Object(this.prisma, sharedBlobObjectId);
 
     setWriteResponseHeaders(reply, etag);
     void reply.status(200).send();

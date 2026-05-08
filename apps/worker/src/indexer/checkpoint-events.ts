@@ -182,7 +182,7 @@ function digestToBuffer(digest: string): Buffer {
 function toChangedObject(co: ProtoChangedObject): {
   objectId: string;
   objectType: string;
-  idOperation: "created" | "mutated" | "deleted" | "unknown";
+  idOperation: "created" | "deleted" | "unknown";
 } {
   return {
     objectId: co.objectId ?? "",
@@ -193,12 +193,21 @@ function toChangedObject(co: ProtoChangedObject): {
 
 function normalizeIdOperation(
   raw: number | string | undefined,
-): "created" | "mutated" | "deleted" | "unknown" {
-  // The proto enum is `IdOperation { CREATED, MUTATED, DELETED, ... }`.
-  // The wire encoding can be the integer or the canonical name string.
-  const s = typeof raw === "string" ? raw.toLowerCase() : "";
-  if (s.includes("creat") || raw === 1) return "created";
-  if (s.includes("mutat") || raw === 2) return "mutated";
-  if (s.includes("delet") || raw === 3) return "deleted";
+): "created" | "deleted" | "unknown" {
+  // The proto enum is `ChangedObject.IdOperation`:
+  //   ID_OPERATION_UNKNOWN = 0
+  //   NONE                 = 1
+  //   CREATED              = 2
+  //   DELETED              = 3
+  // (There is NO `MUTATED` in this enum — mutated objects have
+  // id_operation = NONE; "mutated" lives in `output_object_state`.)
+  // The wire form is either the integer or the canonical name string.
+  if (raw === 2) return "created";
+  if (raw === 3) return "deleted";
+  if (typeof raw === "string") {
+    const s = raw.toUpperCase();
+    if (s === "CREATED") return "created";
+    if (s === "DELETED") return "deleted";
+  }
   return "unknown";
 }

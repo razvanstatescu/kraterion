@@ -171,7 +171,8 @@ model S3Object {
   uploaded_at DateTime  @default(now())
   deleted_at  DateTime?
 
-  bucket Bucket @relation(fields: [bucket_id], references: [id])
+  bucket     Bucket              @relation(fields: [bucket_id], references: [id])
+  extensions S3ObjectExtension[]
 
   // Latest non-deleted version per (bucket, key). Soft-delete is via
   // deleted_at; we don't keep historical versions for hackathon.
@@ -219,6 +220,27 @@ model SubWallet {
   account Account? @relation("api_decryption_for_account", fields: [account_id], references: [id])
 
   @@index([role])
+}
+
+// Log table for idempotent application of `KraterionObjectExtended`
+// events. The handler increments `S3Object.storage_end_epoch` by
+// `epochs_added`, which is NOT naturally idempotent — replaying the
+// event would double-add. The handler inserts a row here with
+// `(tx_digest, event_seq) UNIQUE`; if the insert conflicts, the
+// extension was already applied and the update is skipped.
+model S3ObjectExtension {
+  id            String   @id @default(uuid())
+  s3_object_id  String
+  tx_digest     Bytes
+  event_seq     Int
+  epochs_added  Int
+  funder        String
+  applied_at    DateTime @default(now())
+
+  s3_object S3Object @relation(fields: [s3_object_id], references: [id])
+
+  @@unique([tx_digest, event_seq])
+  @@index([s3_object_id])
 }
 
 // === Indexer bookkeeping ===

@@ -48,10 +48,17 @@ export const CHECKPOINT_READ_MASK_PATHS: readonly string[] = [
 
 /**
  * The subscribe response wraps the Checkpoint in `response.checkpoint`
- * and adds `response.cursor`. The probe (2026-05-08) confirmed that
- * `msg.cursor` is populated EVEN when the read_mask only targets
- * checkpoint-rooted fields — the cursor is a wrapper-level metadata
- * field outside the mask's scope. So the subscribe paths are exactly
- * the same shape as `GetCheckpoint`'s paths.
+ * and adds `response.cursor`. The probe (2026-05-08) found that the
+ * live stream does NOT populate `event.json` (it returns `event.contents`
+ * raw BCS only) — the `json` decode happens server-side via the
+ * indexer layer that backs `getCheckpoint`/`getTransaction`. So we
+ * use the subscribe stream purely as a "next cursor" notifier and
+ * fetch the actual checkpoint via `getCheckpoint(cursor)` for the
+ * fully-decoded payload. See `run-loop.ts:processSubscribeResponse`.
+ *
+ * The minimal subscribe mask is just `sequence_number` (which we
+ * already get implicitly via `response.cursor`). We keep
+ * `sequence_number` explicit so the response isn't completely empty
+ * — some servers return zero bytes when no path is selected.
  */
-export const SUBSCRIBE_READ_MASK_PATHS: readonly string[] = [...CHECKPOINT_READ_MASK_PATHS];
+export const SUBSCRIBE_READ_MASK_PATHS: readonly string[] = ["sequence_number"];

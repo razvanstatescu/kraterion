@@ -1358,3 +1358,162 @@ non-rate-limit failures (network blips, stream timeouts).
   setting on Shinami / similar.
 
 ---
+
+## 2026-05-08 — `KraterionObjectCreated` event also carries `etag_md5` (16 raw bytes)
+
+**Status:** Accepted
+
+**Context:** Phase 2/3 of the indexer plan made the indexer the sole
+writer of `S3Object`. While wiring the `ObjectCreatedHandler`, the
+`S3Object.etag` column surfaced as a Phase-0-missed gap: it stores the
+plaintext MD5 (per the S3 spec for non-multipart uploads — boto3
+verifies it locally during `aws s3 sync`), but plaintext MD5 is
+gateway-knowable only and isn't on chain anywhere.
+
+Three options considered:
+1. Compute etag at first-GET inside the gateway (decrypt → MD5),
+   cache. Breaks HeadObject which doesn't decrypt, and pays a CPU
+   hit per cold object.
+2. Use `walrus_blob_id` (encrypted root hash) as a synthetic etag.
+   Round-trips fine for boto3 read-back tests but breaks `aws s3
+   sync`'s diff (local plaintext MD5 != server etag).
+3. Add `etag_md5: vector<u8>` (16 raw MD5 bytes) to the event.
+   Gateway already computes MD5 in the existing `etag` derivation;
+   pass it as an arg.
+
+**Decision:** Option 3. The Move event surgery is small (one new
+field + one new arg to `wrap_in_shared_blob`), the gateway change
+is one line (`Array.from(etagRaw)`), and the indexer hex-encodes
+the bytes for `S3Object.etag` (which is what the gateway returns
+in the `ETag:` header).
+
+**Consequences:**
+- Yet another fresh package publish on testnet (the third in this
+  build session). Documented as accepted churn under Phase-0
+  surgery — testnet artifacts are sacrificial.
+- Bootstrap + smoke + boto3 stack continues to exercise the full
+  flow end-to-end with no regressions.
+- Future S3 features that need plaintext-derived metadata (CRC32,
+  Content-MD5 for clients that demand exact match, etc.) follow
+  the same "pass via Move event" pattern.
+
+---
+
+## 2026-05-08 — `ChangedObject.object_type` is NOT in raw checkpoints; match SharedBlob via the unique `id_operation = CREATED`
+
+**Status:** Accepted
+
+**Context:** `ObjectCreatedHandler` needs `shared_blob_object_id` —
+walrus's `shared_blob::new` doesn't return the SharedBlob, so the
+event can't carry it (per the earlier ADR). The plan was to find the
+SharedBlob by walking `tx.effects.changed_objects[]` and matching
+`objectType` ending in `::shared_blob::SharedBlob`.
+
+The Day-2 issue: the proto doc on `ChangedObject.object_type` says
+*"Type information is not provided by the effects structure but is
+instead provided by an indexing layer"*. `getCheckpoint` and
+`SubscribeCheckpoints` return the raw effects with `object_type =
+undefined`. Only the indexer-backed `getTransaction` API surfaces
+typed change lists.
+
+A probe confirmed: `getTransaction(GzzkgN…)` returned
+`changed_objects[i].objectType = "0xd84…::shared_blob::SharedBlob"`,
+but `getCheckpoint(seq)` for the SAME tx returned
+`changed_objects[i].objectType = undefined`.
+
+**Decision:** Match on `id_operation === CREATED` instead.
+
+In a `wrap_in_shared_blob` transaction:
+- the bucket, gas coin, and inner Blob are mutated (id_operation =
+  NONE, mapped to "unknown" by our normalizer);
+- the SharedBlob is the unique newly-created object (id_operation =
+  CREATED).
+
+So filtering `tx.effects.changedObjects` for `idOperation ===
+"created"` and asserting exactly one result gives us the SharedBlob
+deterministically. The handler throws → DLQ → human triage if the
+invariant ever breaks (e.g. a future Move change that creates more
+than one object in the wrap PTB).
+
+**Rejected:** an extra `getTransaction(tx_digest)` per
+`KraterionObjectCreated` event would surface `object_type` correctly
+but adds an RPC round-trip per object create. At scale (hundreds of
+events/day) it's fine; at hackathon scale it's pure overhead because
+the unique-CREATED invariant holds.
+
+**Consequences:**
+- `ObjectCreatedHandler` is one unary call shorter per event.
+- Future kraterion entry-functions that ALSO emit
+  `KraterionObjectCreated` AND create more than one object in the
+  same PTB would break this assumption. None are planned, but if
+  it ever happens, fall back to the `getTransaction` lookup.
+- The IndexerDeadLetter clearly calls out the count mismatch in its
+  error message, so the failure surface is explicit.
+
+**Related fix:** `IdOperation` proto enum is `{ UNKNOWN=0, NONE=1,
+CREATED=2, DELETED=3 }` — I had it wrong (`{ CREATED=1, MUTATED=2,
+DELETED=3 }`) in the initial run-loop. The two values (NONE for
+mutations, no separate MUTATED) explains why the handler.interface
+union dropped `"mutated"`. Documented inline at
+`checkpoint-events.ts:normalizeIdOperation`.
+
+---
+
+## 2026-05-08 — `subscribeCheckpoints` doesn't populate `event.json`; live stream is a heartbeat, fetch via `getCheckpoint`
+
+**Status:** Accepted
+
+**Context:** While verifying Phase 2/3 end-to-end, every
+`KraterionObjectCreated` event arriving via the live
+`subscribeCheckpoints` stream landed in the DLQ with empty payloads.
+The same events processed via the backfill path (unary
+`getCheckpoint`) deserialized correctly. A targeted probe
+(`/tmp/probe-live-vs-get.ts`, since deleted) confirmed the wire-level
+discrepancy:
+
+```
+live cp=334634729      hasJson=false   hasContents=true
+getCheckpoint(334634729) hasJson=true  hasContents=true
+```
+
+Both surfaces populate `event.contents` (raw BCS bytes), but only
+`getCheckpoint` and `getTransaction` populate `event.json` (the
+pre-decoded `google.protobuf.Value` mirror). The `json` decode is
+done by the indexer layer that backs those two unary RPCs;
+`subscribeCheckpoints` skips it (returns the raw checkpoint stream).
+
+This pattern matches `ChangedObject.object_type` from the previous
+ADR — both fields are explicitly indexer-layer-only and aren't in
+the raw checkpoint payload.
+
+**Decision:** Use the live `subscribeCheckpoints` stream as a
+heartbeat — read only `cursor` from the response and discard
+`checkpoint`. For each cursor we observe, fetch the actual
+checkpoint via `getCheckpoint(cursor)` to get the json-decoded
+payload. The subscribe `read_mask` is reduced to just
+`["sequence_number"]` (cursor is wrapper-level, populated
+regardless of mask).
+
+This adds ~1 unary RPC per live checkpoint. At testnet's ~250ms
+cadence, that's ~4 rps steady-state — well under the public
+fullnode's 10 rps cap. When activity is bursty, our own backfill
+gate (8 rps) kicks in too; combined we stay under the cap.
+
+**Rejected:** decoding `event.contents` (raw BCS) client-side. It
+would halve the RPC count and is faster-per-event, but requires
+wiring per-event-type BCS layouts from `@kraterion/kraterion-move-sdk`'s
+generated bindings into the indexer. Worth doing eventually
+(post-hackathon) when traffic grows; not worth it for hundreds of
+events per day.
+
+**Consequences:**
+- One file changed (`run-loop.ts:processSubscribeResponse`) — the
+  live path now goes through the same `fetchCheckpoint` helper
+  that backfill uses.
+- The subscribe-mask code-path stays minimal — only what's needed
+  to advance the cursor.
+- Demonstrated working end-to-end: `boto3 put_object → S3Object
+  row appears via indexer in ~17s → boto3 get_object returns
+  byte-exact plaintext`.
+
+---

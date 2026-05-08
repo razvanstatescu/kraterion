@@ -72,6 +72,10 @@ export const KraterionObjectCreatedSchema = z
     seal_identity: bytesB64,
     size_bytes: u64Str,
     storage_end_epoch: u32,
+    // 16-byte raw MD5 of the plaintext body. Hex-encoded by the
+    // handler for `S3Object.etag` (which the gateway returns in the
+    // `ETag:` header).
+    etag_md5: bytesB64,
   })
   .passthrough();
 export type KraterionObjectCreated = z.infer<typeof KraterionObjectCreatedSchema>;

@@ -108,12 +108,15 @@ export async function runLoop(opts: {
       }
 
       // Drain the live stream from liveTip forward. The first message
-      // we already pulled; process it, then continue.
-      await processSubscribeResponse(opts, first.value);
+      // we already pulled; process it, then continue. We pass
+      // `signal: ac.signal` so the per-checkpoint fetchCheckpoint
+      // calls cancel cleanly on stream error.
+      const liveOpts = { ...opts, signal: ac.signal };
+      await processSubscribeResponse(liveOpts, first.value);
       while (!ac.signal.aborted) {
         const next = await iterator.next();
         if (next.done) break;
-        await processSubscribeResponse(opts, next.value);
+        await processSubscribeResponse(liveOpts, next.value);
         // Reset the attempt counter once we've been streaming
         // stably for a while.
         if (Date.now() - lastStableStartMs > STABLE_STREAM_RESET_MS) {
@@ -148,25 +151,41 @@ export async function runLoop(opts: {
   logger.log("indexer loop exited (signal aborted)");
 }
 
-/** Process one `SubscribeCheckpointsResponse`. */
+/** Process one `SubscribeCheckpointsResponse`.
+ *
+ * **Important wire-protocol quirk** (probed 2026-05-08, see
+ * `docs/decisions.md` "subscribeCheckpoints doesn't populate
+ * event.json"): the live `subscribeCheckpoints` stream returns
+ * `event.contents` (raw BCS) but NOT `event.json` (the pre-decoded
+ * JSON). Only `getCheckpoint` and `getTransaction` populate `json`.
+ * Decoding BCS client-side would work but require the Move struct
+ * schemas wired into the indexer.
+ *
+ * Mitigation: use the live stream as a heartbeat (which checkpoint
+ * to process next) and fetch each cursor via unary
+ * `getCheckpoint`. One extra RPC per live checkpoint at ~1 rps
+ * (testnet's ~250ms checkpoint cadence) — well under the public
+ * fullnode's 10 rps cap. When we move to a paid endpoint we can
+ * revisit and decode BCS inline to halve the RPC count.
+ */
 async function processSubscribeResponse(
   opts: {
+    client: SuiGrpcClient;
     prisma: PrismaService;
     cursor: CursorRepo;
     dispatcher: DispatcherService;
     deadLetter: DeadLetterService;
     sourceId: string;
+    signal: AbortSignal;
   },
-  msg: { cursor?: bigint; checkpoint?: unknown },
+  msg: { cursor?: bigint },
 ): Promise<void> {
   if (msg.cursor === undefined) return;
-  const checkpoint = msg.checkpoint;
+  const checkpoint = await fetchCheckpoint(opts.client, msg.cursor, opts.signal);
   if (checkpoint == null) {
-    // Empty checkpoint payload — still advance cursor.
     await advanceEmpty(opts, msg.cursor);
     return;
   }
-  // The checkpoint type is structurally narrowed in walkCheckpoint.
   const batch = walkCheckpoint(checkpoint as never);
   await commitCheckpoint(opts, msg.cursor, batch);
 }

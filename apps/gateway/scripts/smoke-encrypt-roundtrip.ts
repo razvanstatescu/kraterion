@@ -247,6 +247,7 @@ async function main() {
         contentType: Array.from(new TextEncoder().encode("text/plain")),
         sealIdentity: Array.from(sealIdentity),
         sizeBytes: BigInt(plaintext.length),
+        etagMd5: Array.from(createHash("md5").update(plaintext).digest()),
       },
     }),
   );
@@ -327,48 +328,48 @@ async function main() {
     "round-tripped plaintext does not match original!",
   );
 
-  // === 10. Persist an S3Object row so the gateway's GET path can find it ===
-  // Without this, boto3 `get_object` would 404 — the smoke test owns the
-  // ground-truth bookkeeping the gateway reads at request time. Idempotent
-  // by `(bucket_id, s3_key)` unique → upsert.
-  bold("▸ persist S3Object row");
-  const s3Key = "smoke/hello.txt";
-  const etag = createHash("md5").update(plaintext).digest("hex");
-  const endEpoch = systemState.committee.epoch + EPOCHS_AHEAD;
+  // === 10. Wait for the indexer to write the S3Object row ===
+  // Per the single-writer ADR, the indexer is the only writer of
+  // `S3Object` rows. After PTB 2 lands successfully, the indexer's
+  // gRPC checkpoint stream picks up the `KraterionObjectCreated`
+  // event and `ObjectCreatedHandler` writes the row. We poll until
+  // it appears.
+  bold("▸ wait for indexer to write S3Object");
   if (!sharedBlobChange || !("objectId" in sharedBlobChange)) {
-    throw new Error("No SharedBlob created; cannot persist S3Object row.");
+    throw new Error("No SharedBlob created; nothing for indexer to ingest.");
   }
   const sharedBlobObjectId = sharedBlobChange.objectId;
-  const objectRow = await prisma.s3Object.upsert({
-    where: { bucket_id_s3_key: { bucket_id: bucket.id, s3_key: s3Key } },
-    create: {
-      bucket_id: bucket.id,
-      s3_key: s3Key,
-      size_bytes: BigInt(plaintext.length),
-      content_type: "text/plain",
-      etag,
-      walrus_blob_id: meta.blobId,
-      shared_blob_object_id: sharedBlobObjectId,
-      storage_end_epoch: endEpoch,
-      seal_identity: Buffer.from(sealIdentity),
-      deleted_at: null,
-    },
-    update: {
-      size_bytes: BigInt(plaintext.length),
-      content_type: "text/plain",
-      etag,
-      walrus_blob_id: meta.blobId,
-      shared_blob_object_id: sharedBlobObjectId,
-      storage_end_epoch: endEpoch,
-      seal_identity: Buffer.from(sealIdentity),
-      deleted_at: null,
-      uploaded_at: new Date(),
-    },
-  });
-  info(`S3Object row id=${objectRow.id}`);
-  info(`  s3_key:        ${s3Key}`);
-  info(`  walrus_blob_id ${meta.blobId}`);
-  info(`  end_epoch:     ${endEpoch}`);
+  const s3Key = "smoke/hello.txt";
+  const expectedEtag = createHash("md5").update(plaintext).digest("hex");
+  const expectedEndEpoch = systemState.committee.epoch + EPOCHS_AHEAD;
+  const start = Date.now();
+  let objectRow: Awaited<ReturnType<typeof prisma.s3Object.findUnique>> = null;
+  while (Date.now() - start < 60_000) {
+    objectRow = await prisma.s3Object.findUnique({
+      where: { shared_blob_object_id: sharedBlobObjectId },
+    });
+    if (objectRow) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (!objectRow) {
+    throw new Error(
+      `Indexer never produced S3Object row for shared=${sharedBlobObjectId} ` +
+        `after 60s. Is \`pnpm -F @kraterion/worker dev\` running?`,
+    );
+  }
+  info(`S3Object row id=${objectRow.id}  (after ${Date.now() - start}ms)`);
+  info(`  s3_key:        ${objectRow.s3_key}  (expected: ${s3Key})`);
+  info(`  walrus_blob_id ${objectRow.walrus_blob_id}  (expected: ${meta.blobId})`);
+  info(`  etag:          ${objectRow.etag}  (expected: ${expectedEtag})`);
+  info(`  end_epoch:     ${objectRow.storage_end_epoch}  (expected: ${expectedEndEpoch})`);
+  if (
+    objectRow.s3_key !== s3Key ||
+    objectRow.walrus_blob_id !== meta.blobId ||
+    objectRow.etag !== expectedEtag ||
+    objectRow.storage_end_epoch !== expectedEndEpoch
+  ) {
+    throw new Error("Indexer-written S3Object row diverged from gateway-side expectations!");
+  }
 
   bold("");
   bold("✓ smoke test passed");

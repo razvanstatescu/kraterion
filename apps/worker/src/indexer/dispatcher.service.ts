@@ -6,6 +6,10 @@ import {
   indexerLagSeconds,
 } from "./metrics.js";
 import { BucketCreatedHandler } from "./handlers/bucket-created.handler.js";
+import { ObjectCreatedHandler } from "./handlers/object-created.handler.js";
+import { ObjectExtendedHandler } from "./handlers/object-extended.handler.js";
+import { ApiAccessHandler } from "./handlers/api-access.handler.js";
+import { BucketVisibilityChangedHandler } from "./handlers/bucket-visibility.handler.js";
 import type { EventHandler, ParsedEvent } from "./handlers/handler.interface.js";
 
 /**
@@ -14,16 +18,31 @@ import type { EventHandler, ParsedEvent } from "./handlers/handler.interface.js"
  * (`::events::KraterionBucketCreated`) so a Move package redeploy
  * doesn't require touching the dispatcher.
  *
- * Phase 1 wires only `BucketCreatedHandler`. Phase 2/3 register the
- * remaining 5 active handlers + 5 log-only fallthroughs.
+ * Reserve events (`ReserveCreated`, `ReserveCallerAuthorized`,
+ * `ReserveCallerDeauthorized`, `ReserveFunded`, `ReserveWithdrawn`)
+ * have no domain mapping yet — they fall through to the
+ * "unhandled event" debug log. A `ReserveBalanceMirror` table is a
+ * future Phase-7 nice-to-have.
  */
 @Injectable()
 export class DispatcherService {
   private readonly logger = new Logger(DispatcherService.name);
   private readonly handlers: EventHandler[];
 
-  constructor(bucketCreated: BucketCreatedHandler) {
-    this.handlers = [bucketCreated];
+  constructor(
+    bucketCreated: BucketCreatedHandler,
+    objectCreated: ObjectCreatedHandler,
+    objectExtended: ObjectExtendedHandler,
+    apiAccess: ApiAccessHandler,
+    bucketVisibility: BucketVisibilityChangedHandler,
+  ) {
+    this.handlers = [
+      bucketCreated,
+      objectCreated,
+      objectExtended,
+      apiAccess,
+      bucketVisibility,
+    ];
   }
 
   /**
@@ -33,7 +52,9 @@ export class DispatcherService {
    */
   resolve(eventType: string): EventHandler | null {
     for (const h of this.handlers) {
-      if (eventType.endsWith(h.typeSuffix)) return h;
+      for (const suffix of h.typeSuffixes) {
+        if (eventType.endsWith(suffix)) return h;
+      }
     }
     return null;
   }

@@ -326,18 +326,20 @@ async function ensureTestBucket(
     throw new Error("Could not find created KraterionBucket in tx effects.");
   }
   const bucketObjectId = created.objectId;
-
-  const bucket = await prisma.bucket.create({
-    data: {
-      project_id: projectId,
-      name: TEST_BUCKET_NAME,
-      encryption_mode: "private",
-      kraterion_bucket_object_id: bucketObjectId,
-      api_access_granted: true,
-    },
-  });
-  info(`created test bucket: ${bucketObjectId} (tx ${r.digest})`);
-  return bucket;
+  info(`created test bucket on chain: ${bucketObjectId} (tx ${r.digest})`);
+  // The on-chain bucket emits `KraterionBucketCreated`; the indexer
+  // worker (separate process) writes the `Bucket` row. Per the
+  // single-writer ADR we don't insert here. Print a hint so the
+  // operator knows to start the worker for the row to appear.
+  void projectId; // resolved by the indexer via Account.sui_address.
+  info(
+    `Bucket DB row will be written by the indexer (run ` +
+      `\`pnpm -F @kraterion/worker dev\` if not already running).`,
+  );
+  // Return a minimal stub so callers that previously consumed the
+  // Bucket row's id keep typechecking. None of the bootstrap output
+  // formatting depends on this; the indexer is the source of truth.
+  return { id: null, kraterion_bucket_object_id: bucketObjectId };
 }
 
 // === Main ===

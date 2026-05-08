@@ -751,3 +751,102 @@ _Calendar weeks anchored in `docs/timeline.md`._
   log-only handlers).
 
 ---
+
+- `[indexer]` `[gateway]` `[move]` 2026-05-08 — **Phases 2 & 3 of indexer
+  plan: full handler set + gateway becomes a sole-PTB-signer.**
+
+  **Move side (small surgery #2):** added `etag_md5: vector<u8>` (16
+  raw MD5 bytes) to `KraterionObjectCreated` event +
+  `wrap_in_shared_blob` arg. Gateway computes `md5(plaintext)` once
+  and passes it both as the on-chain field and as the off-chain
+  response ETag header. Re-deployed the package one more time:
+  - new `KRATERION_PACKAGE_ID =
+    0x73b16cf98849e22af31b3b3d5f54125193b5927b31b8ac06ab411234c0c2fa14`
+  - new `KRATERION_RESERVE_ID =
+    0x3137a20eb5f654300f08dc911aee9edcde138afb8f34075800750613c5b1733f`
+  - publish tx: `2TFiWcLR7Fbw1GTAnfvLvrT5qWvMpaursKXbmSnrk38G`
+
+  **Indexer side (5 active handlers):**
+  - `BucketCreatedHandler` — already shipped Phase 1.
+  - `ObjectCreatedHandler` — full S3Object reconstruction from the
+    event (post-event-surgery) plus tx effects:
+    `shared_blob_object_id` recovered from the unique
+    `idOperation = CREATED` entry in `tx.effects.changed_objects`
+    (the proto explicitly says `object_type` is NOT in raw
+    checkpoints — see ADR).
+  - `ApiAccessHandler` — handles `ApiAccessGranted` AND
+    `ApiAccessRevoked` (multi-suffix dispatch). Sets
+    `Bucket.api_access_granted = true|false`.
+  - `BucketVisibilityChangedHandler` — flips
+    `Bucket.encryption_mode`.
+  - `ObjectExtendedHandler` — increments
+    `S3Object.storage_end_epoch` with idempotent guard via
+    `S3ObjectExtension` log table (counter ops aren't naturally
+    idempotent on replay).
+  - Multi-suffix support added to `EventHandler` interface
+    (`typeSuffixes: readonly string[]`) so one class can route
+    related events.
+  - `IdOperation` enum bug: I had `CREATED=1, MUTATED=2` in the
+    initial run-loop; actual proto is `UNKNOWN=0, NONE=1,
+    CREATED=2, DELETED=3` (no MUTATED — mutated objects use NONE).
+    Fixed in `normalizeIdOperation`.
+
+  **Gateway side — single-writer:**
+  - `apps/gateway/src/indexer-wait/wait-for-row.ts` — small helper
+    that polls `S3Object` (or `Bucket`) by natural key with a 15s
+    default timeout, throws `ServiceUnavailable` on timeout.
+  - `objects.write.controller.ts` — removed the post-PTB2 inline
+    `s3Object.upsert` and the orphan-overwrite-detection branch.
+    Replaced with `await waitForS3Object(prisma, sharedBlobObjectId)`.
+    `endEpoch` calculation also dropped (now derived in Move).
+  - `bootstrap-gateway.ts` — dropped the direct `prisma.bucket.create`
+    after `createGrantAndShareBucket`; the indexer writes the row
+    when it sees `KraterionBucketCreated`. Bootstrap prints a hint
+    to start the worker.
+  - `smoke-encrypt-roundtrip.ts` — replaced manual `s3Object.upsert`
+    with a 60s indexer-wait poll. The smoke test now
+    end-to-end-tests the indexer's ObjectCreatedHandler too.
+
+  **Schema changes (one migration: `indexer_object_extension`):**
+  - `S3ObjectExtension` log table for idempotent extension events.
+
+  **End-to-end verified.** Worker boots, backfills from publish
+  checkpoint, picks up `KraterionBucketCreated` →
+  `BucketCreatedHandler` writes Bucket row from event. Then
+  `ApiAccessGranted` → `ApiAccessHandler` flips
+  `api_access_granted = true`. Then `KraterionObjectCreated` →
+  `ObjectCreatedHandler` writes full S3Object row from event:
+  ```
+  s3_key      | smoke/hello.txt
+  etag        | cc9d8ecefaea961c3f3b6b98adb07e65
+  size_bytes  | 55
+  content_type| text/plain
+  storage_end_epoch | 396
+  tx_digest   | GzzkgN... (event source)
+  event_seq   | 1
+  ```
+  All fields reconstructed from chain data alone — no gateway-direct
+  write involved.
+
+  **Two ADRs + one runbook entry written:**
+  - `KraterionObjectCreated event also carries etag_md5` — why
+    the third Phase-0 surgery; option analysis.
+  - `ChangedObject.object_type is NOT in raw checkpoints; match
+    SharedBlob via the unique id_operation = CREATED` — the proto
+    indexer-layer-only annotation for object_type that bit us.
+  - (also fixed `IdOperation` enum mapping inline in
+    `checkpoint-events.ts:normalizeIdOperation`).
+
+  **Known operational caveat:** during a long backfill burst (worker
+  starting from far-behind cursor), PutObject's `waitForS3Object`
+  may exceed boto3's retry budget. In production after the indexer's
+  steady-state catch-up this disappears (lag drops to seconds). For
+  test/dev: wait for `indexer_lag_seconds` < 30 before exercising
+  PutObject.
+
+  **Next up:** Verification under steady-state lag (rerun boto3
+  conformance), then move on. Phase 4 (more verification) and
+  reserve handlers are nice-to-haves; the main path is now
+  end-to-end.
+
+---

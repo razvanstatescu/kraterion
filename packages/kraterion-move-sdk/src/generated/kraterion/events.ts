@@ -36,7 +36,8 @@ export const KraterionObjectCreated = new MoveStruct({ name: `${$moduleName}::Kr
         wrapped_by: bcs.Address,
         seal_identity: bcs.vector(bcs.u8()),
         size_bytes: bcs.u64(),
-        storage_end_epoch: bcs.u32()
+        storage_end_epoch: bcs.u32(),
+        etag_md5: bcs.vector(bcs.u8())
     } });
 export const KraterionObjectExtended = new MoveStruct({ name: `${$moduleName}::KraterionObjectExtended`, fields: {
         shared_blob_id: bcs.Address,

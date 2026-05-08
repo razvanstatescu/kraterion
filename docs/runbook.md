@@ -495,3 +495,72 @@ slow backfill, never a lost event.
 testnet at concurrency=4 with no rate gate.
 
 ---
+
+## Indexer DLQ entries with `Zod parse: Required field missing` and empty `payload = {}`
+
+**Symptom:** `IndexerDeadLetter` rows for `KraterionObjectCreated`
+events show `payload: {}` and a Zod validation error like:
+```
+[{"code":"invalid_type","expected":"object","received":"undefined",
+"path":["bucket_id"],"message":"Required"}, …]
+```
+even though the SAME tx, when fetched via `sui client tx-block` or
+`getTransaction`, shows the event payload populated correctly.
+
+**Cause:** The live `subscribeCheckpoints` stream does NOT populate
+`event.json` — only `event.contents` (raw BCS bytes). The
+pre-decoded `json` representation is added by Sui's indexer layer,
+which backs `getCheckpoint` and `getTransaction` only. If your
+run-loop walks `subscribeCheckpoints` checkpoints inline, you get
+empty `event.json` and Zod fails.
+
+**Fix:** This is fixed in `run-loop.ts:processSubscribeResponse` —
+the live stream is used as a heartbeat (read `cursor` only), and
+each cursor triggers a `getCheckpoint(cursor)` unary fetch for the
+fully-decoded payload. If you ever see this symptom, check that
+`processSubscribeResponse` is calling `fetchCheckpoint(opts.client,
+msg.cursor, …)` instead of walking `msg.checkpoint` directly.
+
+**Documented in:** `docs/decisions.md` "subscribeCheckpoints doesn't
+populate event.json".
+
+**First seen:** 2026-05-08 during Phase 2/3 of indexer plan.
+
+---
+
+## Indexer's `waitForS3Object` 503s during long backfills (PutObject
+fails repeatedly with `ServiceUnavailable`)
+
+**Symptom:** Boto3 `put_object` against the gateway returns
+`ServiceUnavailable` even though the smoke test runs the full PTB
+pipeline successfully on chain. The gateway logs show the wait poll
+hitting 15s timeout. The worker is running but its cursor is far
+behind live tip.
+
+**Cause:** `apps/gateway/src/indexer-wait/wait-for-row.ts` polls
+Postgres for the indexer-written `S3Object` row with a 15s default
+timeout. When the indexer is mid-backfill (large
+`indexer_lag_seconds` metric), the new event sits behind thousands
+of older events in the queue — the row doesn't appear in time.
+boto3 retries 4× by default; each retry runs a fresh PTB pipeline,
+creating an orphan SharedBlob each time, before giving up.
+
+**Fix:** during dev/testing, wait for the indexer to catch up
+before exercising PutObject. Two options:
+
+1. **Wait passively:** poll `curl http://localhost:4003/metrics |
+   grep indexer_lag_seconds` until it's < 30. With public testnet
+   at 8 rps and ~10k checkpoints to backfill, this takes ~20 min.
+2. **Skip the backfill:** seed the cursor near live tip with the
+   `seed-cursor` helper (manually-applied; see
+   `apps/worker/src/indexer/cli/reset-cursor.ts` for the inverse).
+   In production, the cursor is always within seconds of tip.
+
+**Production behavior:** in steady state, the indexer is within
+seconds of live tip and `waitForS3Object` returns within ~15s
+(checkpoint finality + ~1 unary RPC + DB write). The 4-retry
+amplification is a dev-only failure mode.
+
+**First seen:** 2026-05-08 during Phase 2/3 verification.
+
+---

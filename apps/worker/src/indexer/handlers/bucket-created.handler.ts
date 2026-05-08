@@ -26,7 +26,7 @@ import type { EventHandler, ParsedEvent } from "./handler.interface.js";
  */
 @Injectable()
 export class BucketCreatedHandler implements EventHandler {
-  readonly typeSuffix = "::events::KraterionBucketCreated";
+  readonly typeSuffixes = ["::events::KraterionBucketCreated"] as const;
 
   private readonly logger = new Logger(BucketCreatedHandler.name);
 

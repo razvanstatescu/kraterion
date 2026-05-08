@@ -288,6 +288,7 @@ public fun wrap_in_shared_blob(
     content_type: vector<u8>,
     seal_identity: vector<u8>,
     size_bytes: u64,
+    etag_md5: vector<u8>,
     ctx: &mut TxContext,
 ) {
     assert_caller_authorized_for_bucket(bucket, ctx);
@@ -313,6 +314,7 @@ public fun wrap_in_shared_blob(
         seal_identity,
         size_bytes,
         storage_end_epoch,
+        etag_md5,
     );
 }
 

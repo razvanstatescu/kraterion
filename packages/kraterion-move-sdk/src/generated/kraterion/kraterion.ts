@@ -406,6 +406,7 @@ export interface WrapInSharedBlobArguments {
     contentType: RawTransactionArgument<Array<number>>;
     sealIdentity: RawTransactionArgument<Array<number>>;
     sizeBytes: RawTransactionArgument<number | bigint>;
+    etagMd5: RawTransactionArgument<Array<number>>;
 }
 export interface WrapInSharedBlobOptions {
     package?: string;
@@ -415,7 +416,8 @@ export interface WrapInSharedBlobOptions {
         s3Key: RawTransactionArgument<Array<number>>,
         contentType: RawTransactionArgument<Array<number>>,
         sealIdentity: RawTransactionArgument<Array<number>>,
-        sizeBytes: RawTransactionArgument<number | bigint>
+        sizeBytes: RawTransactionArgument<number | bigint>,
+        etagMd5: RawTransactionArgument<Array<number>>
     ];
 }
 /**
@@ -452,9 +454,10 @@ export function wrapInSharedBlob(options: WrapInSharedBlobOptions) {
         'vector<u8>',
         'vector<u8>',
         'vector<u8>',
-        'u64'
+        'u64',
+        'vector<u8>'
     ] satisfies (string | null)[];
-    const parameterNames = ["bucket", "blob", "s3Key", "contentType", "sealIdentity", "sizeBytes"];
+    const parameterNames = ["bucket", "blob", "s3Key", "contentType", "sealIdentity", "sizeBytes", "etagMd5"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'kraterion',

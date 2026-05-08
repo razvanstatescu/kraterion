@@ -43,6 +43,12 @@ public struct KraterionObjectCreated has copy, drop {
     // indexer's renewal worker can scan by storage_end_epoch without
     // round-tripping through getObject(SharedBlob).
     storage_end_epoch: u32,
+    // 16-byte raw MD5 of the PLAINTEXT body. This is the S3 spec's
+    // `ETag` value for non-multipart uploads — boto3 verifies it
+    // against client-side MD5 in `aws s3 sync` and friends. The
+    // gateway computes it pre-encryption; chain has no other way to
+    // derive plaintext-MD5 (the Walrus blob is the encrypted bytes).
+    etag_md5: vector<u8>,
     // Note: `shared_blob_object_id` is intentionally omitted — walrus's
     // `shared_blob::new` consumes the Blob and shares without returning
     // the SharedBlob, so we cannot read its ID inside this Move
@@ -124,6 +130,7 @@ public(package) fun emit_object_created(
     seal_identity: vector<u8>,
     size_bytes: u64,
     storage_end_epoch: u32,
+    etag_md5: vector<u8>,
 ) {
     event::emit(KraterionObjectCreated {
         bucket_id,
@@ -136,6 +143,7 @@ public(package) fun emit_object_created(
         seal_identity,
         size_bytes,
         storage_end_epoch,
+        etag_md5,
     });
 }
 
