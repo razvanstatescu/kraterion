@@ -134,9 +134,12 @@ model S3Object {
   // Identity bytes used at IBE encryption time:
   //   [bucket_uid (32) || object_uuid (16)] = 48 bytes.
   // The Seal SDK prepends the package-id prefix; we don't store it.
-  seal_identity       Bytes
-  // Seal-encrypted symmetric key (~200 bytes).
-  encryption_envelope Bytes
+  // Note: there is no separate `encryption_envelope` column — Seal's
+  // `client.encrypt(...)` embeds the BCS-encoded envelope (recipient-set,
+  // ciphertext, AES-GCM tag) into the bytes we push to Walrus. The full
+  // ciphertext is content-addressed by `walrus_blob_id` and recovered at
+  // GET time by reading from the aggregator and calling `client.decrypt`.
+  seal_identity Bytes
 
   // === Bookkeeping ===
   uploaded_at DateTime  @default(now())

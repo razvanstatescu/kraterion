@@ -105,6 +105,46 @@ _Calendar weeks anchored in `docs/timeline.md`._
   - Two new runbook entries logged: SDK 2.x rename
     (`SuiClient`→`SuiJsonRpcClient`) and the `Uint8Array` vs `number[]`
     typing footgun for `vector<u8>` PTB args.
+- `[gateway]` 2026-05-08 — **Phase 3 done — gateway speaks S3 to boto3.**
+  Three rounds:
+  - **Phase 3a (Nest plumbing).** `PrismaModule` (extends PrismaClient,
+    `OnModuleInit/Destroy`, `app.enableShutdownHooks()` in main.ts;
+    Prisma 5 dropped its own `enableShutdownHooks`), `RedisModule` (custom
+    `useFactory` provider with eager connect, `quit()` on destroy),
+    `AuthModule` (NestJS-wrapped `KeyWrappingService` over the existing
+    `EnvKeyWrapper` class — bootstrap script keeps using the plain class).
+    DATABASE_URL tuned to `connection_limit=40&pool_timeout=20` for hot
+    gateway traffic. `/health` is now liveness; new `/health/ready`
+    runs `SELECT 1` + Redis `PING` and returns 503 on degradation.
+    First run: `db=18ms, redis=5ms`.
+  - **Phase 3b (auth + errors).** SigV4 verifier ported from MinIO's Go
+    reference. Files:
+      - `auth/sigv4/parser.ts` — Authorization header parser
+      - `auth/sigv4/canonical.ts` — pure canonical-request builder
+        (S3 single-encode path, header normalization, signing-key
+        derivation, constant-time compare via `crypto.timingSafeEqual`).
+      - `auth/sigv4/sigv4.service.ts` — orchestrator: parses → checks
+        skew (±5min) → unwraps secret via `KeyWrappingService` → builds
+        canonical → compares.
+      - `auth/sigv4/sigv4.guard.ts` — Nest Guard (not Middleware: in
+        Fastify mode middleware gets Node's raw req; Guard gets the
+        FastifyRequest). Sets `req.kraterion.identity`, `bucket`, `key`.
+      - `s3/s3-error.ts` + `s3-error.filter.ts` — closed `S3ErrorCode`
+        union mapping to canonical AWS codes; global filter renders
+        the canonical XML response.
+      - `s3/url-style.ts` — path-style + virtual-hosted parsing.
+        Path-style only in Phase 3 (boto3 default for non-AWS endpoints).
+  - **Phase 3c (bucket controller).** `BucketsController`:
+      - `GET /` ListBuckets → owner-filtered XML list
+      - `HEAD /:bucket` HeadBucket → 200 / 404
+      - `PUT /:bucket` CreateBucket → 501 (deferred to dashboard +
+        zkLogin; `KraterionBucket.owner` needs the user's signature)
+      - `DELETE /:bucket` DeleteBucket → 204 (soft delete, rejects
+        non-empty buckets with `BucketNotEmpty`)
+  - **boto3 verification (`/tmp/boto-test.py`):** all five cases pass —
+    ListBuckets, HeadBucket(exists), HeadBucket(404),
+    CreateBucket(501), bad-secret SignatureDoesNotMatch.
+  - 15/15 workspace typecheck still green.
 - `[gateway]` 2026-05-08 — Audit pass against Walrus/Seal/Sui SDK
   surfaces; refactored wrappers to drop redundancy. Changes:
   - Removed 4 pass-throughs from `walrus-client` (`encodeBlob`,
@@ -290,5 +330,78 @@ _Calendar weeks anchored in `docs/timeline.md`._
   - New runbook entry on `Published.toml` blocking re-publish.
   - New decision recorded explaining why this is on Move source change
     (not on deploy).
+
+---
+
+- `[gateway]` 2026-05-08 — **Phase 4 done — GetObject + HeadObject decrypt
+  end-to-end against testnet via boto3.**
+
+  The full read path is wired: SigV4 → Postgres lookup →
+  `bucket.api_access_granted` check → Redis-cached SessionKey →
+  `seal_approve` PTB build (sender = gateway address) → public Walrus
+  aggregator HTTP GET → `client.decrypt()` → S3 response with the right
+  headers.
+
+  **What shipped:**
+  - `GatewayKeypairService` (`OnModuleInit`) — loads the
+    `api_decryption` `SubWallet` once at boot, AES-unwraps the seed via
+    `KeyWrappingService`, holds the `Ed25519Keypair` as a singleton and
+    asserts the derived address matches what the bootstrap stored. Fail-
+    fast at boot if the row is missing (run `pnpm bootstrap`).
+  - `ObjectsReadController` — `@Get(":bucket/*")` GetObject and
+    `@Head(":bucket/*")` HeadObject. Streams plaintext via
+    `reply.send(Buffer.from(plaintext))` with canonical headers
+    (`Content-Type`, `Content-Length` on plaintext size, quoted `ETag`,
+    `Last-Modified`, `Accept-Ranges: none`). Range / If-Match /
+    If-None-Match / If-Modified-Since / If-Unmodified-Since rejected as
+    501 in this phase.
+  - `ObjectsListController` — `@Get(":bucket")` validates the bucket is
+    owned + non-deleted and then 501s. Phase 6 will make ListObjectsV2
+    real; this stub keeps boto3 from getting a 404 on
+    `s3.list_objects_v2(Bucket=...)`.
+  - Schema migration `drop_encryption_envelope` — Seal's own ciphertext
+    embeds the envelope; we no longer track it as a separate column.
+  - Smoke test now persists an `S3Object` row at the end via Prisma
+    upsert, so boto3 has a known-good fixture to fetch back.
+
+  **ESM conversion (incidental).** The first runtime boot of the
+  Phase-4 build crashed on `ERR_UNKNOWN_FILE_EXTENSION` because the
+  workspace packages had `main: ./src/index.ts` and the gateway was
+  CommonJS. Fixed in two motions: gateway is now ESM (NodeNext, `.js`
+  extensions on every relative import in `src/`); workspace packages
+  now export from `./dist/`. `ioredis` switched from default to named
+  import `{ Redis }` to match its CJS-without-`exports` shape. ADR
+  written in `decisions.md`.
+
+  **Test summary:**
+  - 15/15 workspace typecheck green.
+  - Gateway `nest build` produces ESM (`dist/main.js` starts with
+    `import "reflect-metadata"`, no `__esModule` shim).
+  - `node dist/main.js` boots; `/health` and `/health/ready` return
+    `{status: "ok"}`.
+  - Smoke (`pnpm smoke`): full crypto+chain round-trip green; new
+    S3Object row persisted (`smoke/hello.txt`,
+    `walrus_blob_id=tNr71UU6Ragp7C71M1kYbtO3a2o041JK_00S16L1cUQ`,
+    `end_epoch=396`).
+  - boto3 (`/tmp/boto-test.py`) — 11/11 cases pass:
+    Phase-3: ListBuckets, HeadBucket(ok), HeadBucket(404),
+    CreateBucket(501), bad-secret(SignatureDoesNotMatch).
+    Phase-4: HeadObject(full metadata), GetObject(plaintext matches),
+    GetObject(NoSuchKey), GetObject(NoSuchBucket),
+    GetObject(Range→501), ListObjectsV2(501).
+
+  **Testnet artifacts from this round (Phase 4 smoke):**
+  - tx1 register: `Ho6A6s6Zd4sY2uakxnRnbhJru8biGkC6Vwrn5RHLXYhA`
+  - tx2 certify+wrap: `7RCz4i5L7oDXdmFwcj25bU3QppzTHEunYpFEnEMe3Znc`
+  - SharedBlob: `0xa022ed9da4f88f6e59ece7454730c7169514a7ca013da29d7326a0770f69a87c`
+
+  **Remaining for the gateway:**
+  - Phase 5 — PutObject (encrypt + register PTB + relay upload + certify
+    & wrap PTB + S3Object insert). The crypto path is identical to the
+    smoke; this is "wrap it in an HTTP route + S3-error mapping +
+    orphan-blob logging on PTB2 failure."
+  - Phase 6 — ListObjectsV2 + DeleteObject + DeleteBucket-with-objects.
+  - Phase 7 — `/public/*`, `x-amz-meta-*`, content-type pass-through,
+    pagination polish.
 
 ---

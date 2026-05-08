@@ -1,8 +1,17 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
-    "moduleResolution": "Node10",
+    // The gateway is ESM (`"type": "module"` in package.json) so that it
+    // can `import` workspace packages (`@kraterion/walrus-client`,
+    // `@kraterion/seal-client`, `@kraterion/kraterion-move-sdk`) and the
+    // upstream Mysten SDKs, all of which ship as pure ESM. CJS gateway
+    // src would `require()` an ESM dep at runtime → fails.
+    //
+    // `module: NodeNext` + `moduleResolution: NodeNext` is the canonical
+    // Node-ESM tsc config: honors `exports` field and enforces `.js`
+    // extensions on relative imports (matching Node's runtime behavior).
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "target": "ES2022",
     "outDir": "./dist",
     "rootDir": "./src",

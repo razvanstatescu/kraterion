@@ -637,3 +637,165 @@ ceremony with `coinWithBalance({ type, balance })` from
 `@mysten/sui/transactions`. Smoke test still passes end-to-end.
 
 ---
+
+## 2026-05-08 — Gateway uses Nest Guards (not Middleware) for SigV4 in Fastify mode
+
+**Status:** Accepted
+
+**Context:** Nest's `NestMiddleware` in Fastify mode receives Node's
+raw `req`/`res` objects, not Fastify's typed request. We want
+`req.kraterion = { identity, bucket, key }` to be readable from
+controllers via the Fastify module-augmentation pattern (`declare
+module "fastify" { interface FastifyRequest { kraterion?: ... } }`).
+With raw req, we'd be reaching into a different object than the one
+controllers see — silent "set somewhere, can't read it" bugs.
+
+**Decision:** SigV4 enforcement lives in `Sigv4Guard` (a Nest
+`CanActivate`), applied per-controller via `@UseGuards(Sigv4Guard)`.
+Guards' `ExecutionContext.switchToHttp().getRequest()` returns the
+actual `FastifyRequest`, so the augmentation works. Guards also
+naturally throw `HttpException` (our `S3Error` subclasses it), which
+the global `S3ExceptionFilter` catches and renders as canonical XML.
+
+**Consequences:** `/health*` stays unauthenticated (no `@UseGuards`
+on `HealthController`). Every S3 controller adds one `@UseGuards`
+decorator. No global guard — that would break liveness probes. URL-
+style parsing (bucket extraction) happens inside the guard rather
+than upstream — acceptable since `parseUrlStyle()` is pure CPU and
+runs once per request.
+
+---
+
+## 2026-05-08 — `CreateBucket` returns 501 from the S3 API; bucket creation lives in the dashboard
+
+**Status:** Accepted
+
+**Context:** Bucket creation requires the user's zkLogin signature —
+the on-chain `KraterionBucket.owner` field is set to `ctx.sender()`
+of the create transaction. We can't fake that from gateway code; the
+user has to sign with their own wallet.
+
+**Decision:** S3 API's `PUT /:bucket` returns `501 NotImplemented`
+with a message pointing the user at the Kraterion dashboard. Test
+buckets for development are created by
+`scripts/bootstrap-gateway.ts` (signed with the deployer keypair, so
+the deployer ends up as `owner` — fine for dev, replaced by real
+zkLogin flow when the dashboard ships).
+
+**Consequences:** boto3 / aws-cli / rclone users who try
+`s3 mb s3://x` get a clear error pointing them to the dashboard. No
+silent half-failure where a bucket exists in DB but not on-chain.
+Demo flow stays: dashboard.create-bucket → boto3.put_object works.
+
+---
+
+## 2026-05-08 — Gateway is ESM; workspace packages export from `dist/`, not `src/`
+
+**Status:** Accepted
+
+**Context:** Phase 4 of the gateway build is the first place we wire the
+workspace packages (`@kraterion/walrus-client`, `@kraterion/seal-client`,
+`@kraterion/kraterion-move-sdk`, `@kraterion/shared`) into the gateway's
+NestJS controllers — until Phase 4 those packages were only consumed by
+the off-S3 smoke test, which runs through `tsx` and never exercised the
+gateway's compiled output.
+
+Two issues surfaced as soon as the read controller imported them:
+
+1. The workspace packages are pure ESM (`"type": "module"`), and the
+   gateway was CommonJS. CJS `require()` of an ESM module fails at
+   runtime; tsc emits no warning under `module: CommonJS` because the
+   incompatibility is a Node-runtime-level concern, not a type concern.
+
+2. The workspace packages had `"main"`/`"types"`/`"exports"` pointing at
+   `./src/index.ts` directly. Node ESM cannot load `.ts` files at
+   runtime — only the dev-time `tsx` loader can. The first `node
+   dist/main.js` boot crashed with `ERR_UNKNOWN_FILE_EXTENSION` for
+   `packages/shared/src/index.ts`.
+
+**Decision:**
+
+- Gateway is now ESM. `apps/gateway/package.json` has `"type": "module"`,
+  `tsconfig.json` is `module: NodeNext` + `moduleResolution: NodeNext`,
+  and every relative import in `src/` carries an explicit `.js`
+  extension (matching Node's runtime ESM resolution).
+- All four workspace packages now export compiled `dist/` artifacts
+  rather than `src/`. The new `package.json` shape is:
+  ```json
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  }
+  ```
+  Turbo's `typecheck: { dependsOn: ["^build"] }` already builds workspace
+  packages before consumers typecheck, so the `.d.ts` artifacts are
+  always fresh.
+
+**Consequences:**
+
+- One-time cost: 16 relative imports in gateway src gained a `.js`
+  extension; one workspace package package.json change apiece.
+- The gateway boots clean under `node dist/main.js`, with NestJS 10 +
+  Fastify decorators emitting normally under TypeScript NodeNext.
+- `ioredis` requires named import `{ Redis }` instead of default — the
+  package ships CJS without `exports`, so under NodeNext the default
+  becomes the whole module record rather than the class.
+- Future workspace packages must keep building before consumers
+  typecheck. If we ever skip a build (`turbo run typecheck --no-deps`),
+  consumers will see stale `.d.ts` files.
+- The smoke test (`tsx`) is unaffected — `tsx` resolves both `src/` and
+  `dist/` paths.
+
+**Rejected alternatives:**
+
+- *Keep gateway as CJS, dynamic-import the ESM workspace deps:* every
+  call site would need an `await import(...)` cache, polluting every
+  Nest service. Untenable surface area.
+- *Ship dual CJS+ESM builds for workspace packages:* doubles the build
+  output, requires `tsup`/`tshy`-style tooling, no actual consumer needs
+  CJS. Premature.
+- *`module: CommonJS` + `moduleResolution: Bundler`:* TS warns and the
+  combination doesn't actually fix the runtime problem (Node still
+  can't `require()` ESM).
+
+---
+
+## 2026-05-08 — Drop `S3Object.encryption_envelope`; Seal embeds it in the ciphertext
+
+**Status:** Accepted (deviates from original plan §5)
+
+**Context:** Plan §5 carried a separate `encryption_envelope` column on
+`S3Object` for the AES envelope. That made sense when we planned to
+generate AES keys ourselves and have Seal wrap *just the AES key* (the
+"old" Seal pattern from the AES-only era). The actual `@mysten/seal` 1.1
+SDK `client.encrypt({ packageId, id, threshold, data, demType: AesGcm256 })`
+returns a single `encryptedObject` blob that already contains:
+
+  - The BCS-encoded recipient set (key servers + threshold)
+  - The IBE-derived envelope key
+  - The AES-GCM ciphertext + authentication tag
+
+Splitting the envelope into a separate column would mean prying open the
+SDK's BCS structure to extract the prefix, which (a) wastes a column,
+(b) re-implements internals the SDK already handles, and (c) would break
+on every SDK bump that changes the envelope layout.
+
+**Decision:** Drop `S3Object.encryption_envelope`. The full Seal-encrypted
+output is what we push to Walrus, what Walrus content-addresses by
+`walrus_blob_id`, and what we hand back to `seal.decrypt()` at GET time.
+The `seal_identity` column (48 bytes: `bucket_uid || object_uuid`) is the
+only extra IBE input the gateway needs to track per-object; everything
+else is reconstructable from the ciphertext.
+
+**Consequences:**
+
+- Migration `20260508104237_drop_encryption_envelope` removes the column.
+- Gateway code never serializes/deserializes the envelope independently.
+- One less moving part to keep in sync across PutObject/GetObject paths.
+
+---

@@ -25,7 +25,7 @@
 
 import "dotenv/config";
 import { strict as assert } from "node:assert";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
@@ -307,11 +307,56 @@ async function main() {
     "round-tripped plaintext does not match original!",
   );
 
+  // === 10. Persist an S3Object row so the gateway's GET path can find it ===
+  // Without this, boto3 `get_object` would 404 — the smoke test owns the
+  // ground-truth bookkeeping the gateway reads at request time. Idempotent
+  // by `(bucket_id, s3_key)` unique → upsert.
+  bold("▸ persist S3Object row");
+  const s3Key = "smoke/hello.txt";
+  const etag = createHash("md5").update(plaintext).digest("hex");
+  const endEpoch = systemState.committee.epoch + EPOCHS_AHEAD;
+  if (!sharedBlobChange || !("objectId" in sharedBlobChange)) {
+    throw new Error("No SharedBlob created; cannot persist S3Object row.");
+  }
+  const sharedBlobObjectId = sharedBlobChange.objectId;
+  const objectRow = await prisma.s3Object.upsert({
+    where: { bucket_id_s3_key: { bucket_id: bucket.id, s3_key: s3Key } },
+    create: {
+      bucket_id: bucket.id,
+      s3_key: s3Key,
+      size_bytes: BigInt(plaintext.length),
+      content_type: "text/plain",
+      etag,
+      walrus_blob_id: meta.blobId,
+      shared_blob_object_id: sharedBlobObjectId,
+      storage_end_epoch: endEpoch,
+      seal_identity: Buffer.from(sealIdentity),
+      deleted_at: null,
+    },
+    update: {
+      size_bytes: BigInt(plaintext.length),
+      content_type: "text/plain",
+      etag,
+      walrus_blob_id: meta.blobId,
+      shared_blob_object_id: sharedBlobObjectId,
+      storage_end_epoch: endEpoch,
+      seal_identity: Buffer.from(sealIdentity),
+      deleted_at: null,
+      uploaded_at: new Date(),
+    },
+  });
+  info(`S3Object row id=${objectRow.id}`);
+  info(`  s3_key:        ${s3Key}`);
+  info(`  walrus_blob_id ${meta.blobId}`);
+  info(`  end_epoch:     ${endEpoch}`);
+
   bold("");
   bold("✓ smoke test passed");
   info(`tx1 (register) https://suiscan.xyz/testnet/tx/${r1.digest}`);
   info(`tx2 (certify+wrap) https://suiscan.xyz/testnet/tx/${r2.digest}`);
   info(`shared_blob   https://suiscan.xyz/testnet/object/${sharedBlobId}`);
+  info("");
+  info(`next: boto3 s3.get_object(Bucket="${bucket.name}", Key="${s3Key}")`);
 
   await redis.quit();
   await prisma.$disconnect();
