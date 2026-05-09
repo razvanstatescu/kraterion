@@ -1517,3 +1517,269 @@ events per day.
   byte-exact plaintext`.
 
 ---
+
+## 2026-05-08 — Control-plane v1 uses dev-mode email auth; real zkLogin deferred to Phase 4
+
+**Status:** Accepted
+
+**Context:** The dashboard build (next workstream) needs a CRUD API
+behind `/v1/me`, `/v1/projects`, and `/v1/projects/:id/api-keys`. The
+target identity model is zkLogin (Google OAuth → ZK proof verified
+against Google JWKS), but standing that up requires (a) an OAuth
+callback host with a stable redirect URI, (b) JWKS cache + rotation,
+(c) ZK proof verification wired into the Sui address derivation. None
+of that helps us ship a usable dashboard today.
+
+**Decision:** Phase 1 ships two dev-only endpoints — `POST
+/v1/auth/dev-sign-up` and `POST /v1/auth/dev-sign-in` — that mint a
+JWT keyed off email. Both 404 in production (`NODE_ENV` gate). The
+sign-up endpoint mirrors what `bootstrap-gateway.ts` does today: create
+`Account` + first `Project` + first `ApiKey`, return the cleartext
+secret once. `Account.zklogin_sub` is set to `dev:<email>` so the
+Phase-4 zkLogin migration can switch the prefix without breaking
+foreign keys.
+
+**Rejected:** A magic-link email flow. Saves "no password" gripes but
+needs SMTP + token-store wiring; not worth it for a hackathon dev tool.
+
+**Rejected:** Dropping in Auth0 / Clerk. Faster to wire than zkLogin,
+but doesn't get us closer to the on-chain identity story; Phase 4
+would replace it anyway.
+
+**Consequences:**
+- Phase 4 work is a focused swap of the auth controller, no schema
+  changes (zklogin_sub already in `Account`, sui_address required at
+  sign-up).
+- `bootstrap-gateway.ts` can be retired in favour of `curl POST
+  /v1/auth/dev-sign-up` once the dashboard lands.
+
+---
+
+## 2026-05-08 — Control-plane uses Bearer JWT (HS256) signed with `JWT_SECRET`; cookies optional later
+
+**Status:** Accepted
+
+**Context:** The control plane needs session auth. Two reasonable
+defaults: HttpOnly signed cookies (browser-native, CSRF-prone) or
+Bearer JWTs (pure header, easier for SDKs and CLIs). The dashboard is
+a separate origin from the control plane (`localhost:3001` vs
+`localhost:4001`); cookie-based auth requires CORS credentials +
+SameSite finagling.
+
+**Decision:** Phase 1 ships Bearer-only — the dashboard sends
+`Authorization: Bearer <token>` with each request. Tokens are HS256
+JWTs signed with `JWT_SECRET` (32-byte hex), 7-day expiry. Verification
+is a wrapper around `@nestjs/jwt`'s `JwtService.verify`; failures
+rethrow as `ControlPlaneError("Unauthorized", ...)`. The `AuthGuard`
+populates `req.user = { accountId, email, suiAddress }` and is
+registered globally via `AuthCoreModule` so any module can `@UseGuards`
+without reimporting auth.
+
+**Cookie support is deliberately left as a future-compatible
+extension:** if/when we add `@fastify/cookie`, the guard can fall back
+to `req.cookies?.cp_session` ahead of the header. No schema changes
+required; existing tokens keep working.
+
+**Consequences:**
+- `JWT_SECRET` is a hard-fail at boot if missing — caught in
+  `AuthCoreModule.jwtSecret()`. Generate with `node -e
+  'console.log(require("crypto").randomBytes(32).toString("hex"))'`.
+- Rotating `JWT_SECRET` invalidates active sessions; intentional and
+  cheap to recover from in dev.
+- The dashboard will keep the token in `localStorage` for v1.
+  Acceptable for the hackathon scope; the cookie story is the upgrade
+  path when XSS exposure becomes a real concern.
+
+---
+
+## 2026-05-08 — API-key secret returned cleartext exactly once at creation; otherwise wrapped via the same `EnvKeyWrapper` the gateway uses
+
+**Status:** Accepted
+
+**Context:** S3-style API keys (`AKIA…` + 40-char secret) are the
+gateway's SigV4 surface. We need the control plane to mint, list, and
+revoke them; we also need any minted secret to authenticate against
+the gateway *immediately*, with no cross-service handshake.
+
+**Decision:**
+1. `ApiKey.secret_wrapped` (Bytes) stores the AES-256-GCM-wrapped
+   secret. Wrapping uses the same `EnvKeyWrapper` and the same
+   `KEY_WRAPPING_MASTER_KEY` env var the gateway already reads — both
+   apps unwrap interchangeably. The file is a verbatim copy of
+   `apps/gateway/src/auth/key-wrapping.ts` (under
+   `apps/control-plane/src/auth/`); promotion to a shared workspace
+   package is on hold until we have ≥3 consumers.
+2. `POST /v1/projects/:id/api-keys` returns the cleartext `secret`
+   exactly once in the response body, alongside a `WARNING` field
+   instructing the caller to store it. Subsequent reads
+   (`GET /v1/projects/:id/api-keys`) strip both `secret_wrapped` and
+   `secret` before serializing.
+3. Secret regeneration is not implemented — if a user loses a secret
+   they revoke and mint a new key. Matches AWS's IAM ergonomics.
+
+**Rejected:** AWS KMS now. Same interface as `EnvKeyWrapper`
+(`KeyWrapper.{wrap,unwrap}`), so swapping is a one-liner
+(`new EnvKeyWrapper()` → `new AwsKmsWrapper(...)`). Defer until we
+have a non-hackathon production deployment.
+
+**Consequences:**
+- Cross-app verified: a secret minted via `POST /v1/auth/dev-sign-up`
+  authenticates against the gateway via boto3 SigV4 immediately
+  (`s3.list_buckets()` returns 200 with `Owner.ID = account_uuid`).
+- Rotating `KEY_WRAPPING_MASTER_KEY` invalidates *every* existing
+  `ApiKey` and `SubWallet.mnemonic_wrapped`. Same blast radius as the
+  gateway already has; acceptable.
+
+---
+
+## 2026-05-09 — Control-plane bucket / object views are read-only mirrors of the indexer's writes
+
+**Status:** Accepted
+
+**Context:** Phase 2 ships the control plane's read surface for the
+dashboard: `GET /v1/buckets`, `GET /v1/buckets/:id`,
+`GET /v1/buckets/:id/objects`, `GET /v1/objects/:id`. The data lives
+in `Bucket` and `S3Object`, but the indexer (worker app) is the sole
+writer to those tables — see "DB writes are gateway-direct today;
+replace with event-driven indexer." We need a way for the dashboard
+to *read* without re-introducing dual-writer semantics.
+
+**Decision:** `BucketsService` is read-only. Every method takes
+`accountId` as the first parameter and filters by
+`project: { account_id }`. Methods that take a bucket or object id
+(getOwned / getObject) re-walk the join chain and return 404 on both
+"row missing" and "row not yours" so the surface doesn't leak
+existence across accounts. `BucketsController` and `ObjectsController`
+mount under `/v1/buckets` and `/v1/objects` respectively, both
+guarded by `AuthGuard`. No write verbs are defined on either — bucket
+creation / deletion will arrive in Phase 3 as PTB builders, signed
+client-side, and persisted to Postgres only via the indexer once the
+on-chain change emits its event.
+
+**Pagination:** opaque base64url-encoded cursor `{ v: 1, after: <id> }`,
+the same pattern (minus the `kind` discriminant) the gateway uses for
+ListObjectsV2. Limits: 50 default / 100 max for buckets; 100 default /
+1000 max for objects (the dashboard's file browser fetches more rows
+per page than the bucket list does). Stable secondary order on `id`
+prevents shifting offsets under concurrent indexer writes.
+
+**Serialization:** `BigInt` fields (`funding_pool_wal_balance`,
+`size_bytes`) are emitted as strings — `JSON.stringify(BigInt)` throws.
+Indexer-provenance fields (`tx_digest`, `event_seq`, `event_payload`)
+are dropped from the wire shape; they're not user-facing. The
+`seal_identity` bytes are exposed as base64 because the dashboard's
+"On-chain details" expander wants to display the IBE identity tuple
+verbatim.
+
+**Rejected:** Exposing `Bucket` / `S3Object` Prisma rows directly. The
+BigInt issue alone is reason enough; the wire shape also needs to be
+stable across schema changes (a column rename shouldn't break the
+dashboard).
+
+**Consequences:**
+- The dashboard never reads from Postgres directly. Every `Bucket` /
+  `S3Object` field the dashboard renders comes through this surface,
+  which means we can change column shape (rename, retype, split
+  tables) without coordinating with frontend deploys.
+- Adding a field is one line in `serialize.ts`; removing one is a
+  breaking change communicated via `next_cursor` versioning if it
+  ever needs to happen.
+- Sign-up + indexer round-trip is observable from the dashboard:
+  on-chain bucket-create completes → indexer writes row → next
+  `/v1/buckets` call shows it. Lag ≤ 30s in steady state per
+  `progress.md`.
+
+---
+
+## 2026-05-09 — Bucket lifecycle PTBs are server-built unsigned via `tx.toJSON()`; the dashboard wallet signs and submits
+
+**Status:** Accepted
+
+**Context:** Phase 3 ships the four bucket-lifecycle endpoints —
+`POST /v1/buckets/prepare-create`, `:bucketId/prepare-grant-api`,
+`:bucketId/prepare-revoke-all`, `:bucketId/prepare-visibility`. Each
+calls into the Move package via the user's address (the on-chain
+asserts `ctx.sender() == bucket.owner` for the three mutators), so
+the user has to sign. The control plane is allowed to build the PTB
+because nothing about the build needs the user's keys; the question is
+only how to hand the unsigned tx to the dashboard.
+
+The Mysten SDK supports two patterns for "build on server, sign on
+client":
+1. `await tx.build({ onlyTransactionKind: true })` → BCS bytes; the
+   client uses `Transaction.fromKind(bytes)` and fills in gas + sender.
+   Used in sponsored-transaction flows.
+2. `await tx.toJSON()` → JSON v2 string; the client uses
+   `Transaction.from(json)` and the wallet (or dApp Kit's
+   `useSignAndExecuteTransaction`) calls `setSenderIfNotSet` and
+   resolves shared-object versions at sign time.
+
+**Decision:** Use option (2), `tx.toJSON()`. The wire payload is:
+
+```ts
+{
+  tx_json: string,           // raw output of tx.toJSON()
+  expected: {
+    package_id: "0x…",
+    function: "kraterion::…",
+    summary: "human-readable",
+    sender_hint: "0x…",      // user's sui_address from the JWT
+  }
+}
+```
+
+`expected` is non-binding metadata for the dashboard's confirmation UI
+and telemetry — clients MUST NOT rely on it for security decisions.
+The signed bytes are the source of truth.
+
+**Why toJSON over kind-bytes:**
+- Shared-object versions stay symbolic in `toJSON`. The bucket's
+  version may bump (someone else flips visibility, grants/revokes API)
+  between build time and sign time; with kind-bytes the BCS would be
+  pinned to a stale version and execution would fail. With JSON v2 the
+  client SDK re-resolves at sign time.
+- Sender stays null. dApp Kit's `useSignAndExecuteTransaction` calls
+  `setSenderIfNotSet(signerAccount.address)` automatically. We don't
+  pre-fill it on the server because the JWT-derived address is just a
+  hint — the wallet's connected account is authoritative.
+- No gas-budget / gas-price pinning. The dashboard's signer fills both
+  using the network's current price and a fresh budget estimate.
+
+**Authorization:** every endpoint takes `accountId` from the JWT and
+walks `bucket → project → account_id` (or just `project → account_id`
+for `prepare-create`) before building anything. Foreign rows return
+404 — same convention as the read views (don't leak existence).
+`prepare-visibility` additionally rejects no-op flips with 400 because
+Move's `set_bucket_visibility` is silent in that case (no event
+emitted) and submitting it would burn gas for nothing.
+
+**Move bindings:** the generated `@kraterion/kraterion-move-sdk`
+helpers default `package: '@local-pkg/kraterion'` — a
+NamedPackagesPlugin placeholder. We pass `package: KRATERION_PACKAGE_ID`
+explicitly so the prepare path doesn't depend on the plugin being
+registered on the calling Transaction.
+
+**Rejected:** Sponsoring the transaction (control plane pays gas).
+Adds a sub-wallet, splits ownership across two addresses, and isn't
+needed for the hackathon scope. zkLogin accounts have a faucet path
+for SUI; cheap to keep self-paid.
+
+**Rejected:** Returning BCS bytes via kind-bytes. The shared-object
+version-pinning issue alone is reason enough; also, debugging is
+nicer when humans can read the JSON v2 payload over the wire.
+
+**Consequences:**
+- Verified end-to-end: `Transaction.from(response.tx_json)` reconstructs
+  a `Transaction` whose first command is the expected
+  `${KRATERION_PACKAGE_ID}::kraterion::<fn>` Move call, with
+  `data.sender === null`. Vitest covers all four endpoints +
+  cross-account 404s; cp-smoke covers the live HTTP path including a
+  malformed `encryption_mode` 400.
+- The dashboard never sees BCS — its only Mysten dependency for this
+  flow is `@mysten/sui/transactions`. The signing call is
+  `mutate({ transaction: Transaction.from(tx_json) })` via dApp Kit.
+- Adding a fifth bucket-lifecycle PTB is one method on
+  `PrepareTxService` + one `@Post(...)` route. The wire format is
+  stable.
+
+---

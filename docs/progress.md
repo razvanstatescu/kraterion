@@ -850,3 +850,142 @@ _Calendar weeks anchored in `docs/timeline.md`._
   end-to-end.
 
 ---
+
+## 2026-05-08
+
+- **[control-plane] Phase 0 + Phase 1 shipped end-to-end.**
+
+  **Phase 0 (bootstrap):** ESM-converted the existing skeleton (NodeNext
+  + `.js` extensions everywhere). Added Prisma module (verbatim copy
+  of gateway's), JSON `ControlPlaneError` envelope + global Nest
+  filter, Zod method-arg pipe, `prom-client` registry exposed at
+  `/metrics`, `/health/ready` with `SELECT 1` ping, `@fastify/helmet`
+  + `@fastify/cors` registered globally.
+
+  Resolved a workspace-wide fastify version drift (`@nestjs/platform-fastify`
+  hard-pins fastify@4.28.1; the cors/helmet plugins were hoisting
+  4.29.1) by adding a root `pnpm.overrides` for `fastify: 4.28.1`.
+  Also pinned `@fastify/helmet` to v11.x — v12 targets fastify ^5.
+
+  **Phase 1 (identity surface):** Auth, Accounts, Projects, ApiKeys
+  modules with the planned eight endpoints. Bearer JWT (HS256, 7-day
+  expiry) signed with `JWT_SECRET`. Dev-only `/v1/auth/dev-sign-up`
+  + `/v1/auth/dev-sign-in` (404 in production). API key secret
+  returned cleartext exactly once at mint, wrapped via the same
+  `EnvKeyWrapper` the gateway uses (same `KEY_WRAPPING_MASTER_KEY`
+  env), so a key minted here immediately authenticates against the
+  gateway. Resource-not-found vs not-yours both return 404 to avoid
+  cross-account leak.
+
+  Module structure note: split `AuthCoreModule` (global, just
+  TokensService + AuthGuard + JwtModule) from `AuthModule` (the
+  controller). `AuthModule` imports `ProjectsModule` + `ApiKeysModule`
+  for the dev-sign-up flow; without the split, `ProjectsModule` →
+  `AuthModule` would close a cycle.
+
+  **Verification:** `apps/control-plane/test/cp-smoke.sh` runs all 9
+  positive + negative cases against a live service (sign-up, /me,
+  project create, key mint, list-no-leak, revoke, missing/bad bearer,
+  invalid project name) — green. `apps/control-plane/test/api-keys.spec.ts`
+  is six Vitest cases on the authz boundary (mint/list/revoke across
+  two seeded accounts) — green. Cross-app: AKIA minted via control-plane
+  authenticates against the gateway via boto3 SigV4 → `list_buckets`
+  returns 200 with `Owner.ID = account_uuid`. The bootstrap script
+  `bootstrap-gateway.ts` is now redundant for the account/project/key
+  parts; it's left in place for the on-chain bucket creation it also
+  does, until Phase 3 (PTB builders) takes over that work.
+
+  **Out of scope (deferred to control-plane Phases 2–4):** bucket
+  read views, prepare-PTB endpoints, real zkLogin, HttpOnly cookie
+  fallback, rate limiting, audit log table.
+
+---
+
+## 2026-05-09
+
+- **[control-plane] Phase 2 shipped — bucket / object read views.**
+
+  Four new endpoints: `GET /v1/buckets`, `GET /v1/buckets/:id`,
+  `GET /v1/buckets/:id/objects`, `GET /v1/objects/:id`. All guarded
+  by `AuthGuard`, all scoped to the caller's account via the
+  `project.account_id` join, all returning 404 on both
+  missing-row and not-yours so the surface doesn't leak existence.
+  Read-only by construction — the indexer remains sole writer.
+
+  Wire-shape highlights: `BigInt` columns (`funding_pool_wal`,
+  `size_bytes`) emitted as strings; indexer provenance
+  (`tx_digest`, `event_seq`, `event_payload`) dropped; `seal_identity`
+  base64-encoded for the dashboard's "On-chain details" expander.
+
+  Pagination is opaque base64url cursor `{ v: 1, after: <id> }` — the
+  same versioned-cursor pattern the gateway uses for ListObjectsV2,
+  minus the `kind` discriminant. Limits: 50/100 for buckets,
+  100/1000 for objects.
+
+  **Verification:** `cp-smoke.sh` extended with 4 new steps (10–13);
+  all 13 green against the live service. New `test/buckets.spec.ts`
+  is 12 Vitest cases — list/paginate/cursor/auth-cross-account for
+  buckets, list/prefix-filter/cross-account for objects, plus
+  serialize round-trip and cursor codec edge cases. Total Vitest
+  count is now 18/18.
+
+  **Out of scope (next):** Phase 3 — bucket lifecycle PTB builders
+  (`/v1/buckets/prepare-create`, `/prepare-grant-api`, etc) returning
+  unsigned tx BCS for the dashboard wallet to sign + submit. Phase 4 —
+  real zkLogin replaces the dev-mode auth.
+
+---
+
+## 2026-05-09
+
+- **[control-plane] Phase 3 shipped — bucket-lifecycle PTB builders.**
+
+  Four new endpoints, all under `/v1/buckets`, all authz-scoped to
+  the caller's account:
+
+  | Endpoint | Move call |
+  |---|---|
+  | `POST /v1/buckets/prepare-create` | `kraterion::create_grant_and_share_bucket` (or `create_and_share_bucket` if `grant_api_access:false`) |
+  | `POST /v1/buckets/:id/prepare-grant-api` | `kraterion::grant_api_access` |
+  | `POST /v1/buckets/:id/prepare-revoke-all` | `kraterion::revoke_all_api_access` |
+  | `POST /v1/buckets/:id/prepare-visibility` | `kraterion::set_bucket_visibility` |
+
+  Each returns `{ tx_json, expected: { package_id, function, summary,
+  sender_hint } }` where `tx_json` is the output of `tx.toJSON()` —
+  the canonical Mysten format for "build on server, sign on client".
+  The dashboard reconstructs via `Transaction.from(tx_json)` and hands
+  the `Transaction` to dApp Kit's `useSignAndExecuteTransaction`,
+  which fills sender automatically via `setSenderIfNotSet` and
+  resolves shared-object versions at sign time.
+
+  Why `toJSON` over `build({ onlyTransactionKind: true })`: shared
+  object versions stay symbolic, so a bucket's version bumping
+  between prepare-time and sign-time doesn't cause execution
+  failures. Sender stays null on purpose so the wallet's connected
+  account wins over the JWT hint.
+
+  Implementation lives in
+  [apps/control-plane/src/buckets/prepare/](apps/control-plane/src/buckets/prepare/);
+  shared SuiClient + GatewayAddressService in
+  [apps/control-plane/src/sui/](apps/control-plane/src/sui/).
+  `GatewayAddressService` is the single source for the api_addr
+  parameter — it reads the bootstrap-time singleton SubWallet
+  (`role: api_decryption, account_id: null`) and surfaces a clear
+  `InternalError` if the row is missing.
+
+  **Verification:** 10 new Vitest cases
+  ([test/prepare-tx.spec.ts](apps/control-plane/test/prepare-tx.spec.ts))
+  — every endpoint reconstructed via `Transaction.from(tx_json)` and
+  the resulting Move call introspected; cross-account 404s; no-op
+  visibility flip → 400; gateway-row-missing → 500. Smoke extended
+  with 4 new steps (14–17); 17/17 green.
+
+  Cross-app round-trip live: control-plane returns `tx_json`,
+  `Transaction.from(...)` decodes it cleanly, `data.sender === null`
+  as designed.
+
+  **Out of scope (next):** Phase 4 — real zkLogin (Google OAuth →
+  ZK proof verification → swap dev-mode auth). Likely interleaves
+  with the dashboard build.
+
+---

@@ -1,8 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // Control plane is ESM (`"type": "module"` in package.json) so it
+    // can import workspace packages and `@mysten/*` SDKs that ship
+    // pure ESM. Same shape as `apps/gateway` and `apps/worker`.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "target": "ES2022",
     "outDir": "./dist",
     "rootDir": "./src",
