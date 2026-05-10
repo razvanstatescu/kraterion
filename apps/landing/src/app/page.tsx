@@ -13,12 +13,39 @@ export default function Home() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [discovered, setDiscovered] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const scrollCueRef = useRef<HTMLButtonElement>(null);
 
   const openDrawer = () => {
     setDrawerOpen(true);
     setDiscovered(true);
   };
   const closeDrawer = () => setDrawerOpen(false);
+
+  const scrollToArch = () => {
+    document
+      .querySelector(".arch")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  /* Reveal the scroll cue after the demo's typing finishes, then fade it out as
+     soon as the user starts scrolling — so it doesn't compete with the page below. */
+  useEffect(() => {
+    const cue = scrollCueRef.current;
+    if (!cue) return;
+    const showTimer = window.setTimeout(() => {
+      cue.classList.add("scroll-cue--ready");
+    }, 1200);
+    const onScroll = () => {
+      if (window.scrollY > 40) cue.classList.add("scroll-cue--hidden");
+      else cue.classList.remove("scroll-cue--hidden");
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      window.clearTimeout(showTimer);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -276,6 +303,22 @@ export default function Home() {
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Scroll cue — anchored to the bottom of the hero band, centred via flex */}
+        <div className="scroll-cue-anchor" aria-hidden={undefined}>
+          <button
+            ref={scrollCueRef}
+            type="button"
+            className="scroll-cue"
+            onClick={scrollToArch}
+            aria-label="Scroll to architecture"
+          >
+            <span className="scroll-cue-label">How it works</span>
+            <span className="scroll-cue-line" aria-hidden="true">
+              <span className="scroll-cue-dot" />
+            </span>
+          </button>
         </div>
       </main>
 
