@@ -989,3 +989,124 @@ _Calendar weeks anchored in `docs/timeline.md`._
   with the dashboard build.
 
 ---
+
+## 2026-05-09
+
+- **[control-plane] Phase 4 shipped — Enoki zkLogin + sponsored transactions.**
+
+  Two big shifts:
+
+  1. **Real auth via Enoki.** New `POST /v1/auth/zklogin
+     { google_jwt }` endpoint replaces dev-mode for production. The
+     dashboard does the Enoki popup OAuth, hands the resulting Google
+     ID token to us, and we call `enokiClient.getZkLogin({ jwt })` —
+     Enoki performs JWT signature/audience/expiry verification against
+     Google's JWKS and returns the canonical `(google_sub, app_salt) →
+     sui_address`. We upsert `Account` keyed by `zklogin_sub`, mint
+     a default project + API key on first sign-in, and return our
+     own HS256 session JWT (unchanged shape from Phase 1). Dev-auth
+     (`dev-sign-up`/`dev-sign-in`) stays gated by
+     `NODE_ENV !== "production"` for tests + smoke.
+
+  2. **Sponsored transactions via Enoki.** Refactored Phase 3's
+     `prepare-*` endpoints to delegate to
+     `SponsorshipService.createSponsored`. The wire format changed
+     from `{ tx_json, expected.sender_hint }` to
+     `{ digest, bytes, expected.{ sender, allowed_move_call_targets,
+     sponsored_by: "enoki" } }`. `allowedMoveCallTargets` always
+     contains exactly one fully-qualified target — even a malicious
+     frontend can't redirect our Enoki budget. New
+     `POST /v1/sponsor/execute { digest, signature }` relays to
+     Enoki's executeSponsoredTransaction.
+
+  Code lives in [apps/control-plane/src/enoki/](apps/control-plane/src/enoki/):
+  `EnokiClientService` (lazy, hard-fails only on use),
+  `SponsorshipService` (create + execute), `ZkLoginService`
+  (JWT-to-account orchestration), and two small controllers
+  (`zklogin`, `sponsor-execute`).
+
+  **Subtle wins:**
+  - `EnokiClientService` boots tolerantly. Missing `ENOKI_PRIVATE_KEY`
+    yields a `WARN` log; the affected endpoints surface
+    `InternalError("Enoki is not configured")`. Local dev without an
+    Enoki account keeps every other endpoint green — including
+    `cp-smoke.sh`, which probes Enoki paths in either mode.
+  - `mutable: true` on the bucket argument bypasses the SDK's
+    `getMoveFunction` resolver step, simplifying the test stub for
+    `tx.build({ client, onlyTransactionKind: true })` to one
+    `getObjects` mock.
+  - `EnokiClientError → ControlPlaneError` mapping in
+    `asControlPlaneError` translates 4xx/429/5xx into our JSON
+    envelope cleanly.
+
+  **Verification:**
+  - 33/33 Vitest cases (`api-keys` 6, `buckets` 12, `prepare-tx`
+    refactored to 10, new `zklogin` 6).
+  - 19/19 smoke steps. Step 14 prints `[no-enoki] endpoint exists
+    but ENOKI_PRIVATE_KEY not set — skipping live verification`
+    when no Enoki account is configured locally; otherwise asserts
+    the live `{ digest, bytes }` shape + single-entry allow-list.
+  - End-to-end against live Enoki not yet covered (no Enoki Portal
+    app provisioned for dev). Will be covered when the dashboard
+    lands.
+
+  **Out of scope (next):** Dashboard build. The full sign-in →
+  prepare → sign → execute round-trip lives there. dApp Kit hooks:
+  `useSignTransaction` over a `Transaction.from(bytes)` from our
+  prepare endpoint, then `POST /v1/sponsor/execute`.
+
+---
+
+## 2026-05-09
+
+- **[control-plane] Live Enoki sponsorship round-trip green on testnet.**
+
+  New script:
+  [apps/control-plane/scripts/enoki-live-smoke.ts](apps/control-plane/scripts/enoki-live-smoke.ts).
+  Run with `pnpm -F @kraterion/control-plane enoki:smoke` against a
+  running CP. It walks the full pipeline:
+
+  1. Generate fresh Ed25519 keypair
+  2. `dev-sign-up` to mint a CP session keyed to the keypair's address
+  3. `prepare-create` (control-plane builds kind-bytes → Enoki returns
+     `{ digest, bytes }` with gas envelope attached)
+  4. Sign Enoki's bytes locally with the keypair
+  5. `sponsor/execute` (control-plane relays digest+signature to Enoki)
+  6. `SuiJsonRpcClient.waitForTransaction` and assert
+     `KraterionBucketCreated` event fired
+
+  **First live run:** tx
+  [`25k2TZ4qgQtiitMzxa3GJq62E6J13GWkV8fyrtwkrUdJ`](https://suiscan.xyz/testnet/tx/25k2TZ4qgQtiitMzxa3GJq62E6J13GWkV8fyrtwkrUdJ)
+  — new shared bucket
+  `0xe88df996f9587cf20067dc9b7047871879ce26b9c3e2951a8818a5c578aa96cf`,
+  user paid zero gas (Enoki sponsored). Sender = the freshly-minted
+  Ed25519 keypair address; the user-side signature was a regular Sui
+  Ed25519 signature (Enoki's sender-flow accepts any valid signature
+  for the address, not specifically zkLogin).
+
+  **Things this proves end-to-end (not just unit-tested):**
+  - `EnokiClient` wiring + the lazy-init / hard-fail-on-use pattern.
+  - `tx.build({ client, onlyTransactionKind: true })` produces bytes
+    Enoki accepts (the SDK's resolver path with our `mutable: true`
+    object hint works for the no-object case too).
+  - `createSponsoredTransaction` with per-request
+    `allowedMoveCallTargets: ["…::create_and_share_bucket"]` — the
+    actual gate against frontend-redirected sponsorship.
+  - `executeSponsoredTransaction { digest, signature }` settles the
+    transaction.
+
+  **Found and documented:**
+  Standalone tsx scripts don't see `process.env.ENOKI_PRIVATE_KEY` even
+  though the Nest app does — `@prisma/client` runs an upward-walking
+  dotenv loader at import time that the Nest app benefits from but
+  bare scripts don't. Fix is explicit `dotenv.config({ path: '../../../.env' })`
+  at the top of any script file. Runbook entry added.
+
+  **Next live test (deferred until dashboard exists):**
+  `prepare-grant-api`, `prepare-revoke-all`, `prepare-visibility` all
+  need a real shared `KraterionBucket` to mutate. The first script
+  run created one; subsequent runs of those endpoints can target it.
+  When the dashboard lands, those will be exercised through the real
+  zkLogin path.
+
+---

@@ -109,18 +109,29 @@ status=$(curl -s -o /dev/null -w '%{http_code}' \
   -H "Authorization: Bearer $TOKEN")
 [ "$status" = "400" ] || fail "bad cursor should 400, got $status" 13
 
-step "14. prepare-tx: prepare-create returns a valid Transaction JSON"
-prep=$(curl -fsS -X POST "$CP_URL/v1/buckets/prepare-create" \
+step "14. prepare-tx: prepare-create"
+# The endpoint always exists; if Enoki is configured it returns a sponsored tx,
+# otherwise 500 with "Enoki is not configured" (because the prepare path
+# delegates to the Enoki sponsorship layer in Phase 4).
+prep_status=$(curl -s -o /tmp/cp_prep.json -w '%{http_code}' -X POST "$CP_URL/v1/buckets/prepare-create" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "{\"project_id\":\"$PROJECT_ID\",\"name\":\"smoke-bucket-1\",\"encryption_mode\":\"private\"}")
-echo "$prep" | jq -e '.tx_json | type == "string" and (length > 0)' >/dev/null || fail "tx_json missing or not string" 14
-echo "$prep" | jq -e '.expected.function == "kraterion::create_grant_and_share_bucket"' >/dev/null || fail "expected.function mismatch" 14
-echo "$prep" | jq -e '.expected.package_id | startswith("0x")' >/dev/null || fail "expected.package_id malformed" 14
-echo "$prep" | jq -e '.expected.sender_hint | startswith("0x")' >/dev/null || fail "sender_hint malformed" 14
-# tx_json must itself be valid JSON.
-echo "$prep" | jq -er '.tx_json' | jq -e '.commands | length > 0' >/dev/null || fail "tx_json is not parsable" 14
+if [ "$prep_status" = "200" ]; then
+  jq -e '.digest | type == "string" and (length > 0)' /tmp/cp_prep.json >/dev/null || fail "digest missing" 14
+  jq -e '.bytes | type == "string" and (length > 0)' /tmp/cp_prep.json >/dev/null || fail "bytes missing" 14
+  jq -e '.expected.sponsored_by == "enoki"' /tmp/cp_prep.json >/dev/null || fail "sponsored_by != enoki" 14
+  jq -e '.expected.allowed_move_call_targets | length == 1' /tmp/cp_prep.json >/dev/null || fail "allow-list should be exactly 1 target" 14
+  jq -e '.expected.allowed_move_call_targets[0] | endswith("::create_grant_and_share_bucket")' /tmp/cp_prep.json >/dev/null || fail "allow-list target mismatch" 14
+  echo "    [enoki] live sponsorship 200 OK"
+elif [ "$prep_status" = "500" ]; then
+  jq -e '.error.code == "InternalError"' /tmp/cp_prep.json >/dev/null || fail "expected InternalError envelope on 500, got: $(cat /tmp/cp_prep.json)" 14
+  jq -e '.error.message | contains("Enoki")' /tmp/cp_prep.json >/dev/null || fail "expected Enoki-related error message, got: $(cat /tmp/cp_prep.json)" 14
+  echo "    [no-enoki] endpoint exists but ENOKI_PRIVATE_KEY not set — skipping live verification"
+else
+  fail "unexpected prep status $prep_status: $(cat /tmp/cp_prep.json)" 14
+fi
 
-step "15. prepare-tx: project not owned → 404"
+step "15. prepare-tx: project not owned → 404 (auth happens before Enoki)"
 status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CP_URL/v1/buckets/prepare-create" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"project_id":"00000000-0000-0000-0000-000000000000","name":"smoke-x-1","encryption_mode":"private"}')
@@ -137,6 +148,18 @@ status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CP_URL/v1/buckets/prep
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "{\"project_id\":\"$PROJECT_ID\",\"name\":\"smoke-bucket-2\",\"encryption_mode\":\"banana\"}")
 [ "$status" = "400" ] || fail "bad mode should 400, got $status" 17
+
+step "18. zklogin: malformed JWT → 400 InvalidArgument"
+status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CP_URL/v1/auth/zklogin" \
+  -H "Content-Type: application/json" \
+  -d '{"google_jwt":"not-a-jwt-just-a-long-string-that-passes-zod"}')
+[ "$status" = "400" ] || fail "malformed JWT should 400, got $status" 18
+
+step "19. sponsor/execute: Zod validation rejects bad signature length"
+status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CP_URL/v1/sponsor/execute" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"digest":"abc","signature":"x"}')
+[ "$status" = "400" ] || fail "short signature should 400, got $status" 19
 
 printf "\n\033[32mAll smoke steps passed.\033[0m\n"
 printf "Bootstrap account: %s\n" "$EMAIL"

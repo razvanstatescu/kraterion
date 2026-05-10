@@ -617,3 +617,49 @@ pnpm -F @kraterion/gateway dev            # gateway up; PutObject works in stead
 ```
 
 ---
+
+---
+
+## Symptom: Standalone tsx scripts under `apps/*/scripts/` see `process.env.ENOKI_PRIVATE_KEY` as undefined even though the Nest app boots fine
+
+**Cause:** `import "dotenv/config"` resolves `path.resolve(process.cwd(), '.env')` and stops there. There is no `.env` inside `apps/control-plane/` (or any other app dir) — the only one is at the workspace root `/Users/.../kraterion/.env`. The Nest apps only "see" it because `@prisma/client` runs an upward-walking dotenv loader during its own initialization, which happens before our Nest providers spin up. Standalone scripts that don't import `@prisma/client` get nothing.
+
+**Fix:** Load the workspace root explicitly at the top of the script. The pattern in `apps/control-plane/scripts/enoki-live-smoke.ts`:
+
+```ts
+import { config as dotenvConfig } from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenvConfig({ path: resolve(__dirname, "../../../.env") });
+```
+
+Three `..` because `apps/<app>/scripts/<file>.ts` is 3 levels deep.
+
+**Observed:** 2026-05-09 in `apps/control-plane/scripts/enoki-live-smoke.ts`.
+
+**Notes:** Don't try to "fix" this by adding per-app `.env` files — that splits the source of truth and leads to drift. Single workspace-root `.env` + explicit path resolution in standalone scripts is the right shape.
+
+---
+
+## Symptom: `SyntaxError: The requested module '@mysten/sui/client' does not provide an export named 'SuiClient'`
+
+**Cause:** `@mysten/sui` 2.16.x splits the JSON-RPC client into a separate `/jsonRpc` subpath. The old top-level `SuiClient` import was removed; the v2.x equivalent is `SuiJsonRpcClient` from `@mysten/sui/jsonRpc`.
+
+**Fix:**
+
+```ts
+// before:
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+const sui = new SuiClient({ url: getFullnodeUrl("testnet") });
+
+// after:
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+const sui = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl("testnet") });
+```
+
+The exports list in the package's `dist/jsonRpc/index.d.mts` is the authoritative reference.
+
+**Observed:** 2026-05-09 in `apps/control-plane/scripts/enoki-live-smoke.ts`.
+
+**Notes:** `@kraterion/walrus-client` already exposes a memoized `getSuiClient()` that returns a `SuiJsonRpcClient` — prefer that import path over instantiating from scratch. The smoke script uses the raw constructor only because it lives outside the dependency graph that imports the wrapper.

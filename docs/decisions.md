@@ -1783,3 +1783,204 @@ nicer when humans can read the JSON v2 payload over the wire.
   stable.
 
 ---
+
+## 2026-05-09 — zkLogin via Enoki (Mysten Labs); backend-mediated and per-request scoped
+
+**Status:** Accepted
+
+**Context:** Phase 1 shipped a dev-only email-based auth path with a
+TODO to swap in real zkLogin. Phase 4 closes that. Self-hosting the
+full zkLogin stack is a meaningful weekend of work — Google JWKS
+rotation, salt management, ephemeral keypair generation, calls to a
+ZK proving service, Groth16 proof bookkeeping, and key-server
+selection — and we want to ship the dashboard, not maintain an
+identity provider.
+
+Mysten Labs' Enoki packages all of this behind one private API key.
+Their `getZkLogin({ jwt })` endpoint takes a Google ID token and
+returns the canonical Sui address derived from `(google_sub, app_salt)`.
+The salt is per-app and Enoki-managed; the same Google account always
+maps to the same address inside a given Enoki app, across devices and
+browsers. There is no salt rotation surface — this is a one-way
+one-time anchor.
+
+**Decision:** Use Enoki for both zkLogin (Google → Sui address) and
+sponsored transactions. Backend-mediated path:
+
+- `apps/control-plane/src/enoki/EnokiClientService` is a lazy
+  `EnokiClient` wrapper. Boot is tolerant: missing `ENOKI_PRIVATE_KEY`
+  doesn't fail the process; instead, any sponsored / zkLogin call
+  surfaces `InternalError("Enoki is not configured")`. Local dev
+  without an Enoki account keeps every non-Enoki endpoint working,
+  including the dev-mode auth path.
+- `POST /v1/auth/zklogin { google_jwt }` is the production sign-in.
+  We decode (do **not** verify) the JWT to extract `sub` + `email`,
+  then call Enoki's `getZkLogin` — Enoki performs signature, audience,
+  and expiry verification against Google's JWKS, and returns the
+  canonical address. We upsert the `Account` row keyed by
+  `zklogin_sub`, mint a `default` project + API key on first sign-in,
+  and return our own HS256 session JWT (unchanged from Phase 1).
+- The dev-mode endpoints (`/v1/auth/dev-sign-up`, `dev-sign-in`)
+  remain gated by `NODE_ENV !== "production"`. They're for tests and
+  smoke runs that don't have a real Google JWT.
+
+**Trust model and the JWT decode-without-verify:**
+
+We never verify Google's signature ourselves. The Enoki round-trip
+*is* the verification — the address it returns is provably derived
+from the JWT (Enoki cannot return a valid address for a forged or
+expired token because the salt-mixing requires the JWT's claims).
+The local decode is just to read the stable `sub` (which we
+double-check survives Enoki's check by re-reading the same `sub`
+from the JWT after Enoki accepts it implicitly). If Enoki rejects
+the JWT it 4xx's and we surface the error to the caller.
+
+We also defensively reject if Enoki ever returns a different address
+for an already-registered `sub` (impossible per Enoki's salt
+contract, but cheap to catch). Vitest covers this.
+
+**Rejected alternatives:**
+
+- **Self-host JWKS verification + zkLogin proof generation.** The
+  proving step requires either running a local prover (Groth16 in
+  Rust, hours of integration) or calling Mysten's prover directly —
+  which is what Enoki wraps. We'd save the cost of Enoki on testnet
+  ($0 anyway) at the cost of weeks of maintenance and a
+  bigger-than-needed surface area.
+- **Auth0 / Clerk.** Faster to wire than self-hosted zkLogin, but
+  doesn't get us closer to the on-chain identity story; Enoki gives
+  us the address derivation in the same call.
+- **Frontend-only Enoki (no server SDK).** Simpler boot, but we'd
+  trust a frontend-asserted address. The backend would have no way
+  to pin which Move-call targets get sponsored from our budget. With
+  the **private** API key in the control plane we can attach
+  `allowedMoveCallTargets` and `allowedAddresses` per request — see
+  the next ADR.
+
+**Consequences:**
+
+- The dashboard's only auth ceremony becomes Enoki's "Continue with
+  Google" popup. We don't host a callback page.
+- Migration to mainnet is a Portal-config change + an env-var swap;
+  no code changes.
+- If we outgrow Enoki on cost/scaling, the swap is bounded: replace
+  `EnokiClientService` and `SponsorshipService` with self-hosted
+  equivalents. The schema (`zklogin_sub`, `sui_address` on `Account`)
+  was designed for this from Phase 1.
+
+---
+
+## 2026-05-09 — Sponsored transactions via Enoki: backend-mediated, kind-bytes wire format, per-request Move-call allow-list
+
+**Status:** Accepted
+
+**Context:** The user-paid model ("user has testnet SUI in their
+wallet") collides with the friction of zkLogin onboarding —
+Continue with Google then Sui faucet then top up gas is a 4-click
+detour for what should be one click. Enoki ships a sponsored-tx
+flow that fits the same shape as our existing `prepare-*` endpoints;
+the backend already builds the PTB and only the signature was missing.
+
+Enoki accepts kind-bytes (`tx.build({ client, onlyTransactionKind: true })`)
+and returns gas-paid bytes for the user to sign. The two API knobs
+that matter for security are `sender` and `allowedMoveCallTargets` —
+the second is the one that prevents a malicious frontend from
+redirecting our Enoki budget to arbitrary Move calls.
+
+**Decision:** Refactor `apps/control-plane/src/buckets/prepare/` to:
+
+1. Build the PTB with the single Move call as before (Phase 3 behavior
+   preserved at the construction level).
+2. Mark every `&mut KraterionBucket` argument as `mutable: true` via
+   `tx.object({ $kind: "UnresolvedObject", UnresolvedObject: { objectId, mutable: true } })`.
+   Without this hint the SDK's resolver would call `getMoveFunction`
+   to discover mutability — extra RPCs, harder to stub. Setting it
+   explicitly keeps the resolver on its happy path: it only needs
+   `getObjects` to fill in the version.
+3. Serialize via `tx.build({ client, onlyTransactionKind: true })` —
+   Enoki accepts kind-bytes only.
+4. Call `enoki.createSponsoredTransaction({ network: "testnet",
+   transactionKindBytes, sender, allowedAddresses: [sender],
+   allowedMoveCallTargets: [<exact target>] })`. The `allowedMoveCallTargets`
+   list always has exactly one entry — there's no batching at this
+   layer; one `prepare-*` call yields one Move call gets sponsored.
+5. Return `{ digest, bytes, expected }` where `bytes` is what the
+   dashboard signs and `digest` is what the dashboard sends back to
+   `POST /v1/sponsor/execute` along with the signature.
+
+The wire shape **changed** from Phase 3:
+
+```
+// Phase 3 (pre-Enoki):
+{ tx_json: string, expected: { ... sender_hint } }
+
+// Phase 4:
+{ digest: string, bytes: string, expected: {
+    package_id, function, summary, sender, allowed_move_call_targets, sponsored_by: "enoki"
+} }
+```
+
+The dashboard's flow is now:
+
+```
+1. POST /v1/buckets/prepare-create { ... }              → { digest, bytes }
+2. const tx = Transaction.from(fromBase64(bytes))       (dApp Kit)
+3. const { signature } = await signTransaction({ transaction: tx })
+4. POST /v1/sponsor/execute { digest, signature }       → { digest }
+5. await client.waitForTransaction({ digest })          (optional; for indexer freshness)
+```
+
+**Why backend-mediated and not frontend-only:**
+
+Enoki's frontend-only path uses the *public* API key and enforces
+the Move-call allow-list at the **Portal** level. That works, but:
+
+1. Portal allow-lists are coarse — package-wide globs, not per-request.
+2. The frontend can't pre-validate (e.g., "this user owns this
+   bucket") before sponsorship; we'd be paying Enoki for failed-Move
+   transactions caused by client bugs.
+3. The control plane already has the user context (JWT) and the
+   ownership lookup. Walking that before calling Enoki is one DB
+   round-trip we already do.
+
+With backend-mediated sponsorship using the **private** key, we can
+attach `allowedMoveCallTargets: ["<PKG>::kraterion::revoke_all_api_access"]`
+per request. Even if a malicious frontend swaps the digest, Enoki
+refuses to settle anything not on the list.
+
+**Tests:**
+
+- `test/prepare-tx.spec.ts` (10 cases) stubs `SponsorshipService.createSponsored`
+  and asserts every prepare path emits exactly one fully-qualified
+  Move-call target, the user's address as `sender`, and well-formed
+  base64 kind-bytes. Cross-account ownership checks are asserted to
+  short-circuit before any Enoki call.
+- The fake SuiClient in tests provides only `getObjects` +
+  `resolveTransactionPlugin: () => undefined`. Because we set
+  `mutable: true` on the bucket argument, the SDK never calls
+  `getMoveFunction`, so the stub's surface stays small.
+- `test/zklogin.spec.ts` (6 cases) covers the JWT decode + Enoki
+  `getZkLogin` orchestration: first sign-in creates the
+  account+project+key trio; repeat sign-ins are idempotent;
+  address rotation 409s; missing `sub`/`email` claims 400.
+
+**Live verification:** `cp-smoke.sh` step 14 runs in two modes —
+with `ENOKI_PRIVATE_KEY` set, it asserts the live Enoki round-trip
+returns `digest`, `bytes`, and a single-entry `allowed_move_call_targets`;
+without, it asserts the endpoint exists and surfaces the
+`InternalError("Enoki is not configured")` JSON envelope. All 19
+smoke steps green in either mode.
+
+**Consequences and migration:**
+
+- Phase 3's `tx.toJSON()` wire format is gone. Anything that consumed
+  `tx_json` (no production caller does — the dashboard isn't built
+  yet) needs to switch to `bytes`/`digest`.
+- The dashboard, once built, uses `@mysten/enoki/registerEnokiWallets`
+  for sign-in and dApp Kit's `useSignTransaction` for signing the
+  prepared bytes. No `useEnokiFlow` (deprecated in Enoki 0.6.0).
+- The package version exported by `@mysten/enoki` we ship against is
+  1.0.7. Pin lightly (`^1.0.7`); breaking changes have been frequent
+  in the 0.x line but the 1.x track is stable.
+
+---

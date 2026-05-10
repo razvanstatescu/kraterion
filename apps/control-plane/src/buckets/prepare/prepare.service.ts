@@ -1,28 +1,43 @@
 import { Injectable } from "@nestjs/common";
 import { KRATERION_PACKAGE_ID, kraterion } from "@kraterion/kraterion-move-sdk";
-import { Transaction } from "@mysten/sui/transactions";
+import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { BucketsService } from "../buckets.service.js";
 import { ControlPlaneError } from "../../errors/control-plane-error.js";
 import { ProjectsService } from "../../projects/projects.service.js";
+import { SponsorshipService } from "../../enoki/sponsorship.service.js";
 import { GatewayAddressService } from "../../sui/gateway-address.service.js";
+import { SuiClientService } from "../../sui/sui-client.service.js";
 import { type EncryptionMode, encodeMode } from "./dto.js";
 import type { PrepareTxResponse } from "./wire.js";
 
-interface BuildContext {
-  /** The signing user's address — embedded in `expected.sender_hint`. */
-  senderHint: string;
-}
+const FN = {
+  createGrantAndShare: "kraterion::create_grant_and_share_bucket",
+  createAndShare: "kraterion::create_and_share_bucket",
+  grantApi: "kraterion::grant_api_access",
+  revokeAll: "kraterion::revoke_all_api_access",
+  setVisibility: "kraterion::set_bucket_visibility",
+} as const;
 
 /**
- * Builds the unsigned PTBs for the four bucket-lifecycle calls. None
- * of them touch Postgres beyond the ownership / project lookups; the
- * actual `Bucket` row arrives via the indexer once the user signs and
- * the on-chain event fires.
+ * Builds the unsigned PTBs for the four bucket-lifecycle calls and
+ * hands them to Enoki for sponsorship.
+ *
+ * For each entry function we:
+ *   1. Verify ownership against Postgres (`accountId` → project / bucket).
+ *   2. Build a `Transaction` with the single Move call, the same way
+ *      Phase 3 did.
+ *   3. Serialize via `tx.build({ client, onlyTransactionKind: true })` —
+ *      Enoki accepts kind-bytes only (it constructs gas + sender itself).
+ *   4. Call `SponsorshipService.createSponsored` with the user's address
+ *      and a per-request `allowedMoveCallTargets` set to the *exact*
+ *      package-qualified target. Enoki will refuse to settle anything
+ *      else, so a malicious frontend can't redirect our budget.
  *
  * The Move helpers in `@kraterion/kraterion-move-sdk` default
  * `package: '@local-pkg/kraterion'` (a NamedPackagesPlugin placeholder).
- * We pin it to `KRATERION_PACKAGE_ID` explicitly so we don't need the
- * plugin in this code path.
+ * We pin to `KRATERION_PACKAGE_ID` explicitly so the prepare path
+ * doesn't depend on the plugin being registered on the calling
+ * Transaction.
  */
 @Injectable()
 export class PrepareTxService {
@@ -30,6 +45,8 @@ export class PrepareTxService {
     private readonly buckets: BucketsService,
     private readonly projects: ProjectsService,
     private readonly gateway: GatewayAddressService,
+    private readonly sui: SuiClientService,
+    private readonly sponsorship: SponsorshipService,
   ) {}
 
   // === create + (optional) grant ===
@@ -45,17 +62,13 @@ export class PrepareTxService {
       apiAddrOverride?: string | undefined;
     },
   ): Promise<PrepareTxResponse> {
-    // Ownership: the project must belong to the caller. (Bucket name
-    // uniqueness is enforced on-chain — there is no DB-level check at
-    // the prepare step because the row will be inserted by the indexer
-    // after the user signs.)
     await this.projects.getOwned(accountId, args.projectId);
 
     const tx = new Transaction();
     const nameBytes = Array.from(Buffer.from(args.name, "utf8"));
     const mode = encodeMode(args.encryptionMode);
 
-    let fn: string;
+    let target: string;
     let summary: string;
     if (args.grantApiAccess) {
       const apiAddr = args.apiAddrOverride ?? (await this.gateway.get());
@@ -65,7 +78,7 @@ export class PrepareTxService {
           arguments: { name: nameBytes, apiAddr, encryptionMode: mode },
         }),
       );
-      fn = "kraterion::create_grant_and_share_bucket";
+      target = qualified(FN.createGrantAndShare);
       summary = `Create bucket "${args.name}" (${args.encryptionMode}) with API access granted to ${shorten(apiAddr)}`;
     } else {
       tx.add(
@@ -74,11 +87,11 @@ export class PrepareTxService {
           arguments: { name: nameBytes, encryptionMode: mode },
         }),
       );
-      fn = "kraterion::create_and_share_bucket";
+      target = qualified(FN.createAndShare);
       summary = `Create bucket "${args.name}" (${args.encryptionMode}); API access NOT granted`;
     }
 
-    return finalize(tx, fn, summary, { senderHint: senderAddress });
+    return this.sponsor(tx, senderAddress, target, summary);
   }
 
   // === grant API to existing bucket ===
@@ -95,13 +108,11 @@ export class PrepareTxService {
     tx.add(
       kraterion.grantApiAccess({
         package: KRATERION_PACKAGE_ID,
-        arguments: { bucket: bucket.kraterion_bucket_object_id, apiAddr },
+        arguments: { bucket: mutableShared(tx, bucket.kraterion_bucket_object_id), apiAddr },
       }),
     );
     const summary = `Grant API access on "${bucket.name}" to ${shorten(apiAddr)}`;
-    return finalize(tx, "kraterion::grant_api_access", summary, {
-      senderHint: senderAddress,
-    });
+    return this.sponsor(tx, senderAddress, qualified(FN.grantApi), summary);
   }
 
   // === revoke all API access ===
@@ -116,13 +127,11 @@ export class PrepareTxService {
     tx.add(
       kraterion.revokeAllApiAccess({
         package: KRATERION_PACKAGE_ID,
-        arguments: { bucket: bucket.kraterion_bucket_object_id },
+        arguments: { bucket: mutableShared(tx, bucket.kraterion_bucket_object_id) },
       }),
     );
     const summary = `Revoke ALL API access on "${bucket.name}". The gateway will no longer be able to read or write into this bucket.`;
-    return finalize(tx, "kraterion::revoke_all_api_access", summary, {
-      senderHint: senderAddress,
-    });
+    return this.sponsor(tx, senderAddress, qualified(FN.revokeAll), summary);
   }
 
   // === flip visibility ===
@@ -135,8 +144,6 @@ export class PrepareTxService {
   ): Promise<PrepareTxResponse> {
     const bucket = await this.buckets.getOwned(accountId, bucketId);
     if (bucket.encryption_mode === args.encryptionMode) {
-      // Move's set_bucket_visibility is idempotent and emits no event in
-      // this case, so submitting it would burn gas for nothing.
       throw new ControlPlaneError(
         "InvalidArgument",
         `Bucket is already in ${args.encryptionMode} mode`,
@@ -148,39 +155,69 @@ export class PrepareTxService {
     tx.add(
       kraterion.setBucketVisibility({
         package: KRATERION_PACKAGE_ID,
-        arguments: { bucket: bucket.kraterion_bucket_object_id, encryptionMode: mode },
+        arguments: {
+          bucket: mutableShared(tx, bucket.kraterion_bucket_object_id),
+          encryptionMode: mode,
+        },
       }),
     );
     const summary = `Change visibility of "${bucket.name}" from ${bucket.encryption_mode} to ${args.encryptionMode}`;
-    return finalize(tx, "kraterion::set_bucket_visibility", summary, {
-      senderHint: senderAddress,
+    return this.sponsor(tx, senderAddress, qualified(FN.setVisibility), summary);
+  }
+
+  /**
+   * Common tail: produce the kind-bytes, call Enoki for sponsorship,
+   * shape the wire response.
+   */
+  private async sponsor(
+    tx: Transaction,
+    senderAddress: string,
+    moveCallTarget: string,
+    summary: string,
+  ): Promise<PrepareTxResponse> {
+    const kindBytes = await tx.build({
+      client: this.sui.get(),
+      onlyTransactionKind: true,
     });
+    const transactionKindBytes = Buffer.from(kindBytes).toString("base64");
+    const sponsored = await this.sponsorship.createSponsored({
+      transactionKindBytes,
+      sender: senderAddress,
+      allowedMoveCallTargets: [moveCallTarget],
+    });
+    return {
+      digest: sponsored.digest,
+      bytes: sponsored.bytes,
+      expected: {
+        package_id: KRATERION_PACKAGE_ID,
+        function: moveCallTarget,
+        summary,
+        sender: senderAddress,
+        allowed_move_call_targets: [moveCallTarget],
+        sponsored_by: "enoki",
+      },
+    };
   }
 }
 
 /**
- * Serialize via `tx.toJSON()`. Per Mysten guidance for the
- * "build-on-server, sign-on-client" pattern: do not set sender; do not
- * pin shared-object versions; let the client's SDK resolve fresh
- * versions at sign time. The dashboard's `useSignAndExecuteTransaction`
- * calls `setSenderIfNotSet` for us.
+ * Tag the bucket as a mutably-borrowed shared object input. Without the
+ * `mutable: true` flag the SDK has to call `getMoveFunction` to discover
+ * the parameter's mutability — extra RPCs, more failure modes, and
+ * harder to stub in tests. Setting it explicitly keeps the resolver on
+ * its happy path: it only needs `getObjects` to fill in the version.
  */
-async function finalize(
-  tx: Transaction,
-  fn: string,
-  summary: string,
-  ctx: BuildContext,
-): Promise<PrepareTxResponse> {
-  const tx_json = await tx.toJSON();
-  return {
-    tx_json,
-    expected: {
-      package_id: KRATERION_PACKAGE_ID,
-      function: fn,
-      summary,
-      sender_hint: ctx.senderHint,
-    },
-  };
+function mutableShared(tx: Transaction, objectId: string): TransactionObjectArgument {
+  return tx.object({
+    $kind: "UnresolvedObject",
+    UnresolvedObject: { objectId, mutable: true },
+  });
+}
+
+function qualified(unqualifiedTarget: string): string {
+  // unqualifiedTarget looks like "kraterion::create_and_share_bucket".
+  // Enoki expects the fully-qualified `<package>::<module>::<fn>` form.
+  return `${KRATERION_PACKAGE_ID}::${unqualifiedTarget}`;
 }
 
 function shorten(addr: string): string {

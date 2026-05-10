@@ -1,29 +1,34 @@
 /**
  * Wire shape for every `POST /v1/buckets/prepare-*` response.
  *
- * `tx_json` is the string produced by `tx.toJSON()` — the recommended
- * Mysten format for "build on server, sign on client". The dashboard
- * passes it directly into `Transaction.from(tx_json)` (the SDK
- * branch-detects on the leading `{`), then hands the resulting
- * `Transaction` instance to dApp Kit's `useSignAndExecuteTransaction`,
- * which calls `setSenderIfNotSet` automatically.
+ * Phase 4 introduced Enoki sponsorship: the control plane now hands
+ * off the kind-bytes (`tx.build({ client, onlyTransactionKind: true })`)
+ * to Enoki's `createSponsoredTransaction`, which constructs the gas
+ * envelope and returns the user-signable BCS bytes plus a digest.
  *
- * We use `toJSON` (not `build({ onlyTransactionKind: true })`) so
- * shared-object inputs stay symbolic and the client SDK can resolve
- * fresh versions at sign time — important because the bucket's
- * version may bump (someone else grants/revokes/visibility-flips)
- * between the time we built the PTB and the time the user signs.
+ * Wire:
+ *   - `bytes` — base64 BCS the dashboard passes to dApp Kit's
+ *     `useSignTransaction({ transaction: Transaction.from(bytes) })`.
+ *     The signature comes from the Enoki zkLogin wallet.
+ *   - `digest` — opaque token tying the user-signature back to the
+ *     sponsorship record. The dashboard sends `{ digest, signature }`
+ *     to `POST /v1/sponsor/execute`, which relays to Enoki.
  *
- * `expected` is a non-binding metadata block: callers MUST NOT depend
- * on these fields for security. They're for the dashboard's
- * confirmation UI ("you're about to call …") and for telemetry.
+ * `expected` is non-binding metadata: callers MUST NOT depend on these
+ * fields for security. They're for the dashboard's confirmation UI
+ * ("you're about to call …") and for telemetry.
  */
 export interface PrepareTxResponse {
-  tx_json: string;
+  digest: string;
+  bytes: string;
   expected: {
     package_id: string;
     function: string;
     summary: string;
-    sender_hint: string;
+    /** The user's zkLogin address. Enoki has already pinned this as `sender`. */
+    sender: string;
+    /** The exact Move-call target we restricted Enoki to. */
+    allowed_move_call_targets: string[];
+    sponsored_by: "enoki";
   };
 }
