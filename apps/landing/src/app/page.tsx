@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Architecture } from "./Architecture";
 
 const X_URL = "https://x.com/kraterion";
 const CONTACT_EMAIL = "hello@kraterion.com";
@@ -277,6 +278,9 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      {/* ARCHITECTURE — animated three-tier diagram below the hero */}
+      <Architecture />
 
       {/* BOTTOM */}
       <section className="footer-row">

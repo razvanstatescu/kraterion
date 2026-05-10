@@ -59,7 +59,7 @@
 /* ============================================================
    Page shell
    ============================================================ */
-html, body { height: 100%; margin: 0; overflow: hidden; }
+html, body { margin: 0; }
 body {
   background: var(--cream);
   color: var(--ink);
@@ -76,9 +76,8 @@ body {
 .page {
   position: relative;
   z-index: 1;
-  height: 100vh;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   padding: 22px 40px 18px;
   box-sizing: border-box;
   gap: 8px;
@@ -131,7 +130,9 @@ body {
   width: 100%;
   max-width: 1240px;
   margin: 0 auto;
-  align-self: center;
+  /* Hero still fills the first viewport so the demo is the first impression.
+     100svh dodges iOS Safari address-bar jump. 96px ≈ topbar + page padding. */
+  min-height: calc(100svh - 96px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -614,6 +615,424 @@ body {
 .brand-walrus { height: 14px; }
 .brand-seal   { height: 16px; }
 .brand-sui    { height: 18px; }
+
+/* ============================================================
+   Architecture diagram — animated three-tier
+   Hybrid render: HTML cards positioned in a fixed-aspect
+   container, an inline SVG drawing connection paths in the
+   same coordinate system, and SMIL <animateMotion> driving
+   dots along those paths.
+   ============================================================ */
+.arch {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 96px 16px 56px;
+  box-sizing: border-box;
+}
+
+.arch-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  margin-bottom: 56px;
+}
+.arch-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.arch-title {
+  font-size: 36px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  margin: 0;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.arch-sub {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 540px;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* Stage = rails (left) + canvas */
+.arch-stage {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 20px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* Tier rails — three vertical labels matching canvas rows */
+.arch-rails {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr;
+}
+.arch-rail {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 14px 0 0;
+  text-align: right;
+  border-right: 0.5px solid var(--border);
+}
+.arch-rail-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 500;
+}
+.arch-rail-note {
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+/* Canvas — fixed aspect so SVG paths align with absolutely positioned nodes */
+.arch-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1200 / 540;
+  background-color: var(--cream);
+  /* Hairline dot grid — subtle blueprint texture */
+  background-image: radial-gradient(circle, var(--stone-200) 0.6px, transparent 0.6px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+}
+
+.arch-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Static wires */
+.arch-line {
+  fill: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+}
+.arch-line--write { stroke: var(--krater);   opacity: 0.65; }
+.arch-line--read  { stroke: var(--stone-700); opacity: 0.55; }
+.arch-line--renew { stroke: var(--success);  opacity: 0.6;  }
+.arch-line--ctx   { stroke: var(--stone-300); opacity: 0.5; stroke-dasharray: 1 3; }
+
+/* Animated dots travelling along each flow path */
+.arch-dot {
+  /* Cream stroke gives a soft outline against any background colour without using shadows */
+  stroke: var(--cream);
+  stroke-width: 1.2;
+  transition: opacity 200ms var(--ease);
+}
+.arch-dot--write { fill: var(--krater); }
+.arch-dot--read  { fill: var(--stone-700); }
+.arch-dot--renew { fill: var(--success); }
+/* Hover-highlight system — pure CSS via :has().
+   Each node and each path declares which flow groups it participates in
+   (data, control, background) via data-groups. Hovering a node brightens
+   *every* element whose group set intersects the hovered node's group set —
+   so the entire upstream and downstream flow lights up, not just neighbours. */
+.arch-canvas:has(.arch-node:is(:hover, :focus-visible)) .arch-line,
+.arch-canvas:has(.arch-node:is(:hover, :focus-visible)) .arch-dot {
+  opacity: 0.08;
+}
+.arch-canvas:has(.arch-node:is(:hover, :focus-visible)) .arch-node {
+  opacity: 0.3;
+}
+
+/* Single-group nodes — one rule per node */
+.arch-canvas:has([data-node="browser"]:is(:hover, :focus-visible))  [data-groups~="data"],
+.arch-canvas:has([data-node="sdk"]:is(:hover, :focus-visible))      [data-groups~="data"],
+.arch-canvas:has([data-node="gateway"]:is(:hover, :focus-visible))  [data-groups~="data"],
+.arch-canvas:has([data-node="walrus"]:is(:hover, :focus-visible))   [data-groups~="data"],
+.arch-canvas:has([data-node="seal"]:is(:hover, :focus-visible))     [data-groups~="data"],
+.arch-canvas:has([data-node="control"]:is(:hover, :focus-visible))  [data-groups~="control"],
+.arch-canvas:has([data-node="postgres"]:is(:hover, :focus-visible)) [data-groups~="control"],
+/* Multi-group nodes — one rule per group they participate in */
+.arch-canvas:has([data-node="worker"]:is(:hover, :focus-visible))   [data-groups~="control"],
+.arch-canvas:has([data-node="worker"]:is(:hover, :focus-visible))   [data-groups~="background"],
+.arch-canvas:has([data-node="redis"]:is(:hover, :focus-visible))    [data-groups~="control"],
+.arch-canvas:has([data-node="redis"]:is(:hover, :focus-visible))    [data-groups~="background"],
+.arch-canvas:has([data-node="sui"]:is(:hover, :focus-visible))      [data-groups~="data"],
+.arch-canvas:has([data-node="sui"]:is(:hover, :focus-visible))      [data-groups~="background"] {
+  opacity: 1;
+}
+
+/* The hovered node itself: full opacity + krater accent border */
+.arch-node:is(:hover, :focus-visible) {
+  opacity: 1 !important;
+  border-color: var(--krater) !important;
+}
+
+/* Cards — absolutely positioned, percentage-sized within the canvas */
+.arch-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--cream);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-sizing: border-box;
+  cursor: default;
+  transition: border-color 200ms var(--ease), transform 200ms var(--ease);
+  outline: none;
+  /* Stack above SVG paths */
+  z-index: 2;
+}
+.arch-node:hover {
+  border-color: var(--stone-500);
+  transform: translateY(-1px);
+  z-index: 3;
+}
+.arch-node:focus-visible {
+  border-color: var(--krater);
+  outline: 2px solid var(--krater);
+  outline-offset: 2px;
+  z-index: 3;
+}
+.arch-node-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+.arch-node-sub {
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.3;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+/* Variants */
+.arch-node--client  { background: var(--stone-50); }
+.arch-node--service { background: var(--cream); }
+.arch-node--data {
+  background: var(--stone-50);
+  padding: 6px 10px;
+  justify-content: center;
+}
+.arch-node--data .arch-node-label {
+  font-size: 11px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  letter-spacing: 0;
+  color: var(--stone-700);
+}
+.arch-node--chain {
+  background: var(--cream);
+  border-left: 2px solid var(--krater);
+  padding-left: 11px;
+}
+
+/* Brand icon inside chain cards */
+.arch-node.has-brand { gap: 4px; }
+.arch-brand {
+  height: 12px;
+  width: auto;
+  opacity: 0.85;
+}
+.arch-brand--walrus { height: 11px; }
+.arch-brand--seal   { height: 13px; }
+.arch-brand--sui    { height: 14px; }
+
+/* Tooltip — same vocabulary as .dash-pill[data-tip] */
+.arch-node[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 8px 10px;
+  background: var(--ink);
+  color: var(--cream);
+  font: 400 11px/1.45 var(--font-jetbrains-mono), ui-monospace, monospace;
+  letter-spacing: 0;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--ease), transform 200ms var(--ease);
+  z-index: 60;
+  white-space: normal;
+  text-align: left;
+}
+.arch-node[data-tip]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  opacity: 0;
+  transition: opacity 200ms var(--ease);
+  z-index: 61;
+}
+.arch-node[data-tip]:hover::after,
+.arch-node[data-tip]:focus::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.arch-node[data-tip]:hover::before,
+.arch-node[data-tip]:focus::before { opacity: 1; }
+/* Bottom-tier tooltips would clip below the canvas — flip to top */
+.arch-node--chain[data-tip]::after {
+  bottom: auto;
+  top: calc(100% + 10px);
+  transform: translateX(-50%) translateY(-4px);
+}
+.arch-node--chain[data-tip]::before {
+  bottom: auto;
+  top: calc(100% + 5px);
+  border-top-color: transparent;
+  border-bottom-color: var(--ink);
+}
+.arch-node--chain[data-tip]:hover::after,
+.arch-node--chain[data-tip]:focus::after {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Legend */
+.arch-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 32px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.arch-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.arch-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.arch-legend-dot--write { background: var(--krater); }
+.arch-legend-dot--read  { background: var(--stone-700); }
+.arch-legend-dot--renew { background: var(--success); }
+
+/* Mobile chain — hidden on desktop, takes over below 980px */
+.arch-mobile { display: none; }
+
+@media (max-width: 980px) {
+  .arch { padding: 64px 16px 40px; }
+  .arch-title { font-size: 28px; }
+  .arch-sub { font-size: 14px; }
+  .arch-stage { display: none; }
+
+  .arch-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    list-style: none;
+    margin: 0 auto;
+    padding: 0;
+    max-width: 360px;
+  }
+  .arch-mstep {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    align-items: center;
+    column-gap: 12px;
+  }
+  .arch-mtier {
+    grid-column: 1;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    text-align: right;
+  }
+  .arch-mcard {
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+    background: var(--cream);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+  }
+  .arch-mlabel {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .arch-msub {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+    line-height: 1.3;
+  }
+  /* Connector between cards — thin line with a krater dot travelling down */
+  .arch-mlink {
+    grid-column: 2;
+    position: relative;
+    height: 28px;
+    width: 1px;
+    margin-left: 24px;
+    background: var(--stone-300);
+  }
+  .arch-mlink-dot {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--krater);
+    transform: translateX(-50%);
+    animation: arch-mflow 2.4s var(--ease) infinite;
+  }
+}
+
+@keyframes arch-mflow {
+  0%   { top: 0; opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
 
 /* ============================================================
    Footer pitch + signup
@@ -1183,4 +1602,7 @@ body {
   /* Hide the click-loop hint under reduced-motion — the hover/cursor styling still
      communicates the row is interactive without an attention-pulling pulse. */
   .row-cursor, .dash-tr.new::after { display: none !important; }
+  /* Architecture diagram — drop the travelling dots; static lines still teach the layout.
+     SMIL <animateMotion> doesn't honour CSS animation-* rules, so we hide the elements outright. */
+  .arch-dot, .arch-mlink-dot { display: none !important; }
 }
