@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { CancelledBanner } from "@/components/shell/CancelledBanner";
 import { Shell } from "@/components/shell/Shell";
 import { SidebarLive } from "@/components/shell/SidebarLive";
 
@@ -11,7 +12,10 @@ import { SidebarLive } from "@/components/shell/SidebarLive";
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <Shell sidebar={<SidebarLive />}>{children}</Shell>
+      <Shell sidebar={<SidebarLive />}>
+        <CancelledBanner />
+        {children}
+      </Shell>
     </RequireAuth>
   );
 }

@@ -38,10 +38,17 @@ export interface BrowserListing {
  * The CP filters server-side by `startsWith(prefix)`, so we don't have
  * to re-filter; we just need to collapse the first remaining segment
  * into a folder if it has a `/`.
+ *
+ * `folderMarkerPrefixes` are server-side "empty folder" hints from the
+ * dashboard (see `FolderMarker` in the schema). They're merged into
+ * the folder set alongside prefixes derived from real object keys, so
+ * empty folders show up immediately after creation — even without an
+ * upload.
  */
 export function buildBrowserListing(
   objects: readonly S3ObjectJson[],
   prefix: string,
+  folderMarkerPrefixes: readonly string[] = [],
 ): BrowserListing {
   const folders = new Map<string, FolderEntry>();
   const leaves: ObjectEntry[] = [];
@@ -62,6 +69,22 @@ export function buildBrowserListing(
       if (!folders.has(subPrefix)) {
         folders.set(subPrefix, { kind: "folder", name, prefix: subPrefix });
       }
+    }
+  }
+
+  // Layer in empty-folder markers. A marker contributes a row only if
+  // its parent prefix matches the current view AND its next segment
+  // isn't already represented by a real object's key.
+  for (const markerPrefix of folderMarkerPrefixes) {
+    if (!markerPrefix.startsWith(prefix)) continue;
+    const tail = markerPrefix.slice(prefix.length);
+    if (!tail) continue;
+    const slash = tail.indexOf("/");
+    if (slash === -1) continue; // markers always end in "/" — never reached
+    const name = tail.slice(0, slash);
+    const subPrefix = `${prefix}${name}/`;
+    if (!folders.has(subPrefix)) {
+      folders.set(subPrefix, { kind: "folder", name, prefix: subPrefix });
     }
   }
 

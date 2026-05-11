@@ -115,8 +115,9 @@ model Bucket {
   // whole point.
   deleted_at DateTime?
 
-  project Project    @relation(fields: [project_id], references: [id])
-  objects S3Object[]
+  project        Project        @relation(fields: [project_id], references: [id])
+  objects        S3Object[]
+  folder_markers FolderMarker[]
 
   @@unique([project_id, name])
   // Idempotency key for the indexer: `(tx_digest, event_seq)` is unique
@@ -220,6 +221,36 @@ model SubWallet {
   account Account? @relation("api_decryption_for_account", fields: [account_id], references: [id])
 
   @@index([role])
+}
+
+// Virtual folder markers for the dashboard's file browser.
+//
+// S3 has no real folders — they're a UI convention over `/` characters
+// in object keys. The dashboard already synthesizes folders from the
+// keys it sees, but a user who clicks "New folder" before uploading
+// expects to see the empty folder appear right away.
+//
+// Industry-canonical move is to PUT a 0-byte object with key ending in
+// `/` (AWS S3 console, Cloudflare R2, DO Spaces, MinIO all do this).
+// For Kraterion that costs ~0.2 WAL and ~30s on-chain wait per empty
+// folder — wasteful for a UI affordance. We instead persist the marker
+// here and merge it into the listing client-side.
+//
+// Interop note: a marker is invisible to boto3 / aws-cli until a real
+// file is uploaded under its prefix. The S3 API surface is unchanged.
+model FolderMarker {
+  id         String   @id @default(uuid())
+  bucket_id  String
+  // Full prefix from bucket root, always normalized to end in "/".
+  // Examples: "reports/", "reports/2026/", "reports/2026/Q2/".
+  // Empty string is invalid; folders always have a non-zero depth.
+  prefix     String
+  created_at DateTime @default(now())
+
+  bucket Bucket @relation(fields: [bucket_id], references: [id])
+
+  @@unique([bucket_id, prefix])
+  @@index([bucket_id])
 }
 
 // Log table for idempotent application of `KraterionObjectExtended`

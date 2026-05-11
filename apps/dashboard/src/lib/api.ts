@@ -159,6 +159,14 @@ export interface BucketJson {
   deleted_at: string | null;
 }
 
+export interface FolderMarkerJson {
+  id: string;
+  bucket_id: string;
+  /** Full prefix from bucket root, always ends in "/". */
+  prefix: string;
+  created_at: string;
+}
+
 export interface S3ObjectJson {
   id: string;
   bucket_id: string;

@@ -1649,3 +1649,41 @@ _Calendar weeks anchored in `docs/timeline.md`._
   usage stats stub.
 
 ---
+
+## 2026-05-11 — [dashboard][control-plane] Phase G: Settings + Activity + Usage + cancel-subscription twist
+
+- **Backend:** `PATCH /v1/me/cancel` added to
+  `apps/control-plane/src/accounts/accounts.controller.ts`. Body shape
+  `{ confirm: true }` validated with Zod; idempotent on
+  already-cancelled accounts (returns the current row instead of
+  flipping again). Status field is the existing `Account.status`
+  string column — no migration.
+- **Dashboard Settings (`/settings`):** account card (email, Sui
+  address with Suiscan link, status pill, member-since) + a danger
+  card with the cancel button. `ConfirmModal` explains that data
+  doesn't move — on-chain Bucket / SharedBlob objects keep paying
+  Walrus rent from their funding pools. Wires `useCancelSubscription`
+  → `PATCH /v1/me/cancel` → invalidates `['v1','me']`.
+- **Persistent banner:** `components/shell/CancelledBanner.tsx`,
+  mounted in `(app)/layout.tsx`. Reads `useMe()` — when
+  `account.status === "cancelled"` it renders a warning Banner on
+  every page with a Suiscan link to the user's Sui address. Demo
+  twist 1: "your files outlive the platform" reads from every screen.
+- **Activity (`/activity`):** reverse-chrono bucket-event feed
+  synthesized client-side from `useBuckets({ includeDeleted: true })`.
+  One row per creation, one per soft-delete. Object-level events are
+  intentionally out — would need a dedicated CP `/v1/activity`
+  endpoint to be feasible across all buckets.
+- **Usage (`/usage`):** three-stat grid (Storage / Objects /
+  Buckets). Uses `useQueries` to fan out per-bucket `useObjects` in
+  parallel and aggregates sizes. Sub-line clarifies it's free during
+  the hackathon; metered billing is a follow-up.
+- **CSS:** added `.ks-card`, `.ks-card-danger`, `.ks-cancelled-banner`,
+  `.ks-activity-*`, `.ks-usage-*` to `globals.css`. Token-driven,
+  no hard-coded colors.
+- **Verification:** `pnpm -F @kraterion/dashboard typecheck` and
+  `pnpm -F @kraterion/control-plane typecheck` clean. Dashboard
+  build clean — all nine routes (incl. `/activity`, `/usage`,
+  `/settings`) prerender or stream as expected.
+
+---

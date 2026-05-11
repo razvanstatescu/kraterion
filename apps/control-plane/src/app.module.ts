@@ -5,6 +5,7 @@ import { AuthCoreModule } from "./auth/auth-core.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { BucketsModule } from "./buckets/buckets.module.js";
 import { EnokiModule } from "./enoki/enoki.module.js";
+import { FoldersModule } from "./folders/folders.module.js";
 import { HealthController } from "./health.controller.js";
 import { ObjectsModule } from "./objects/presign.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
@@ -23,6 +24,7 @@ import { SuiClientModule } from "./sui/sui-client.module.js";
     ApiKeysModule,
     BucketsModule,
     ObjectsModule,
+    FoldersModule,
   ],
   controllers: [HealthController],
 })

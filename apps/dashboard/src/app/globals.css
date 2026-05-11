@@ -433,13 +433,55 @@ code, kbd, samp {
 .ks-trow:hover { background: var(--stone-50); }
 .ks-trow.is-selected { background: var(--stone-100); }
 
-/* Bucket browser */
+/* Bucket browser — single column, with conditional inspector pane.
+   The legacy `.ks-browser` 3-column grid + `.ks-tree` are kept below
+   for any external consumer; new code uses `.ks-browser-v2`. */
 .ks-browser {
   display: grid;
   grid-template-columns: 220px 1fr 320px;
   gap: 16px;
   margin-top: 8px;
 }
+.ks-browser-v2 {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  align-items: flex-start;
+}
+.ks-browser-v2 .ks-files { flex: 1; min-width: 0; }
+.ks-inspector-pane {
+  flex: 0 0 400px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+  /* Subtle slide-in so the pane doesn't pop into existence when a row
+     is clicked. Matches the 200ms / cubic-bezier(0.4, 0, 0.2, 1) the
+     rest of the system uses for hover transitions. */
+  animation: ks-inspector-in var(--dur-base) var(--ease);
+}
+@keyframes ks-inspector-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.ks-inspector-pane-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.ks-inspector-pane .ks-inspector {
+  border: 0;
+  border-radius: 0;
+  padding: 20px;
+}
+
+/* Folder rows — visually distinct from files: warmer icon, no size
+   metadata. Same row height so the table reads as one rhythm. */
+.ks-trow-folder .icon,
+.ks-trow-folder svg { color: var(--krater); }
+.ks-trow-static { cursor: default; }
+.ks-trow-static:hover { background: var(--bg-elevated); }
+
 .ks-tree {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -729,4 +771,355 @@ code, kbd, samp {
   display: flex; flex-direction: column; align-items: center;
   gap: 24px;
   text-align: center;
+}
+
+/* Delete-folder dialog */
+.ks-deletefolder-glyph {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  background: #FDEDEA;
+  color: var(--error);
+  flex-shrink: 0;
+}
+.ks-deletefolder-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.ks-deletefolder-summary strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.ks-deletefolder-keyword {
+  background: var(--stone-100);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--text-primary);
+}
+
+/* Inline breadcrumb trash — sits at the tail of the crumb trail when
+   the user is inside a folder. Always visible (no hover gate) so the
+   affordance is discoverable, but visually muted until interaction. */
+.ks-crumb-delete {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.ks-crumb-delete:hover,
+.ks-crumb-delete:focus-visible {
+  background: #FDEDEA;
+  color: var(--error);
+  outline: none;
+}
+
+/* Folder-row trash button — only shown on hover. */
+.ks-trow-folder .ks-folder-delete {
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease);
+  margin-left: auto;
+}
+.ks-trow-folder:hover .ks-folder-delete,
+.ks-trow-folder:focus-within .ks-folder-delete {
+  opacity: 1;
+}
+.ks-folder-delete {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 0;
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.ks-folder-delete:hover {
+  background: #FDEDEA;
+  color: var(--error);
+}
+
+/* New-folder dialog */
+.ks-newfolder-glyph {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--stone-100);
+  color: var(--krater);
+  flex-shrink: 0;
+}
+.ks-newfolder-parent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--stone-50);
+  min-width: 0;
+}
+.ks-newfolder-parent .micro {
+  flex-shrink: 0;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.ks-newfolder-parent-path {
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Card surface — used on Settings, Usage, and other content panels. */
+.ks-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.ks-card-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.ks-card-title { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.ks-card-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+.ks-card-body { padding: 20px; }
+.ks-card-danger { border-color: #F4BFB6; }
+.ks-card-danger .ks-card-head { border-bottom-color: #F4BFB6; background: #FDEDEA; }
+
+/* Persistent cancellation banner — pinned just below the topbar. */
+.ks-cancelled-banner {
+  padding: 12px 32px 0;
+}
+.ks-cancelled-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}
+.ks-cancelled-link:hover { color: var(--krater); }
+
+/* Activity feed */
+.ks-activity-list {
+  display: flex; flex-direction: column;
+  gap: 8px;
+}
+.ks-activity-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+.ks-activity-icon {
+  width: 32px; height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--stone-100);
+  color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ks-activity-text { flex: 1; min-width: 0; }
+.ks-activity-title { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+.ks-activity-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+.ks-activity-meta { font-size: 12px; color: var(--text-tertiary); }
+
+/* Usage page — editorial hero + proportional bar + legend. */
+.ks-usage-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 40px;
+  padding: 40px 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.ks-usage-hero-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.ks-usage-hero-number {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 14px;
+}
+.ks-usage-hero-value {
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ks-usage-hero-unit {
+  font-size: 20px;
+  color: var(--text-tertiary);
+  font-feature-settings: "tnum" 1;
+  letter-spacing: 0.04em;
+}
+.ks-usage-hero-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 16px;
+  max-width: 60ch;
+  line-height: 1.6;
+}
+.ks-usage-hero-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border-left: 1px solid var(--border);
+  padding-left: 36px;
+  align-self: stretch;
+  justify-content: center;
+}
+.ks-usage-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+.ks-usage-mini-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.ks-usage-mini-value {
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.ks-usage-section {
+  margin-top: 32px;
+}
+.ks-usage-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.ks-usage-section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-usage-section-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.ks-usage-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--stone-100);
+  border: 1px solid var(--border);
+}
+.ks-usage-bar-seg {
+  height: 100%;
+  min-width: 2px;
+  transition: filter var(--dur-base) var(--ease);
+}
+.ks-usage-bar-seg + .ks-usage-bar-seg {
+  border-left: 1px solid var(--bg-surface);
+}
+.ks-usage-bar-seg:hover { filter: brightness(0.94); }
+
+.ks-usage-empty-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--stone-100);
+  border: 1px solid var(--border);
+}
+
+.ks-usage-legend {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+}
+.ks-usage-legend-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto 60px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ks-usage-legend-row:last-child { border-bottom: 0; }
+.ks-usage-legend-swatch {
+  width: 10px; height: 10px;
+  border-radius: 3px;
+}
+.ks-usage-legend-name {
+  font-size: 14px;
+  color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ks-usage-legend-size {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 80px;
+}
+.ks-usage-legend-pct {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ks-usage-footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.65;
+  max-width: 72ch;
+}
+
+@media (max-width: 720px) {
+  .ks-usage-hero {
+    grid-template-columns: 1fr;
+    padding: 28px 24px;
+  }
+  .ks-usage-hero-aside {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 20px;
+    flex-direction: row;
+    gap: 32px;
+  }
 }

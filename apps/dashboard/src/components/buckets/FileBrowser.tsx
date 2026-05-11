@@ -1,16 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
+import { IconButton } from "@/components/ui/IconButton";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError, type BucketJson, type S3ObjectJson } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { buildBrowserListing, iconForContentType, splitPrefix } from "@/lib/objects-tree";
-import { useObjects } from "@/lib/queries";
+import { useFolderMarkers, useObjects } from "@/lib/queries";
+import { DeleteFolderDialog } from "./DeleteFolderDialog";
 import { Inspector } from "./Inspector";
+import { NewFolderDialog } from "./NewFolderDialog";
 
 interface Props {
   bucket: BucketJson;
@@ -20,10 +22,17 @@ interface Props {
 }
 
 /**
- * Three-pane file browser. Supabase-style:
- *   - breadcrumb on top, click any segment to jump back up
- *   - file table in the middle (folders sort above leaves)
- *   - inspector on the right, half-pane, pinned to one selection
+ * Two-column file browser:
+ *   - Single file table that contains both folders and files (folders
+ *     sort above files). Breadcrumb on top, search on the right.
+ *   - Inspector pane appears on the right ONLY when a file is selected.
+ *     Removed when nothing's selected so the table fills the screen.
+ *
+ * No separate folder tree. The breadcrumb is the only navigation
+ * affordance; folder rows in the table are the drill-in. Matches the
+ * dominant pattern across Cloudflare R2, AWS S3 console, DigitalOcean
+ * Spaces, and Vercel Blob. The Supabase dual-tree-and-inline pattern
+ * deliberately rejected — redundant clicks, two sources of truth.
  *
  * `prefix` is the client-side "current folder" — appended to every
  * `useObjects` call so the CP-side `prefix` query param does the
@@ -34,21 +43,40 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
   const setPrefix = onPrefixChange;
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<S3ObjectJson | null>(null);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [folderToDelete, setFolderToDelete] = useState<string | null>(null);
 
   const { data, isLoading, error, hasNextPage, isFetchingNextPage, fetchNextPage } = useObjects(
     bucket.id,
     { prefix: prefix || undefined, limit: 200 },
   );
 
+  const { data: foldersData } = useFolderMarkers(bucket.id);
+
   const allObjects = useMemo(
     () => data?.pages.flatMap((p) => p.objects) ?? [],
     [data],
   );
 
-  const listing = useMemo(
-    () => buildBrowserListing(allObjects, prefix),
-    [allObjects, prefix],
+  const folderMarkerPrefixes = useMemo(
+    () => foldersData?.folders.map((f) => f.prefix) ?? [],
+    [foldersData],
   );
+
+  const listing = useMemo(
+    () => buildBrowserListing(allObjects, prefix, folderMarkerPrefixes),
+    [allObjects, prefix, folderMarkerPrefixes],
+  );
+
+  /** Names of folders already visible in the current prefix — passed to the
+   *  dialog so it can warn on duplicates before the server roundtrip. */
+  const existingFolderNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of listing.entries) {
+      if (entry.kind === "folder") set.add(entry.name);
+    }
+    return set;
+  }, [listing]);
 
   const visibleEntries = filter
     ? listing.entries.filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()))
@@ -56,68 +84,47 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
 
   const crumbs = splitPrefix(prefix);
 
+  // Close the inspector with Escape — matches the rest of the modal /
+  // drawer behavior in the app.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected]);
+
+  // Reset the selection whenever the prefix changes — the previously
+  // selected object may not be in the new folder's listing.
+  useEffect(() => {
+    setSelected(null);
+  }, [prefix]);
+
   if (error) {
     const message =
       error instanceof ControlPlaneError ? error.message : "Couldn't load objects. Try again.";
     return <Banner tone="error" title="Failed to load objects" body={message} />;
   }
 
-  return (
-    <div className="ks-browser">
-      {/* Folder tree — left column. Shows the parent (root) + every
-          synthesized first-level folder under the current prefix.
-          The bucket name itself is NOT a row in the tree — that would
-          look like a folder-inside-the-bucket. The breadcrumb above
-          the file table is the canonical "you are here" + jump-to-root
-          control. */}
-      <aside className="ks-tree">
-        <div className="micro" style={{ padding: "0 12px 8px" }}>
-          {prefix ? `Folders in ${prefix}` : "Folders"}
-        </div>
-        {prefix ? (
-          <button
-            className="ks-tree-item"
-            onClick={() => {
-              setPrefix("");
-              setSelected(null);
-            }}
-          >
-            <Icon name="chevron" size={14} />
-            <span>back to root</span>
-          </button>
-        ) : null}
-        {(() => {
-          const folders = listing.entries.filter(
-            (e): e is Extract<typeof e, { kind: "folder" }> => e.kind === "folder",
-          );
-          if (folders.length === 0) {
-            return (
-              <div
-                className="muted"
-                style={{ padding: "8px 12px", fontSize: 13, fontStyle: "italic" }}
-              >
-                No subfolders.
-              </div>
-            );
-          }
-          return folders.map((f) => (
-            <button
-              key={f.prefix}
-              className="ks-tree-item"
-              onClick={() => {
-                setPrefix(f.prefix);
-                setSelected(null);
-              }}
-            >
-              <Icon name="folder" size={14} />
-              <span>{f.name}</span>
-            </button>
-          ));
-        })()}
-      </aside>
+  const inspector = selected ? (
+    <aside className="ks-inspector-pane">
+      <div className="ks-inspector-pane-head">
+        <div className="micro">Object details</div>
+        <IconButton name="x" label="Close inspector" onClick={() => setSelected(null)} />
+      </div>
+      <Inspector
+        object={selected}
+        bucketName={bucket.name}
+        bucketId={bucket.id}
+        encryptionMode={bucket.encryption_mode}
+        apiAccessGranted={bucket.api_access_granted}
+      />
+    </aside>
+  ) : null;
 
-      {/* File table — middle column. Breadcrumb up top, search input,
-          then folders + objects. */}
+  return (
+    <div className="ks-browser-v2">
       <div className="ks-files">
         <div className="ks-files-toolbar">
           <div className="ks-crumbs" style={{ fontSize: 13 }}>
@@ -146,14 +153,35 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
                 </button>
               </span>
             ))}
+            {prefix ? (
+              <button
+                type="button"
+                className="ks-crumb-delete"
+                title="Delete this folder"
+                aria-label={`Delete folder ${crumbs[crumbs.length - 1]?.label ?? prefix}`}
+                onClick={() => setFolderToDelete(prefix)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            ) : null}
           </div>
-          <div className="ks-search" style={{ width: 240 }}>
-            <Icon name="search" size={14} />
-            <input
-              placeholder="Filter objects"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="folder-plus"
+              onClick={() => setNewFolderOpen(true)}
+            >
+              New folder
+            </Button>
+            <div className="ks-search" style={{ width: 240 }}>
+              <Icon name="search" size={14} />
+              <input
+                placeholder="Filter objects"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
@@ -166,41 +194,62 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
           </div>
 
           {isLoading ? (
-            <div className="ks-trow" style={{ cursor: "default" }}>
+            <div className="ks-trow ks-trow-static">
               <div className="muted" style={{ flex: 1 }}>Loading…</div>
             </div>
           ) : visibleEntries.length === 0 ? (
-            <div style={{ padding: 24 }}>
-              <EmptyState
-                icon="folder"
-                title={prefix ? "This folder is empty" : "This bucket is empty"}
-                body={
-                  prefix
-                    ? "Nothing under this prefix yet."
-                    : "Drop files here or click Upload. Object I/O lights up in Phase E."
-                }
-              />
+            <div className="ks-trow ks-trow-static" style={{ padding: "32px 16px", display: "block" }}>
+              <div style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: 14 }}>
+                {filter
+                  ? <>No matches for &ldquo;{filter}&rdquo;.</>
+                  : prefix
+                    ? "This folder is empty."
+                    : "This bucket is empty. Drag files here or click Upload."}
+              </div>
             </div>
           ) : (
             visibleEntries.map((entry) => {
               if (entry.kind === "folder") {
+                const openFolder = () => {
+                  setPrefix(entry.prefix);
+                  setSelected(null);
+                };
                 return (
-                  <button
+                  <div
                     key={`folder-${entry.prefix}`}
-                    className="ks-trow"
-                    onClick={() => {
-                      setPrefix(entry.prefix);
-                      setSelected(null);
+                    className="ks-trow ks-trow-folder"
+                    role="button"
+                    tabIndex={0}
+                    onClick={openFolder}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openFolder();
+                      }
                     }}
                   >
                     <div style={{ flex: "2 1 0", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                      <Icon name="folder" size={16} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
-                      <span style={{ fontWeight: 500 }}>{entry.name}/</span>
+                      <Icon name="folder" size={16} style={{ color: "var(--krater)", flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{entry.name}</span>
                     </div>
                     <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
                     <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
-                    <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
-                  </button>
+                    <div style={{ flex: "1 1 0", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>—</span>
+                      <button
+                        type="button"
+                        className="ks-folder-delete"
+                        aria-label={`Delete folder ${entry.name}`}
+                        title="Delete folder"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFolderToDelete(entry.prefix);
+                        }}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  </div>
                 );
               }
               const o = entry.object;
@@ -249,22 +298,41 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
         ) : null}
       </div>
 
-      {/* Inspector — right column. Empty until something's selected. */}
-      {selected ? (
-        <Inspector
-          object={selected}
-          bucketName={bucket.name}
-          bucketId={bucket.id}
-          encryptionMode={bucket.encryption_mode}
-          apiAccessGranted={bucket.api_access_granted}
-        />
-      ) : (
-        <aside className="ks-inspector">
-          <div className="muted" style={{ fontSize: 13 }}>
-            Select an object to see its on-chain details.
-          </div>
-        </aside>
-      )}
+      {inspector}
+
+      <NewFolderDialog
+        open={newFolderOpen}
+        bucketId={bucket.id}
+        parentPrefix={prefix}
+        existingNames={existingFolderNames}
+        onCancel={() => setNewFolderOpen(false)}
+        onCreated={(newPrefix) => {
+          setNewFolderOpen(false);
+          // Drop the user into the freshly-minted folder so they can
+          // upload right away — matches Supabase / R2 console behavior.
+          setPrefix(newPrefix);
+          setSelected(null);
+        }}
+      />
+
+      <DeleteFolderDialog
+        open={folderToDelete !== null}
+        bucketId={bucket.id}
+        prefix={folderToDelete ?? ""}
+        onCancel={() => setFolderToDelete(null)}
+        onPurged={() => {
+          // If we were inside the deleted folder (or one of its nested
+          // children), bounce back to its parent prefix — listing it
+          // would otherwise show a misleading "empty folder" state.
+          if (folderToDelete && prefix.startsWith(folderToDelete)) {
+            const parts = folderToDelete.split("/").filter(Boolean);
+            const parent = parts.slice(0, -1).join("/");
+            setPrefix(parent ? `${parent}/` : "");
+            setSelected(null);
+          }
+          setFolderToDelete(null);
+        }}
+      />
     </div>
   );
 }

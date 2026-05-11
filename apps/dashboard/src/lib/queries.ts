@@ -16,6 +16,7 @@ import {
   type AccountJson,
   type ApiKeyJson,
   type BucketJson,
+  type FolderMarkerJson,
   type ProjectJson,
   type S3ObjectJson,
 } from "./api";
@@ -57,6 +58,20 @@ export function useMe() {
     queryFn: () => cpFetch<MeResponse>("/v1/me"),
     enabled: Boolean(session?.token),
     staleTime: 60_000,
+  });
+}
+
+export function useCancelSubscription() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<MeResponse>("/v1/me/cancel", {
+        method: "PATCH",
+        body: { confirm: true },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "me"] });
+    },
   });
 }
 
@@ -143,6 +158,93 @@ export function useObject(objectId: string | undefined) {
     queryFn: () => cpFetch<ObjectResponse>(`/v1/objects/${objectId}`),
     enabled: Boolean(session?.token && objectId),
     staleTime: 10_000,
+  });
+}
+
+// === Folder markers ==========================================================
+
+interface FoldersResponse {
+  folders: FolderMarkerJson[];
+}
+
+interface FolderResponse {
+  folder: FolderMarkerJson;
+}
+
+/**
+ * Lists every folder marker for the bucket. The browser merges them
+ * with prefixes derived from real object keys, so we don't bother with
+ * server-side parent filtering — markers are cheap rows.
+ */
+export function useFolderMarkers(bucketId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "folders", bucketId ?? "none"],
+    queryFn: () => cpFetch<FoldersResponse>(`/v1/buckets/${bucketId}/folders`),
+    enabled: Boolean(session?.token && bucketId),
+    staleTime: 10_000,
+  });
+}
+
+export function useCreateFolder(bucketId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { name: string; parentPrefix: string }) =>
+      cpFetch<FolderResponse>(`/v1/buckets/${bucketId}/folders`, {
+        method: "POST",
+        body: { name: vars.name, parent_prefix: vars.parentPrefix },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "folders", bucketId ?? "none"] });
+    },
+  });
+}
+
+interface FolderPreviewResponse {
+  object_count: number;
+  marker_count: number;
+}
+
+/**
+ * Preview of what `usePurgeFolder` will affect. Used by the
+ * "Delete folder" dialog to decide whether to require typed confirmation
+ * and to display object counts.
+ */
+export function useFolderPreview(bucketId: string | undefined, prefix: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "folders", bucketId ?? "none", "preview", prefix ?? ""],
+    queryFn: () => {
+      const qs = new URLSearchParams({ prefix: prefix! }).toString();
+      return cpFetch<FolderPreviewResponse>(`/v1/buckets/${bucketId}/folders/preview?${qs}`);
+    },
+    enabled: Boolean(session?.token && bucketId && prefix),
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+interface PurgeResponse {
+  objects_deleted: number;
+  markers_deleted: number;
+}
+
+/**
+ * Recursive soft-delete of every object + marker under the prefix.
+ * On-chain SharedBlobs persist — see CP-side service docs.
+ */
+export function usePurgeFolder(bucketId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (prefix: string) =>
+      cpFetch<PurgeResponse>(`/v1/buckets/${bucketId}/folders/purge`, {
+        method: "POST",
+        body: { prefix },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "folders", bucketId ?? "none"] });
+      void queryClient.invalidateQueries({ queryKey: ["v1", "objects", bucketId ?? "none"] });
+    },
   });
 }
 
