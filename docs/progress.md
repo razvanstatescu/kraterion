@@ -1517,3 +1517,135 @@ _Calendar weeks anchored in `docs/timeline.md`._
   http://localhost:3001/buckets/<id> and drop a file.
 
 ---
+
+## 2026-05-11
+
+- **[dashboard] Phase F shipped — `/keys` page (mint / revoke / show-once secret panel / quickstart snippets).**
+
+  **What landed:**
+  - [src/lib/queries.ts](apps/dashboard/src/lib/queries.ts) — added
+    `useMintApiKey(projectId)` and `useRevokeApiKey(projectId)` mutations.
+    Both invalidate `['v1', 'api-keys', projectId]` on success.
+    `MintedApiKey` type mirrors the CP's response shape exactly:
+    `{ api_key: ApiKeyJson, secret: string, WARNING: string }`.
+  - [src/components/keys/QuickstartCode.tsx](apps/dashboard/src/components/keys/QuickstartCode.tsx)
+    — three-tab snippet generator (boto3, aws-cli, rclone) with the
+    AKIA + secret + endpoint URL pre-filled. Accepts `secret: string | null`
+    so callers either show the cleartext at mint time, or render a
+    placeholder (`<your-secret-shown-once-at-creation>`) on the
+    persistent quickstart card below the keys table.
+  - [src/components/keys/CreateApiKeyDialog.tsx](apps/dashboard/src/components/keys/CreateApiKeyDialog.tsx)
+    — two-stage flow: name input → CP mints → swap to a "save the
+    secret" panel with two `.ks-codeline.mono` rows (AKIA + secret),
+    inline copy buttons, the full quickstart snippet block. The
+    secret only ever lives in the dialog's local state — `useEffect`
+    resets it to `null` on close, so reopening the dialog never shows
+    a stale secret.
+  - [src/app/(app)/keys/page.tsx](apps/dashboard/src/app/(app)/keys/page.tsx)
+    — table of keys sorted active-first then revoked-greyed-out.
+    Status pill (success / error + dot). Per-row Revoke action with a
+    `ConfirmModal` explaining the exact failure modes
+    (`InvalidAccessKeyId`, `SignatureDoesNotMatch`). Below the table,
+    a persistent quickstart card prefilled with the most recent
+    active key's AKIA — encourages users to come back to this page
+    when they need to remember which key to use.
+
+  **Verification:**
+  - `pnpm -F @kraterion/dashboard typecheck` + `build` — green.
+  - `GET /keys` returns 200; the page already worked end-to-end
+    against the existing
+    `GET /v1/projects/:id/api-keys`,
+    `POST /v1/projects/:id/api-keys`,
+    `POST /v1/api-keys/:id/revoke` endpoints (Phase 1 control-plane
+    surface). The minted-secret-once contract was verified live on
+    2026-05-09 during the cross-app boto3 smoke
+    (`apps/control-plane/scripts/enoki-live-smoke.ts`).
+  - The persistent quickstart card shows the user's existing active
+    key without re-exposing the secret — matches the design system's
+    "we never see the secret after you create it" copy.
+
+  **Out of scope (next):** Phase G — settings page with cancel
+  subscription (requires a tiny backend `PATCH /v1/me/cancel`),
+  activity feed, usage stats stub, public link route.
+
+---
+
+## 2026-05-11
+
+- **[gateway + dashboard] Public buckets end-to-end (pulled forward from Phase G).**
+
+  Public-read buckets now actually function as public storage — anyone
+  with the link can fetch the bytes, no auth, no SigV4. Pulled this
+  forward from Phase G because it's the demo payoff for the visibility
+  flip in Phase D.
+
+  **Gateway:**
+  - [src/s3/object-bytes.service.ts](apps/gateway/src/s3/object-bytes.service.ts)
+    — new shared service. Houses the Seal+Walrus
+    decrypt-and-serve pipeline that used to live inside
+    `ObjectsReadController.getObject`. Both the authed read controller
+    and the new public controller call into it.
+  - [src/s3/public.controller.ts](apps/gateway/src/s3/public.controller.ts)
+    — new `GET /public/:bucket/*` + `HEAD /public/:bucket/*`. No
+    `Sigv4Guard`. Looks up the bucket by name across all accounts (no
+    ownership check), rejects unless
+    `encryption_mode = "public-read" AND api_access_granted = true`,
+    otherwise returns plaintext via `ObjectBytesService.serve`.
+    `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300, immutable`.
+    Private bucket + revoked + missing all return identical
+    `NoSuchBucket` envelopes — no information leak about which.
+  - [src/s3/objects.read.controller.ts](apps/gateway/src/s3/objects.read.controller.ts)
+    refactored to delegate to the shared service. Net delta: ~120 LOC
+    moved + ~30 LOC of public-route glue.
+  - The cryptographic story is intact because Move's `seal_approve`
+    is mode-aware (`move/kraterion/sources/access.move:30-50`): for
+    `encryption_mode_public` it short-circuits to `return` for any
+    caller, so the gateway's own sub-wallet session key gets a Seal
+    share regardless of who's hitting the HTTP route. No new Move
+    code; no schema change.
+
+  **Dashboard:**
+  - [src/app/public/[bucket]/[...key]/page.tsx](apps/dashboard/src/app/public/[bucket]/[...key]/page.tsx)
+    — server component that calls `redirect()` to the gateway URL.
+    Browser hits the gateway directly so the gateway's cache headers
+    don't get layered over by a Next.js cache, and range-aware media
+    players talk straight to the gateway.
+  - [src/components/buckets/Inspector.tsx](apps/dashboard/src/components/buckets/Inspector.tsx)
+    — new `Public URL` detail row, only rendered when the bucket's
+    `encryption_mode === "public-read"`. Shows the dashboard URL in
+    mono with a Copy button. Inline helper text: "Anyone with this
+    link can view the file. Open it in any browser, paste it in a
+    tweet, embed it in `<img src>`."
+
+  **Verification (end-to-end live):**
+
+  ```
+  $ curl -sI http://127.0.0.1:3001/public/phase-d-demo/phase-e-retry-1778505478.txt
+  HTTP/1.1 307 Temporary Redirect
+  location: http://localhost:4002/public/phase-d-demo/phase-e-retry-1778505478.txt
+
+  $ curl -sL http://127.0.0.1:3001/public/phase-d-demo/phase-e-retry-1778505478.txt
+  second try...
+  ```
+
+  With the bucket flipped to `encryption_mode = "private"`, the same
+  URLs return `404 NoSuchBucket`. CORS headers on the gateway response
+  (`access-control-allow-origin: *`, `access-control-expose-headers:
+  ETag, Content-Type, Content-Length, Last-Modified`) let third-party
+  sites embed and fetch the bytes.
+
+  **Demo path that now works:**
+  1. Upload file to a private bucket → no shareable URL exists in the
+     Inspector.
+  2. Settings → flip visibility to public → sign with Enoki → bucket
+     pill changes to "Public".
+  3. Inspector now renders a "Public URL" row with a copy button.
+  4. Paste the URL into a fresh browser tab → file renders inline.
+  5. Settings → flip back to private → fresh hit to the same URL → 404
+     `NoSuchBucket`.
+
+  **Out of scope (next):** the rest of Phase G — cancel-subscription
+  twist (`PATCH /v1/me/cancel` + Settings page wiring), activity feed,
+  usage stats stub.
+
+---

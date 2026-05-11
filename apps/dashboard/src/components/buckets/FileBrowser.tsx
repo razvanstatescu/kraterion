@@ -65,26 +65,45 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
   return (
     <div className="ks-browser">
       {/* Folder tree — left column. Shows the parent (root) + every
-          synthesized first-level folder under the current prefix. */}
+          synthesized first-level folder under the current prefix.
+          The bucket name itself is NOT a row in the tree — that would
+          look like a folder-inside-the-bucket. The breadcrumb above
+          the file table is the canonical "you are here" + jump-to-root
+          control. */}
       <aside className="ks-tree">
-        <div className="micro" style={{ padding: "0 12px 8px" }}>Folders</div>
-        <button
-          className={`ks-tree-item${prefix === "" ? " is-active" : ""}`}
-          onClick={() => {
-            setPrefix("");
-            setSelected(null);
-          }}
-        >
-          <Icon name="folder" size={14} />
-          <span>{bucket.name}</span>
-        </button>
-        {listing.entries
-          .filter((e): e is Extract<typeof e, { kind: "folder" }> => e.kind === "folder")
-          .map((f) => (
+        <div className="micro" style={{ padding: "0 12px 8px" }}>
+          {prefix ? `Folders in ${prefix}` : "Folders"}
+        </div>
+        {prefix ? (
+          <button
+            className="ks-tree-item"
+            onClick={() => {
+              setPrefix("");
+              setSelected(null);
+            }}
+          >
+            <Icon name="chevron" size={14} />
+            <span>back to root</span>
+          </button>
+        ) : null}
+        {(() => {
+          const folders = listing.entries.filter(
+            (e): e is Extract<typeof e, { kind: "folder" }> => e.kind === "folder",
+          );
+          if (folders.length === 0) {
+            return (
+              <div
+                className="muted"
+                style={{ padding: "8px 12px", fontSize: 13, fontStyle: "italic" }}
+              >
+                No subfolders.
+              </div>
+            );
+          }
+          return folders.map((f) => (
             <button
               key={f.prefix}
               className="ks-tree-item"
-              style={{ paddingLeft: 28 }}
               onClick={() => {
                 setPrefix(f.prefix);
                 setSelected(null);
@@ -93,7 +112,8 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
               <Icon name="folder" size={14} />
               <span>{f.name}</span>
             </button>
-          ))}
+          ));
+        })()}
       </aside>
 
       {/* File table — middle column. Breadcrumb up top, search input,

@@ -825,3 +825,26 @@ This is upstream infra noise, not a bug in our code. Verified during Phase E liv
 **Fix:** Retry the upload. Empirically the next attempt 5 s later usually succeeds. If retries keep failing for minutes, check the Walrus testnet status — `https://walrus.site` and any Mysten Labs announcements. There's not much we can do about it from our side.
 
 **Notes for the dashboard:** the dashboard's `uploadWithProgress` surfaces the gateway's XML error verbatim in the upload-queue panel; users see "Gateway returned 503: …ServiceUnavailable…". Auto-retry is a future polish (one retry with backoff would mask most of these). For now the panel exposes a dismiss button and the user can re-drop the file.
+
+---
+
+## Symptom: Public link for a file with a space in the name returns `NoSuchKey`, gateway log shows `%2520` in the path
+
+**Cause:** Next.js 16 surfaces catch-all `[...key]` route params already URL-encoded when the key contains reserved characters (spaces, parens, etc.). The dashboard's `/public/[bucket]/[...key]/page.tsx` was doing `encodeURIComponent(seg)` unconditionally — the existing `%20` got re-encoded to `%2520`. The gateway decoded that once, got `%20` as a literal substring, and Postgres returned no matching object.
+
+**Fix:** Normalize each path segment with decode-then-encode in the dashboard's redirect handler. `decodeURIComponent` is idempotent over already-decoded input (no `%XX` to undo), so this works whether Next gave us the encoded or decoded form:
+
+```ts
+function normalizeSegment(seg: string): string {
+  let decoded: string;
+  try { decoded = decodeURIComponent(seg); }
+  catch { decoded = seg; }  // malformed %XY in input → pass through
+  return encodeURIComponent(decoded);
+}
+```
+
+Apply to both `bucket` and every entry in `key[]` before constructing the gateway URL.
+
+**Observed:** 2026-05-11, dashboard public-link redirect with file `opengraph-image (2).png`.
+
+**Notes:** This is one of those Next.js App Router behaviors that quietly differs from Pages Router and from Next 13/14. Worth a quick sanity test on any other dynamic route that builds URLs from `params` — if it touches `encodeURIComponent`, it's at risk of double-encoding.

@@ -10,7 +10,7 @@
  * loading; consumers should always pattern-match on `.data`.
  */
 
-import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import {
   cpFetch,
   type AccountJson,
@@ -155,5 +155,43 @@ export function useApiKeys(projectId: string | undefined) {
     queryFn: () => cpFetch<ApiKeysResponse>(`/v1/projects/${projectId}/api-keys`),
     enabled: Boolean(session?.token && projectId),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Shape of `POST /v1/projects/:id/api-keys` — `secret` only appears here,
+ * once, at mint time. The dashboard shows it in a "save it now" panel
+ * and drops it from memory when the dialog closes.
+ */
+export interface MintedApiKey {
+  api_key: ApiKeyJson;
+  secret: string;
+  WARNING: string;
+}
+
+export function useMintApiKey(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) =>
+      cpFetch<MintedApiKey>(`/v1/projects/${projectId}/api-keys`, {
+        method: "POST",
+        body: { name },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "api-keys", projectId ?? "none"] });
+    },
+  });
+}
+
+export function useRevokeApiKey(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (apiKeyId: string) =>
+      cpFetch<{ id: string; revoked_at: string }>(`/v1/api-keys/${apiKeyId}/revoke`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "api-keys", projectId ?? "none"] });
+    },
   });
 }

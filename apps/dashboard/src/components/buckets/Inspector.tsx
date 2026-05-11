@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Icon } from "@/components/ui/Icon";
@@ -111,13 +111,12 @@ export function Inspector({
       </div>
 
       <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
-        <Detail label="Full key">
-          <div className="ks-codeline mono">
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {bucketName}/{object.s3_key}
-            </span>
-            <Icon name="copy" size={14} />
-          </div>
+        <Detail label="Key">
+          <CopyableMono value={object.s3_key} ariaLabel="Copy key" />
+        </Detail>
+
+        <Detail label="S3 URI">
+          <CopyableMono value={`s3://${bucketName}/${object.s3_key}`} ariaLabel="Copy S3 URI" />
         </Detail>
 
         <Detail label="Content type">
@@ -137,6 +136,12 @@ export function Inspector({
             {encryptionMode === "private" ? "Private" : "Public"}
           </Pill>
         </Detail>
+
+        {encryptionMode === "public-read" ? (
+          <Detail label="Public URL">
+            <PublicUrl bucketName={bucketName} s3Key={object.s3_key} />
+          </Detail>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
@@ -214,5 +219,124 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
       <div className="micro" style={{ marginBottom: 6 }}>{label}</div>
       {children}
     </div>
+  );
+}
+
+/**
+ * Mono-rendered value with an inline copy button. Used for keys, URIs,
+ * and anything else the user might want to paste into a terminal.
+ * Shows a "Copied" hint for 1.5s after a successful click.
+ */
+function CopyableMono({ value, ariaLabel }: { value: string; ariaLabel: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API rejects in non-secure contexts; ignore quietly.
+    }
+  };
+  return (
+    <>
+      <div className="ks-codeline mono">
+        <span
+          style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          title={value}
+        >
+          {value}
+        </span>
+        <button
+          className="icon-btn"
+          onClick={() => void onCopy()}
+          type="button"
+          title={ariaLabel}
+          aria-label={ariaLabel}
+        >
+          <Icon name="copy" size={14} />
+        </button>
+      </div>
+      {copied ? (
+        <div className="ks-field-helper" style={{ color: "var(--success)", marginTop: 4 }}>
+          Copied
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Shareable URL for public-read objects. Two surfaces:
+ *   - The **dashboard URL** (`http://localhost:3001/public/...`) — reads
+ *     nicely in messages and previews. Server-side-redirects to the
+ *     gateway in `app/public/[bucket]/[...key]/page.tsx`.
+ *   - A direct **gateway URL** the dashboard URL redirects to, available
+ *     via a secondary copy button for power users / aws-cli folks.
+ */
+function PublicUrl({ bucketName, s3Key }: { bucketName: string; s3Key: string }) {
+  // Use the browser's own origin so the URL is portable across
+  // localhost / staging / prod without env wiring on every render.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const dashboardUrl = origin
+    ? `${origin}/public/${encodeURIComponent(bucketName)}/${s3Key
+        .split("/")
+        .map((s) => encodeURIComponent(s))
+        .join("/")}`
+    : "";
+
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    if (!dashboardUrl) return;
+    try {
+      await navigator.clipboard.writeText(dashboardUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail in non-secure contexts; ignore quietly.
+    }
+  };
+
+  return (
+    <>
+      <div className="ks-codeline">
+        <span
+          style={{
+            flex: 1,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontFamily: "var(--font-jetbrains-mono), ui-monospace, Menlo, monospace",
+            fontSize: 12,
+          }}
+          title={dashboardUrl}
+        >
+          {dashboardUrl || "Loading…"}
+        </span>
+        <button
+          className="icon-btn"
+          onClick={() => void onCopy()}
+          type="button"
+          title="Copy URL"
+          aria-label="Copy URL"
+        >
+          <Icon name="copy" size={14} />
+        </button>
+      </div>
+      {copied ? (
+        <div className="ks-field-helper" style={{ color: "var(--success)", marginTop: 4 }}>
+          Copied
+        </div>
+      ) : (
+        <div className="ks-field-helper" style={{ marginTop: 4 }}>
+          Anyone with this link can view the file. Open it in any browser, paste it in a
+          tweet, embed it in <code>&lt;img src&gt;</code>.
+        </div>
+      )}
+    </>
   );
 }
