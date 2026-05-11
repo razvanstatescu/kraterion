@@ -1224,16 +1224,26 @@ _Calendar weeks anchored in `docs/timeline.md`._
   - The CP-issued HS256 token (`localStorage["kraterion.cp_session"]`)
     is the only thing attached as Bearer on subsequent API calls.
 
-  **Verification:**
-  - `pnpm -F @kraterion/dashboard typecheck` — green.
-  - `pnpm -F @kraterion/dashboard build` — green; 9 static routes.
-  - `pnpm -F @kraterion/dashboard dev` boots in 187 ms, `/`, `/login`,
-    `/buckets` all 200.
-  - **Live sign-in round-trip blocked on Postgres bring-up** — the
-    test machine doesn't have Docker running locally; control-plane
-    needs `docker compose -f infra/compose/docker-compose.yml up -d`
-    before its `/health/ready` will respond. Code is wired and built;
-    only the live HTTP round-trip remains for the box.
+  **Verification (live, end-to-end):**
+  - `pnpm -F @kraterion/dashboard typecheck` + `build` — green.
+  - CP CORS preflight from `http://localhost:3001` returns the right
+    `access-control-allow-origin` headers.
+  - `POST /v1/auth/zklogin` reachable, JWT-decode + Enoki call chain
+    wired; bogus-JWT returns the structured `EnokiClientError` →
+    `ControlPlaneError("InvalidArgument")` envelope cleanly.
+  - **Live Google OAuth click works** — popup → consent → land on
+    `/buckets` with the user's email in the sidebar avatar. Refresh
+    persists the session, sign-out clears it. Verified 2026-05-11.
+
+  **One fix made during live verification:** Enoki's
+  `registerEnokiWallets` defaults the OAuth scope to `"openid"` only
+  (`@mysten/enoki@1.0.7/dist/wallet/wallet.mjs:271`), so Google's ID
+  token came back without an `email` claim and CP rejected with
+  `InvalidArgument: JWT is missing the 'email' claim`. Fixed by
+  passing `extraParams: { scope: "email profile" }` to the Google
+  provider config in
+  [apps/dashboard/src/app/providers.tsx](apps/dashboard/src/app/providers.tsx).
+  Runbook entry below.
 
   **Google Cloud Console whitelist** (one-time, for the OAuth client
   matching `NEXT_PUBLIC_GOOGLE_CLIENT_ID`):
@@ -1248,5 +1258,73 @@ _Calendar weeks anchored in `docs/timeline.md`._
   **Out of scope (next):** Phase C — buckets list, bucket detail, file
   browser. Read-only views against the existing `GET /v1/buckets` /
   `:id/objects` / `:objectId` endpoints. No mutations yet.
+
+---
+
+## 2026-05-11
+
+- **[dashboard] Phase C shipped — read views (buckets list + 3-pane file browser).**
+
+  The signed-in shell now hydrates with real data from the CP. No
+  mutations yet — `New bucket`, `Upload`, `Settings`, `Download`,
+  `Delete` are all rendered but disabled with phase-pinned tooltips
+  ("Phase D" / "Phase E"). The visual surface is complete.
+
+  **What landed:**
+  - [src/lib/queries.ts](apps/dashboard/src/lib/queries.ts) extended
+    with `useBuckets` (infinite-paginated by `next_cursor`),
+    `useBucket(id)`, `useObjects(bucketId, { prefix })`
+    (infinite-paginated, server-side prefix filter), `useObject(id)`,
+    and `useApiKeys(projectId)`. All keyed by `['v1', resource, params]`
+    so a single `queryClient.invalidateQueries({ queryKey: ['v1', 'buckets'] })`
+    from Phase D mutations will refresh the whole family.
+  - [src/lib/objects-tree.ts](apps/dashboard/src/lib/objects-tree.ts)
+    — pure folder-tree synthesizer. Given a flat `S3Object[]` and a
+    prefix, returns `{ entries: [FolderEntry | ObjectEntry], folderCount,
+    objectCount }`. Folder rows are deduplicated by next-segment slash.
+    Also ships `splitPrefix(prefix)` for breadcrumb construction and
+    `iconForContentType` for per-row icon picking.
+  - [src/components/buckets/BucketsList.tsx](apps/dashboard/src/components/buckets/BucketsList.tsx)
+    — list view with client-side name filter, server-paginated
+    "Load more". Columns: name, visibility pill, API-access pill
+    (with status dot), funding (formatted), created (relative).
+    Row click navigates to `/buckets/[id]`.
+  - [src/components/buckets/FileBrowser.tsx](apps/dashboard/src/components/buckets/FileBrowser.tsx)
+    — three-pane Supabase-style file browser: left folder tree,
+    middle table with breadcrumb prefix nav + filter, right inspector.
+    Prefix navigation uses the CP's server-side `prefix` query param;
+    folders are synthesized client-side from the page response.
+  - [src/components/buckets/Inspector.tsx](apps/dashboard/src/components/buckets/Inspector.tsx)
+    — right-pane object detail. On-chain references for Walrus blob
+    id (→ walruscan), Sui object id (→ suiscan), storage-end epoch,
+    Seal identity (base64). Download / Delete stubbed for Phase E.
+  - [src/app/(app)/buckets/page.tsx](apps/dashboard/src/app/(app)/buckets/page.tsx)
+    rewritten — mounts `BucketsList`.
+  - [src/app/(app)/buckets/[id]/page.tsx](apps/dashboard/src/app/(app)/buckets/[id]/page.tsx)
+    — dynamic route; bucket head with the meta line (region · visibility
+    pill · API-access pill · funding) + persistent warning Banner when
+    `api_access_granted=false`. Branches on `useBucket` error → typed
+    "not found" empty surface.
+
+  **Verification:**
+  - `pnpm -F @kraterion/dashboard typecheck` + `build` — green
+    (9 routes; `/buckets/[id]` correctly typed as dynamic).
+  - Dashboard hot-reloaded all changes; `GET /buckets` + `GET /buckets/<id>`
+    both 200.
+  - CP probe — fresh dev-sign-up → `GET /v1/me` returns the account
+    + 1 default project; `GET /v1/buckets` returns
+    `{ buckets: [], next_cursor: null }`. Wire-shape mirrors in
+    [src/lib/api.ts](apps/dashboard/src/lib/api.ts) match the live
+    response byte-for-byte.
+
+  **Two `exactOptionalPropertyTypes` fixes:** `UseBucketsOptions` /
+  `UseObjectsOptions` had `prop?: T` which TypeScript-strict mode treats
+  as "may be omitted, but if present must be `T`". Callers passing
+  `{ prefix: maybeString }` need the type to allow `T | undefined`
+  explicitly. Pattern matches what we did for Phase A's `Sidebar` props.
+
+  **Out of scope (next):** Phase D — the four sponsored-write paths
+  (create / grant / revoke / visibility) lighting up the disabled
+  buttons on this page.
 
 ---

@@ -737,3 +737,32 @@ lsof -iTCP:5432 -sTCP:LISTEN
 **Observed:** 2026-05-11 during Phase B dashboard live verification.
 
 **Notes:** Don't try to install Postgres directly on macOS as a "lighter" alternative — the compose stack's volume names and credentials are baked into `.env`'s `DATABASE_URL` and a sibling install would force a divergence. If Docker Desktop is undesirable, OrbStack runs the same compose file with less overhead. Either way, the goal is `lsof -iTCP:5432 -sTCP:LISTEN` returning a row.
+
+---
+
+## Symptom: `POST /v1/auth/zklogin` returns `InvalidArgument: JWT is missing the 'email' claim` after a successful Enoki Google sign-in
+
+**Cause:** Enoki's `registerEnokiWallets` defaults the OAuth scope to `"openid"` only (see `@mysten/enoki@1.0.7/dist/wallet/wallet.mjs:271`). Google omits the `email` (and `name`) claims from the resulting ID token unless those scopes are requested explicitly. Our control-plane decodes the JWT and requires `email` so it can upsert `Account.email`.
+
+**Fix:** Pass `extraParams: { scope: "email profile" }` to the Google provider config:
+
+```tsx
+// apps/dashboard/src/app/providers.tsx
+const { unregister } = registerEnokiWallets({
+  apiKey: publicKey,
+  providers: {
+    google: {
+      clientId: googleClientId,
+      extraParams: { scope: "email profile" },
+    },
+  },
+  client,
+  network,
+});
+```
+
+The Enoki SDK already prepends `"openid"`, so the final scope sent to Google is `"openid email profile"`.
+
+**Observed:** 2026-05-11 during Phase B dashboard live verification.
+
+**Notes:** If a user already consented to the old scopes, Google caches the consent and won't re-prompt. Revoke the app at <https://myaccount.google.com/permissions> to force a re-consent, or test with a fresh Google account.

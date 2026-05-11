@@ -1,12 +1,8 @@
 import { SignOutButton } from "@/components/auth/SignOutButton";
+import { BucketsList } from "@/components/buckets/BucketsList";
 import { Topbar } from "@/components/shell/Topbar";
 import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
 
-/**
- * Phase B placeholder — proves the shell composition behind RequireAuth.
- * Real list lands in Phase C.
- */
 export default function BucketsPage() {
   return (
     <>
@@ -14,7 +10,9 @@ export default function BucketsPage() {
         crumbs={[{ label: "Buckets" }]}
         actions={
           <>
-            <Button variant="cta" icon="plus" disabled>New bucket</Button>
+            <Button variant="cta" icon="plus" disabled title="Phase D">
+              New bucket
+            </Button>
             <SignOutButton />
           </>
         }
@@ -28,11 +26,7 @@ export default function BucketsPage() {
             </p>
           </div>
         </div>
-        <EmptyState
-          icon="bucket"
-          title="Bucket reads land in Phase C"
-          body="Sign-in is wired — refresh and your session persists. The list, file browser, and inspector populate next."
-        />
+        <BucketsList />
       </main>
     </>
   );
