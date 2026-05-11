@@ -1328,3 +1328,86 @@ _Calendar weeks anchored in `docs/timeline.md`._
   buttons on this page.
 
 ---
+
+## 2026-05-11
+
+- **[dashboard] Phase D shipped — sponsored writes (create / grant / revoke / visibility).**
+
+  The "New bucket" button and the bucket-detail "Settings" button are
+  now live. Every state change runs through the Phase-4 Enoki
+  sponsorship pipeline — user pays zero gas, just signs once.
+
+  **What landed:**
+  - [src/lib/sponsor.ts](apps/dashboard/src/lib/sponsor.ts) —
+    `useSponsoredTx()` returns a single async function `runSponsored({
+    prepareEndpoint, body?, onStatus?, invalidateKeys? })` that walks
+    the full pipeline:
+      1. POST `/v1/buckets/prepare-*` → `{ digest, bytes, expected }`
+      2. `Transaction.from(bytes_base64)` → dApp Kit's
+         `useSignTransaction({ transaction, chain: 'sui:testnet' })`
+         → `{ signature }`
+      3. POST `/v1/sponsor/execute { digest, signature }` →
+         `{ digest }`
+      4. `suiClient.waitForTransaction({ digest })`
+      5. `queryClient.invalidateQueries` over the bucket family
+    Surfaces a 5-stage `SponsorStatus` (`preparing` → `signing` →
+    `executing` → `waiting` → `done`) the UI uses to drive
+    "Submitting on-chain…" copy.
+  - [src/components/buckets/CreateBucketDialog.tsx](apps/dashboard/src/components/buckets/CreateBucketDialog.tsx)
+    — modal with name + visibility radios + grant-API checkbox.
+    Client-side regex matches the CP DTO at
+    `apps/control-plane/src/buckets/prepare/dto.ts` (S3-style:
+    `^[a-z0-9][a-z0-9.-]{1,62}[a-z0-9]$`). Submit → runSponsored →
+    sticky toast with the Suiscan link on success.
+  - [src/components/buckets/BucketSettingsDrawer.tsx](apps/dashboard/src/components/buckets/BucketSettingsDrawer.tsx)
+    — three sections in one drawer:
+      - **Visibility** — radio between private / public; "Save
+        visibility" opens a ConfirmModal explaining the consequence
+        ("affects every existing file immediately — Seal's policy is
+        bucket-scoped").
+      - **API access** — current state pill + Revoke / Restore button.
+        Revoke uses the exact "twist 2" copy from
+        `/docs/implementation-plan.md` §9.3: "Even Kraterion can't
+        bypass it." Grant uses softer copy emphasizing the few-second
+        Seal cache propagation.
+      - **Danger zone** — delete is stubbed pending Phase E.
+  - [src/app/(app)/buckets/page.tsx](apps/dashboard/src/app/(app)/buckets/page.tsx)
+    — `New bucket` button now wires to `CreateBucketDialog`.
+  - [src/app/(app)/buckets/[id]/page.tsx](apps/dashboard/src/app/(app)/buckets/[id]/page.tsx)
+    — `Settings` button now wires to `BucketSettingsDrawer`. The
+    revoke-state warning banner's copy was updated to point users at
+    the Settings → Restore flow.
+
+  **Why a Drawer instead of a kebab menu:** the demo "twist 2" (revoke
+  API → boto3 fails → dashboard preview still works) deserves
+  explanatory copy that's hard to fit under a 3-dot popover. The Drawer
+  gives each action its own paragraph + on-chain note, matching the
+  console kit's information density.
+
+  **Verification:**
+  - `pnpm -F @kraterion/dashboard typecheck` + `build` — green.
+  - Dashboard hot-reloaded; `/buckets` and `/buckets/<id>` both 200.
+  - Backend integration is the same one the Enoki live-smoke proved
+    end-to-end on 2026-05-09 (tx `25k2…rUdJ`). The dashboard's
+    `runSponsored` function is exactly the algorithm in
+    `apps/control-plane/scripts/enoki-live-smoke.ts`, rewritten as a
+    React hook with dApp Kit's `useSignTransaction` standing in for
+    the script's manual `keypair.signTransaction`.
+
+  **Browser test (user-side):**
+  1. Click `New bucket`, name it `phase-d-demo`, visibility=private,
+     grant API access checked → Sign with Enoki → wait ~5s for tx
+     settlement, ~30s for indexer → row appears in the list.
+  2. Click the bucket → click `Settings` → `Revoke API access` →
+     confirm → sign → on-chain "twist 2" copy delivers; the warning
+     banner appears on the bucket page.
+  3. Click `Settings` → `Restore API access` → confirm → sign → banner
+     disappears.
+  4. Click `Settings` → flip visibility to public → save → confirm →
+     sign → the meta-line pill updates after the indexer.
+
+  **Out of scope (next):** Phase E — drag-drop upload + download +
+  delete via CP-signed presigned URLs. The "Upload" button on the
+  bucket detail page is the next thing to light up.
+
+---

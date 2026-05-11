@@ -766,3 +766,50 @@ The Enoki SDK already prepends `"openid"`, so the final scope sent to Google is 
 **Observed:** 2026-05-11 during Phase B dashboard live verification.
 
 **Notes:** If a user already consented to the old scopes, Google caches the consent and won't re-prompt. Revoke the app at <https://myaccount.google.com/permissions> to force a re-consent, or test with a fresh Google account.
+
+---
+
+## Symptom: New bucket created via dashboard succeeds on-chain but never appears in `GET /v1/buckets`
+
+**Cause:** The worker (indexer) isn't running. `apps/worker` is a separate Node process from the control-plane — it subscribes to the Sui gRPC checkpoint stream and writes `Bucket` / `S3Object` rows into Postgres when it sees `KraterionBucketCreated` / `KraterionObjectCreated` events. The CP reads from Postgres; it never reads from Sui directly. So if the worker is down, the dashboard list will not reflect on-chain creates regardless of how many minutes you wait.
+
+**Symptoms to verify the diagnosis:**
+
+```bash
+# 1. Is the worker process up?
+lsof -i:4003 || echo "worker not running"
+
+# 2. Is the IndexerCursor row advancing? (compare `updated_at` to now.)
+PGPASSWORD=kraterion psql -h localhost -U kraterion -d kraterion -c \
+  "SELECT source_id, last_checkpoint_seq, updated_at FROM \"IndexerCursor\";"
+
+# 3. Did your tx actually succeed on-chain? (find its checkpoint via the Sui RPC.)
+curl -fsS https://fullnode.testnet.sui.io:443 -H 'content-type: application/json' -d \
+  '{"jsonrpc":"2.0","id":1,"method":"suix_queryTransactionBlocks","params":[{"filter":{"FromAddress":"<YOUR_SUI_ADDR>"},"options":{"showInput":true,"showEffects":true}},null,5,true]}' \
+  | jq '.result.data[] | {digest, checkpoint, status: .effects.status, fn: (.transaction.data.transaction.transactions[0].MoveCall.function // "n/a")}'
+```
+
+**Fix:**
+
+```bash
+# Start the worker.
+PORT=4003 node apps/worker/dist/main.js
+# Or: pnpm -F @kraterion/worker start
+```
+
+If the worker has been down for days, its cursor is far behind testnet's live tip and will backfill hundreds of thousands of checkpoints. Two options:
+
+- **Backfill everything (correct, but slow):** let it run. Throttle is ~8 rps per `BACKFILL_MIN_INTERVAL_MS`. Several hours for a multi-day gap.
+- **Fast-forward to live (skips events in the gap):** `pnpm -F @kraterion/worker indexer:fast-forward --back 50` seeds the cursor at `live_tip - 50`. Any on-chain action in the skipped window is lost to the indexer; only safe in dev or when you've manually confirmed the gap is empty.
+
+**If you fast-forwarded and your tx was in the skipped window** (this is what bit us 2026-05-11), look up the tx's exact checkpoint via the Sui RPC, then rewind the cursor manually:
+
+```bash
+PGPASSWORD=kraterion psql -h localhost -U kraterion -d kraterion -c \
+  "UPDATE \"IndexerCursor\" SET last_checkpoint_seq = <YOUR_TX_CHECKPOINT - 1>, last_tx_digest = NULL, last_event_seq = NULL WHERE source_id = 'kraterion-mainpipeline-v1';"
+# Restart the worker.
+```
+
+**Observed:** 2026-05-11 during Phase D dashboard live verification.
+
+**Notes:** The dev startup order is **postgres + redis (compose) → worker (indexer) → control-plane → dashboard**. The worker is the silent piece — nothing in the dashboard tells you it's down. Long term, a dashboard banner driven by `/health/ready` checking indexer lag would surface this; tracked for Phase G polish.

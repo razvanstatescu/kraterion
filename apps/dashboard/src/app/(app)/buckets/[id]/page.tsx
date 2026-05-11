@@ -1,7 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
+import { BucketSettingsDrawer } from "@/components/buckets/BucketSettingsDrawer";
 import { FileBrowser } from "@/components/buckets/FileBrowser";
 import { Topbar } from "@/components/shell/Topbar";
 import { Banner } from "@/components/ui/Banner";
@@ -16,6 +18,7 @@ export default function BucketDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const { data, isLoading, error } = useBucket(id);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   if (error) {
     const message =
@@ -59,7 +62,11 @@ export default function BucketDetailPage() {
             <Button variant="cta" icon="upload" disabled title="Phase E">
               Upload
             </Button>
-            <Button variant="secondary" icon="settings" disabled title="Phase D">
+            <Button
+              variant="secondary"
+              icon="settings"
+              onClick={() => setSettingsOpen(true)}
+            >
               Settings
             </Button>
             <SignOutButton />
@@ -93,13 +100,19 @@ export default function BucketDetailPage() {
             <Banner
               tone="warning"
               title="API access is revoked"
-              body="SDK requests against this bucket fail with KeyAccessRevoked. Re-granting lights up in Phase D."
+              body="SDK requests against this bucket fail with KeyAccessRevoked. Click Settings → Restore API access to re-grant via a sponsored on-chain transaction."
             />
           </div>
         ) : null}
 
         <FileBrowser bucket={b} />
       </main>
+
+      <BucketSettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        bucket={b}
+      />
     </>
   );
 }
