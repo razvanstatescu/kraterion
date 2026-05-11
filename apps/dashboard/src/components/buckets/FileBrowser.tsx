@@ -14,6 +14,9 @@ import { Inspector } from "./Inspector";
 
 interface Props {
   bucket: BucketJson;
+  /** Lifted so the bucket page's Uploader writes to the same folder. */
+  prefix: string;
+  onPrefixChange: (next: string) => void;
 }
 
 /**
@@ -27,8 +30,8 @@ interface Props {
  * server filtering. We render synthetic folder rows for sub-prefixes
  * the page response surfaces.
  */
-export function FileBrowser({ bucket }: Props) {
-  const [prefix, setPrefix] = useState("");
+export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
+  const setPrefix = onPrefixChange;
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<S3ObjectJson | null>(null);
 
@@ -231,7 +234,9 @@ export function FileBrowser({ bucket }: Props) {
         <Inspector
           object={selected}
           bucketName={bucket.name}
+          bucketId={bucket.id}
           encryptionMode={bucket.encryption_mode}
+          apiAccessGranted={bucket.api_access_granted}
         />
       ) : (
         <aside className="ks-inspector">

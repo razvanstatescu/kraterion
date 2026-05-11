@@ -15,6 +15,7 @@
     "smoke": "tsx scripts/smoke-encrypt-roundtrip.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^9.0.1",
     "@kraterion/kraterion-move-sdk": "workspace:*",
     "@kraterion/seal-client": "workspace:*",
     "@kraterion/shared": "workspace:*",

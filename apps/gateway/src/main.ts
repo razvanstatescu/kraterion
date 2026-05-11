@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import "dotenv/config";
+import fastifyCors from "@fastify/cors";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -43,6 +44,31 @@ async function bootstrap() {
     { parseAs: "buffer", bodyLimit: MAX_BODY_BYTES },
     (_req, body, done) => done(null, body),
   );
+
+  // CORS — boto3 / aws-cli / rclone don't need it (they're not browsers),
+  // but the dashboard does for direct presigned uploads / downloads.
+  // Allowlist via `DASHBOARD_ORIGIN` (defaults to the dev port). The
+  // SigV4 header set (`Authorization`, `X-Amz-*`, `Content-Type`) plus
+  // the response headers the dashboard needs to read (ETag, Content-Type,
+  // Content-Length, Last-Modified) are exposed explicitly.
+  const corsOrigins = (process.env["CORS_ORIGINS"] ?? process.env["DASHBOARD_ORIGIN"] ?? "http://localhost:3001")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  await fastify.register(fastifyCors, {
+    origin: corsOrigins,
+    credentials: false,
+    methods: ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "X-Amz-Date",
+      "X-Amz-Content-Sha256",
+      "X-Amz-Security-Token",
+      "X-Amz-User-Agent",
+    ],
+    exposedHeaders: ["ETag", "Content-Type", "Content-Length", "Last-Modified", "x-amz-request-id"],
+  });
 
   // Wires SIGTERM/SIGINT into Nest's lifecycle (`OnModuleDestroy`),
   // which is how PrismaService and RedisModule get clean disconnects

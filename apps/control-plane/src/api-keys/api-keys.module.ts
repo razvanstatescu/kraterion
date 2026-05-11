@@ -6,6 +6,6 @@ import { ApiKeysService } from "./api-keys.service.js";
 @Module({
   controllers: [ApiKeysController],
   providers: [ApiKeysService, KeyWrappingService],
-  exports: [ApiKeysService],
+  exports: [ApiKeysService, KeyWrappingService],
 })
 export class ApiKeysModule {}

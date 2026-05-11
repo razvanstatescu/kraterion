@@ -813,3 +813,15 @@ PGPASSWORD=kraterion psql -h localhost -U kraterion -d kraterion -c \
 **Observed:** 2026-05-11 during Phase D dashboard live verification.
 
 **Notes:** The dev startup order is **postgres + redis (compose) → worker (indexer) → control-plane → dashboard**. The worker is the silent piece — nothing in the dashboard tells you it's down. Long term, a dashboard banner driven by `/health/ready` checking indexer lag would surface this; tracked for Phase G polish.
+
+---
+
+## Symptom: PutObject to gateway 503 `ORPHAN BLOB (relay POST failed): 500 internal client error`
+
+**Cause:** The Walrus testnet public upload-relay is flaky. The gateway successfully (1) verified the SigV4 signature, (2) encrypted the body with Seal, (3) called Walrus's `register_blob` on-chain — but the subsequent HTTP POST to the public upload-relay returned 500. The blob is "orphaned" on-chain: a `Blob` Sui object exists, but no bytes were uploaded to storage nodes. The gateway logs the orphan id so it can be GC'd or retried later.
+
+This is upstream infra noise, not a bug in our code. Verified during Phase E live verification on 2026-05-11.
+
+**Fix:** Retry the upload. Empirically the next attempt 5 s later usually succeeds. If retries keep failing for minutes, check the Walrus testnet status — `https://walrus.site` and any Mysten Labs announcements. There's not much we can do about it from our side.
+
+**Notes for the dashboard:** the dashboard's `uploadWithProgress` surfaces the gateway's XML error verbatim in the upload-queue panel; users see "Gateway returned 503: …ServiceUnavailable…". Auto-retry is a future polish (one retry with backoff would mask most of these). For now the panel exposes a dismiss button and the user can re-drop the file.

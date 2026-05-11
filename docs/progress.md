@@ -1411,3 +1411,109 @@ _Calendar weeks anchored in `docs/timeline.md`._
   bucket detail page is the next thing to light up.
 
 ---
+
+## 2026-05-11
+
+- **[dashboard + gateway + control-plane] Phase E shipped — object I/O via CP-signed envelope, drag-drop upload, download, delete (backend round-trip green).**
+
+  Instead of presigned URLs (query-string SigV4), we use **header-based
+  SigV4 with `X-Amz-Content-Sha256: UNSIGNED-PAYLOAD`**, which the
+  gateway already accepts at
+  `apps/gateway/src/auth/sigv4/sigv4.service.ts:64-72`. The CP signs
+  the request envelope (`Authorization`, `X-Amz-Date`, `X-Amz-Content-Sha256`,
+  `Content-Type`), the dashboard sends the bytes directly to the
+  gateway with those headers attached. Cleaner than presigned URLs:
+
+  - No new SigV4 verifier path on the gateway (presigned-URL mode would
+    need a separate parser).
+  - The CP never sees the body — `UNSIGNED-PAYLOAD` decouples
+    signature from content.
+  - The browser never sees a secret — CP unwraps the user's per-project
+    API key, signs, returns the envelope. ~5-minute SigV4 skew window
+    bounds the validity.
+
+  **Backend (`apps/control-plane/src/objects/`):**
+  - [presign.service.ts](apps/control-plane/src/objects/presign.service.ts)
+    — `signUpload`, `signDownload`, `signDelete`. Walks the
+    `bucket → project → account` ownership chain (same as
+    `BucketsService.getOwned`), refuses if `api_access_granted` is
+    false with `code: "KeyAccessRevoked"`, picks the project's most
+    recent non-revoked `ApiKey`, unwraps via `KeyWrappingService`,
+    calls `aws4.sign` against the gateway URL with region
+    `eu-central-1`. Returns `{ method, url, headers, expires_at }`.
+  - [presign.controller.ts](apps/control-plane/src/objects/presign.controller.ts)
+    — `POST /v1/objects/prepare-upload`, `POST /v1/objects/:id/prepare-download`,
+    `POST /v1/objects/:id/prepare-delete`. All AuthGuard-gated.
+  - [presign.module.ts](apps/control-plane/src/objects/presign.module.ts)
+    wired into `AppModule`.
+  - Deps added: `aws4@^1.13.2` + `@types/aws4@^1.11.6` in
+    `apps/control-plane/package.json`.
+  - `ApiKeysModule` now exports `KeyWrappingService` so the presign
+    service can DI it.
+
+  **Gateway (`apps/gateway/src/main.ts`):**
+  - Added `@fastify/cors@^9.0.1`. Allowlist via `DASHBOARD_ORIGIN` /
+    `CORS_ORIGINS`. Methods `GET, PUT, POST, DELETE, HEAD, OPTIONS`.
+    Allowed headers cover the full SigV4 set
+    (`Authorization, X-Amz-Date, X-Amz-Content-Sha256, ...`). Exposed
+    headers include `ETag, Content-Type, Content-Length, Last-Modified,
+    x-amz-request-id` so the dashboard can read response metadata.
+
+  **Dashboard:**
+  - [src/lib/objects.ts](apps/dashboard/src/lib/objects.ts) —
+    `usePrepareUpload`, `usePrepareDownload`, `usePrepareDelete`
+    mutations; `uploadWithProgress` (XHR-based for upload progress
+    events), `downloadAsBlob`, `downloadToDisk`, `deleteSigned`;
+    `useInvalidateBucketObjects` for post-mutation cache busting.
+  - [src/components/buckets/Uploader.tsx](apps/dashboard/src/components/buckets/Uploader.tsx)
+    — drag-drop wrapper around the bucket detail body. Full-bleed
+    Cream-tinted overlay on dragenter (with dashed Krater border);
+    sticky bottom-right queue panel with per-file progress bars,
+    status pills, dismiss buttons. Files dropped at prefix `hero/2026/`
+    upload to keys like `hero/2026/<file.name>`. Auto-clears `done`
+    items after 5 s. Exposes `window.__kraterionOpenUploader` so the
+    page-header `Upload` CTA can trigger the hidden picker without
+    prop-drilling.
+  - [src/components/buckets/Inspector.tsx](apps/dashboard/src/components/buckets/Inspector.tsx)
+    — Download button → `prepareDownload` → `downloadToDisk` →
+    triggers browser save dialog. Delete button → `ConfirmModal` →
+    `prepareDelete` → `deleteSigned`. Both are disabled when
+    `api_access_granted` is false (gateway would reject anyway).
+  - [src/app/(app)/buckets/[id]/page.tsx](apps/dashboard/src/app/(app)/buckets/[id]/page.tsx)
+    — wraps the screen in `<Uploader>`, lifts `prefix` state up so
+    Uploader + FileBrowser share it, wires the Upload CTA to
+    `window.__kraterionOpenUploader`.
+  - [src/components/buckets/FileBrowser.tsx](apps/dashboard/src/components/buckets/FileBrowser.tsx)
+    — accepts `prefix` + `onPrefixChange` props from the page.
+
+  **Backend verification (end-to-end, no browser):**
+
+  1. CP probe — `prepare-upload` returns
+     `{ method: "PUT", url: "http://localhost:4002/<bucket>/<key>",
+        headers: { Authorization, X-Amz-Date, X-Amz-Content-Sha256,
+        Content-Type }, expires_at }`. CORS preflight from
+     `localhost:3001` accepted. Authz: 404 on bogus bucket id,
+     401 on missing token.
+  2. PUT direct-to-gateway with the signed headers:
+     - First attempt → 503 ServiceUnavailable. Cause: transient
+       Walrus testnet upload-relay flake (`ORPHAN BLOB: relay POST
+       failed: 500 internal client error`). No issue with the CP-side
+       signing — gateway authenticated successfully and forwarded.
+     - Second attempt 5 s later → **HTTP 200**, blob registered
+       (`blobObjectId=0x98a05c…ec87`).
+  3. `prepare-download` for the just-uploaded object → signed GET
+     envelope → `fetch` to gateway → Seal-decrypted plaintext returns
+     **byte-exact** match with the original upload (`"second try..."
+     === "second try..."`).
+  4. Indexer wrote the `S3Object` row within 30 s (per gRPC checkpoint
+     cadence).
+
+  **Out of scope (next):** Phase F — `/keys` page wiring (mint /
+  revoke API keys, copy-once secret panel, boto3 / aws-cli / rclone
+  quickstart snippets).
+
+  **User browser test still pending** — drag-drop UX needs eyes on it.
+  Both dev servers are running; refresh
+  http://localhost:3001/buckets/<id> and drop a file.
+
+---

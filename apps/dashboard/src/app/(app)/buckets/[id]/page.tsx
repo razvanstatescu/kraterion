@@ -5,6 +5,7 @@ import { useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { BucketSettingsDrawer } from "@/components/buckets/BucketSettingsDrawer";
 import { FileBrowser } from "@/components/buckets/FileBrowser";
+import { Uploader } from "@/components/buckets/Uploader";
 import { Topbar } from "@/components/shell/Topbar";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +20,14 @@ export default function BucketDetailPage() {
   const id = params?.id;
   const { data, isLoading, error } = useBucket(id);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [prefix, setPrefix] = useState("");
+
+  const onUploadClick = () => {
+    // The Uploader registers a global handle when it mounts; calling
+    // it opens the hidden file picker. Avoids prop-drilling a ref
+    // through the layout.
+    window.__kraterionOpenUploader?.();
+  };
 
   if (error) {
     const message =
@@ -59,7 +68,13 @@ export default function BucketDetailPage() {
         crumbs={[{ label: "Buckets", href: "/buckets" }, { label: b.name }]}
         actions={
           <>
-            <Button variant="cta" icon="upload" disabled title="Phase E">
+            <Button
+              variant="cta"
+              icon="upload"
+              onClick={onUploadClick}
+              disabled={!b.api_access_granted}
+              title={b.api_access_granted ? undefined : "API access is revoked — restore it from Settings."}
+            >
               Upload
             </Button>
             <Button
@@ -73,6 +88,7 @@ export default function BucketDetailPage() {
           </>
         }
       />
+      <Uploader bucket={b} prefix={prefix}>
       <main className="ks-screen">
         <div className="ks-screen-head">
           <div>
@@ -100,13 +116,14 @@ export default function BucketDetailPage() {
             <Banner
               tone="warning"
               title="API access is revoked"
-              body="SDK requests against this bucket fail with KeyAccessRevoked. Click Settings → Restore API access to re-grant via a sponsored on-chain transaction."
+              body="SDK requests against this bucket fail with KeyAccessRevoked. Uploads and downloads from the dashboard are blocked too — click Settings → Restore API access to re-grant via a sponsored on-chain transaction."
             />
           </div>
         ) : null}
 
-        <FileBrowser bucket={b} />
+        <FileBrowser bucket={b} prefix={prefix} onPrefixChange={setPrefix} />
       </main>
+      </Uploader>
 
       <BucketSettingsDrawer
         open={settingsOpen}

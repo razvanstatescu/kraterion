@@ -71,9 +71,13 @@ interface ApiOptions {
 }
 
 export async function cpFetch<T = unknown>(path: string, opts: ApiOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  // Only set Content-Type when there's actually a JSON body. Fastify's
+  // body parser refuses an empty payload that advertises
+  // `application/json` — the CP's parameterless POSTs (prepare-download,
+  // prepare-revoke-all, etc.) used to fall through as "Unhandled
+  // exception: Body cannot be empty…" and surfaced as a generic 500.
+  const headers: Record<string, string> = {};
+  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (!opts.unauthenticated) {
     const session = readSession();
     if (session) headers["Authorization"] = `Bearer ${session.token}`;
