@@ -1110,3 +1110,143 @@ _Calendar weeks anchored in `docs/timeline.md`._
   zkLogin path.
 
 ---
+
+## 2026-05-09
+
+- **[dashboard] Phase A shipped — foundations + design-system bridge.**
+
+  Scaffold (Next.js 16 App Router on port 3001) now boots with all
+  providers wired and every console-kit primitive available as typed
+  React. No business logic yet — Phase B adds sign-in.
+
+  **What landed:**
+  - Deps: `@mysten/dapp-kit@^1.0.6` (legacy — has Enoki integration),
+    `@mysten/enoki@^1.0.7`, `@mysten/sui@^2.16.2`,
+    `@tanstack/react-query@^5.59.0`, `lucide-react@^0.460.0`,
+    `@kraterion/walrus-client` workspace dep.
+  - `src/app/globals.css` mirrors `/design-system/colors_and_type.css`
+    + ports the relevant chunks of
+    `/design-system/ui_kits/console/console.css` (sidebar, topbar,
+    table, browser, drawer, modal, toast, banner, empty state, tabbed
+    code, form field, on-chain ref, icon button). Tailwind v4
+    `@theme inline` block exposes `bg-cream`, `text-ink`, `text-krater`,
+    `border-stone-200`, the full Stone scale, and the semantic colors.
+  - Providers tree (`src/app/providers.tsx`): `QueryClientProvider` →
+    `SuiClientProvider` (testnet by default) → `<RegisterEnokiWallets/>`
+    (effect returning `unregister` — safe under StrictMode double-mount,
+    no-ops if `NEXT_PUBLIC_ENOKI_PUBLIC_KEY` absent) → `WalletProvider
+    autoConnect` → `ToastProvider`.
+  - 14 UI primitives ported from the console kit at
+    `src/components/ui/`: `Button`, `IconButton`, `Input`, `Pill`,
+    `Dot`, `Card`, `Mark` (Kraterion aperture, 4 variants),
+    `Icon` (typed Lucide registry), `Drawer`, `ConfirmModal`,
+    `EmptyState`, `Banner`, `FormField`, `TabbedCode`, `OnchainRef`,
+    `Toast` (context + hook). All typed, all token-driven, no hardcoded
+    colors.
+  - Shell at `src/components/shell/`: `Shell`, `Sidebar` (Supabase-style
+    nav groups: Storage / Account), `Topbar` (breadcrumb + actions).
+  - Libs: `lib/env.ts` (typed `NEXT_PUBLIC_*` accessors, lazy on
+    Enoki/Google keys so pre-Phase-B pages keep working),
+    `lib/api.ts` (typed CP fetch wrapper, `ControlPlaneError` mirror,
+    session JWT helpers, wire-shape mirrors for `BucketJson` /
+    `S3ObjectJson` / `PrepareTxResponse`), `lib/format.ts`
+    (`formatBytes`, `formatAddress`, `formatRelative`, `formatWal`,
+    `suiscanTxUrl`, `suiscanObjectUrl`, `walruscanUrl`).
+  - `src/app/(app)/` route group with `layout.tsx` mounting the shell,
+    plus placeholder pages for `/buckets`, `/keys`, `/usage`,
+    `/activity`, `/settings` (all `EmptyState`-only stubs Phase B–G
+    replace).
+  - `.env.local.example` documents every required public env var.
+
+  **Verification:**
+  - `pnpm turbo run typecheck` — 4/4 green.
+  - `pnpm -F @kraterion/dashboard build` — clean (`Next.js 16.2.5
+    (Turbopack)`).
+  - `pnpm -F @kraterion/dashboard dev` boots in 186 ms. `/`, `/buckets`,
+    `/keys` all 200. Served CSS contains `--ink`, `--cream`, `--krater`,
+    `--stone-*`, `ks-app`, `ks-sidebar`, `ks-thead`, `btn-cta`,
+    `pill-success` — tokens and console classes ship to the browser.
+
+  **Known gotcha (resolved):** Lucide doesn't ship a `Bucket` icon;
+  using `Container` aliased to `BucketIcon` for storage UI. The dApp Kit
+  `SuiClientProvider` requires each network config to include `network:
+  "testnet"` in addition to `url` — different shape from the docs
+  example.
+
+  **Out of scope for Phase A (next):** Phase B wires real Enoki sign-in,
+  the `RequireAuth` wrapper, and rewrites `app/page.tsx` to redirect.
+
+---
+
+## 2026-05-11
+
+- **[dashboard] Phase B shipped — Enoki Google sign-in wired end-to-end (live verification deferred to Docker bring-up).**
+
+  Sign-in flow now runs entirely through the legacy `@mysten/dapp-kit`
+  + `@mysten/enoki` pairing. One click → Enoki popup → CP session.
+
+  **What landed:**
+  - [src/lib/auth.ts](apps/dashboard/src/lib/auth.ts) — `useGoogleSignIn()`
+    (`useWallets()` → filter on `isGoogleWallet` → `useConnectWallet().mutateAsync`
+    → `getSession(wallet)` → POST `/v1/auth/zklogin` → persist), `useCpSession()`
+    (useEffect-mounted localStorage read with cross-tab `storage` event listener),
+    `useSignOut()`.
+  - [src/lib/queries.ts](apps/dashboard/src/lib/queries.ts) — TanStack
+    Query base. Phase B ships `useMe()`; Phase C extends with buckets /
+    objects / api-keys.
+  - [src/app/login/page.tsx](apps/dashboard/src/app/login/page.tsx) —
+    centered "Continue with Google" surface. Already-signed-in users
+    bounce to `/buckets` on mount. Inline error message on failure.
+  - [src/components/auth/RequireAuth.tsx](apps/dashboard/src/components/auth/RequireAuth.tsx)
+    — client gate for the `(app)` route group; renders nothing until
+    `useCpSession()` has mounted, redirects to `/login` if no session.
+  - [src/components/auth/SignOutButton.tsx](apps/dashboard/src/components/auth/SignOutButton.tsx)
+    — ghost button wired to `useSignOut()`; mounted in the topbar of
+    every `(app)` page.
+  - [src/components/shell/SidebarLive.tsx](apps/dashboard/src/components/shell/SidebarLive.tsx)
+    — hydrates the static `Sidebar` with `useCpSession()` + `useMe()`;
+    sidebar shows the user's email + the first project's name.
+  - [src/app/(app)/layout.tsx](apps/dashboard/src/app/(app)/layout.tsx)
+    rewritten: `<RequireAuth><Shell sidebar={<SidebarLive/>}>…</Shell></RequireAuth>`.
+  - [src/app/page.tsx](apps/dashboard/src/app/page.tsx) rewritten:
+    redirects to `/buckets` or `/login` after mount, brand mark in the
+    interim with an `iris` animate so the flash is intentional.
+  - [apps/dashboard/.env.local](apps/dashboard/.env.local) — Next.js
+    reads from the app dir, not the workspace root, so the public env
+    vars live here. Mirrors the workspace `.env` entries Razvan added.
+
+  **Trust model recap (carries forward from Phase 4 backend):**
+  - The dashboard does the Enoki OAuth popup and reads the Google JWT
+    via the `enoki:getSession` wallet-standard feature.
+  - The control plane re-verifies the JWT through Enoki's
+    `getZkLogin({ jwt })` server-side; the dashboard never trusts its
+    own claim about the Sui address.
+  - The CP-issued HS256 token (`localStorage["kraterion.cp_session"]`)
+    is the only thing attached as Bearer on subsequent API calls.
+
+  **Verification:**
+  - `pnpm -F @kraterion/dashboard typecheck` — green.
+  - `pnpm -F @kraterion/dashboard build` — green; 9 static routes.
+  - `pnpm -F @kraterion/dashboard dev` boots in 187 ms, `/`, `/login`,
+    `/buckets` all 200.
+  - **Live sign-in round-trip blocked on Postgres bring-up** — the
+    test machine doesn't have Docker running locally; control-plane
+    needs `docker compose -f infra/compose/docker-compose.yml up -d`
+    before its `/health/ready` will respond. Code is wired and built;
+    only the live HTTP round-trip remains for the box.
+
+  **Google Cloud Console whitelist** (one-time, for the OAuth client
+  matching `NEXT_PUBLIC_GOOGLE_CLIENT_ID`):
+  - Authorized JavaScript origins: `http://localhost:3001` (+ prod
+    origin when we deploy).
+  - Authorized redirect URIs: `http://localhost:3001` and
+    `http://localhost:3001/login` — Enoki defaults `redirectUrl` to
+    `window.location.href.split('#')[0]` (`@mysten/enoki@1.0.7
+    /dist/wallet/wallet.mjs:98`), so the value depends on which page
+    the user was on when they clicked "Continue with Google."
+
+  **Out of scope (next):** Phase C — buckets list, bucket detail, file
+  browser. Read-only views against the existing `GET /v1/buckets` /
+  `:id/objects` / `:objectId` endpoints. No mutations yet.
+
+---

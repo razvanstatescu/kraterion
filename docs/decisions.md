@@ -1984,3 +1984,63 @@ smoke steps green in either mode.
   in the 0.x line but the 1.x track is stable.
 
 ---
+
+## 2026-05-09 — Dashboard uses legacy `@mysten/dapp-kit@^1.0.6` (not the newer `dapp-kit-core` / `dapp-kit-react`)
+
+**Status:** Accepted
+
+**Context:** Mysten has been splitting dApp Kit into two packages:
+the legacy `@mysten/dapp-kit` (single-package, React-only, currently
+1.0.x) and a newer split — `@mysten/dapp-kit-core` + `@mysten/dapp-kit-react`
+based on `createDAppKit` / `<DAppKitProvider>` — that the getting-started
+guide on docs.sui.io is starting to push.
+
+For our Enoki integration the choice is forced: as of Enoki 1.0.7,
+**all of Enoki's documented React surface — `registerEnokiWallets`,
+the post-connect `getSession` lookup, the `isEnokiNetwork` helper —
+targets the legacy package's `SuiClientProvider` / `WalletProvider`
+duo, and there is no Enoki integration documented for the new split
+yet.** Cited: docs.enoki.mystenlabs.com/ts-sdk/register and the
+"Register Enoki Wallets" demo at `MystenLabs/ts-sdks/packages/enoki/demo/`.
+
+**Decision:** Pin `@mysten/dapp-kit@^1.0.6` in `apps/dashboard/package.json`.
+The provider order is the one Enoki's docs ship verbatim:
+
+```
+QueryClientProvider
+  → SuiClientProvider (networks must include `network: "testnet"` per entry, see runbook)
+    → <RegisterEnokiWallets/>      // effect-only, returns unregister
+      → WalletProvider autoConnect
+        → ToastProvider             // our own
+          → {children}
+```
+
+`<RegisterEnokiWallets/>` is a sibling component above `WalletProvider`,
+not nested in it — the call must happen *before* the wallet store
+opens, so the Enoki wallet shows up at autoConnect time.
+
+The `useEffect` inside it returns the `unregister` callback so the
+StrictMode double-mount in dev doesn't leave duplicate wallets
+registered. Skipping that returns is the most common Enoki integration
+bug in the wild (per Mysten's own demo PRs).
+
+**Rejected:**
+
+- `@mysten/dapp-kit-core` + `@mysten/dapp-kit-react`. Newer surface,
+  but no Enoki wiring documented. Worth migrating to post-hackathon
+  once Enoki publishes a `createDAppKit` adapter.
+- Frontend-only Enoki without dApp Kit (call `EnokiClient` directly
+  in the browser). Skips the wallet abstraction but loses
+  `useSignTransaction` and the standard `useConnectWallet` UX. dApp
+  Kit's hooks are doing real work — keep them.
+
+**Consequences:**
+
+- The dashboard imports `@mysten/dapp-kit/dist/index.css` to inherit
+  the wallet-modal styles, but every other style is our own design-system
+  tokens. The CSS bleed is bounded to the connect-modal surface.
+- Migration cost to the split when Enoki supports it: one provider
+  rewrite, no consumer-side changes (the `useConnectWallet` / `useSignTransaction`
+  hook names are preserved). Bounded.
+
+---

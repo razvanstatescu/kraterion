@@ -27,30 +27,35 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 
 ## Status
 
-- **Current week:** W2 (Storage path) — May 14 to May 20 (currently
-  running ahead — Phases 0–6 all landed during W1)
-- **Days to submission:** 44
-- **Last reviewed:** 2026-05-08
-- **Status (complete):** Move package + bindings + Prisma + crypto
-  pipeline + **full S3 surface** (bucket + object read + object write
-  + paginated list with delimiter) all green. Phases 0–6 of the
-  gateway build done.
-  - On-chain: Move package `0x5dfc…64db`, init-spawned reserve, TS
+- **Current week:** W3 (Dashboard) — running ~2 weeks ahead of plan.
+  Phases 0–6 of the gateway, the indexer, all 4 phases of the control
+  plane (auth + projects + API keys + read views + sponsored PTB
+  builders + Enoki zkLogin), and Phase A of the dashboard have all
+  landed.
+- **Days to submission:** 43
+- **Last reviewed:** 2026-05-09
+- **Status (complete):**
+  - **On-chain:** Move package `0x73b1…fa14`, init-spawned reserve, TS
     bindings auto-synced.
-  - Off-chain crypto: smoke test round-trips encrypt → register →
-    upload-relay → certify+wrap → aggregator-read → decrypt.
-  - HTTP: gateway is ESM, boots clean under `node dist/main.js`.
-    Every S3 verb that boto3/aws-cli exercises is implemented. The
-    bucket sort order is byte-wise UTF-8 (Postgres `COLLATE "C"`)
-    matching AWS exactly.
-  - 15/15 workspace typecheck green. 33/33 Move unit tests + 7/7 SDK
-    tests + **36/36 boto3 cases** green covering every phase.
-  Next: Phase 7 polish — `If-None-Match` → 304, `x-amz-meta-*` and
-  HTTP-metadata pass-through (`Content-Disposition`,
-  `Content-Encoding`, `Cache-Control`), public-read endpoint
-  (`/public/:bucket/*`). All optional time-permitting items.
-  Then: dashboard build + indexer migration (replaces every direct DB
-  write the gateway does today).
+  - **Gateway:** full S3 surface, 36/36 boto3 cases green. Bucket sort
+    order is byte-wise UTF-8 (Postgres `COLLATE "C"`) matching AWS.
+  - **Indexer (worker):** gRPC checkpoint stream, all 5 active handlers,
+    sole writer for `Bucket` / `S3Object`. Lag ≤ 30 s steady-state.
+  - **Control plane:** auth / projects / API keys / bucket reads /
+    4 sponsored-tx prepare endpoints / sponsor execute / Enoki
+    zkLogin. Live Enoki sponsorship round-trip verified on testnet
+    (tx `25k2…rUdJ`).
+  - **Dashboard (Phase A):** Next.js 16 App Router, providers tree
+    (Query → Sui → Enoki register → Wallet → Toast), 14 console-kit
+    primitives ported to typed React, design tokens shipped to the
+    browser. Boots in 186 ms; `/`, `/buckets`, `/keys` all 200.
+  - **Tests / typecheck:** 33/33 Vitest in control-plane, 36/36 boto3
+    in gateway, 4/4 workspace typecheck.
+- **Next:** Dashboard Phases B–H — sign-in (Enoki Google OAuth → CP
+  session), read views, sponsored writes (gas-free via Enoki), object
+  I/O via CP-signed presigned URLs, access keys page + quickstart
+  snippets, demo twists (cancel-subscription + revoke-API), optional
+  browser-side Seal decryption.
 
 ## Cadence
 

@@ -663,3 +663,77 @@ The exports list in the package's `dist/jsonRpc/index.d.mts` is the authoritativ
 **Observed:** 2026-05-09 in `apps/control-plane/scripts/enoki-live-smoke.ts`.
 
 **Notes:** `@kraterion/walrus-client` already exposes a memoized `getSuiClient()` that returns a `SuiJsonRpcClient` — prefer that import path over instantiating from scratch. The smoke script uses the raw constructor only because it lives outside the dependency graph that imports the wrapper.
+
+---
+
+## Symptom: `Module '"lucide-react"' has no exported member 'Bucket'`
+
+**Cause:** Lucide's icon library doesn't ship a literal `Bucket` icon. The closest shape-wise is `Container`. Easy miss because the design system talks in product nouns ("bucket") while Lucide's exports are named after the SVG shapes.
+
+**Fix:** Alias the Lucide export to our internal name at import time, register it in the `Icon` component's typed registry under `"bucket"`:
+
+```ts
+// apps/dashboard/src/components/ui/Icon.tsx
+import { Container as BucketIcon } from "lucide-react";
+
+const REGISTRY = {
+  bucket: BucketIcon,
+  // ...
+};
+```
+
+Callers stay clean — `<Icon name="bucket" />` works everywhere, and if Lucide ever ships a real `Bucket` we swap the import without touching call sites.
+
+**Observed:** 2026-05-09 in `apps/dashboard/src/components/ui/Icon.tsx`.
+
+**Notes:** When in doubt about Lucide names, grep its `.d.ts`: `grep -oE "(Database|Container|Archive)([A-Z][a-z]+)?" node_modules/.pnpm/lucide-react@*/node_modules/lucide-react/dist/lucide-react.d.ts | sort -u`.
+
+---
+
+## Symptom: dApp Kit `SuiClientProvider` rejects networks with `Type '{ url: any; }' is not assignable to type 'SuiJsonRpcClient | NetworkConfig'`
+
+**Cause:** `@mysten/dapp-kit@1.0.6`'s `NetworkConfig` is `SuiJsonRpcClientOptions & { variables?: T }`. `SuiJsonRpcClientOptions` itself requires **both** `url` and `network` (from `@mysten/sui@2.16.x` — `network` is what tags the `SuiClientTypes.Network` everything else dispatches on). The Enoki / dApp Kit docs example often elides this, so it's easy to copy `{ url: getJsonRpcFullnodeUrl("testnet") }` and miss it.
+
+**Fix:**
+
+```ts
+// apps/dashboard/src/app/providers.tsx
+const NETWORKS = {
+  testnet: { url: getJsonRpcFullnodeUrl("testnet"), network: "testnet" as const },
+  mainnet: { url: getJsonRpcFullnodeUrl("mainnet"), network: "mainnet" as const },
+  devnet:  { url: getJsonRpcFullnodeUrl("devnet"),  network: "devnet"  as const },
+};
+```
+
+The `as const` is what lets the union narrow to `SuiClientTypes.Network`.
+
+**Observed:** 2026-05-09 in `apps/dashboard/src/app/providers.tsx`.
+
+**Notes:** Source of truth is `apps/dashboard/node_modules/.pnpm/@mysten+sui@2.16.2_typescript@5.9.3/node_modules/@mysten/sui/src/jsonRpc/client.ts:SuiJsonRpcClientOptions`. If we ever upgrade to the `@mysten/dapp-kit-core` / `dapp-kit-react` split, the `createDAppKit({ networks })` shape changes — re-check then.
+
+---
+
+## Symptom: `[bootstrap] fatal PrismaClientInitializationError: Can't reach database server at localhost:5432`
+
+**Cause:** Postgres isn't running. The control-plane (and gateway, indexer, anything else that boots `@prisma/client`) hard-fails at `onModuleInit` if it can't open a connection. Most commonly this means Docker Desktop is closed or the `infra/compose/docker-compose.yml` stack hasn't been brought up after a reboot.
+
+**Fix:**
+
+```bash
+# Start Docker Desktop, then:
+docker compose -f infra/compose/docker-compose.yml up -d
+```
+
+That brings up `postgres:16-alpine` (5432) and `valkey/valkey:8-alpine` (6379). Schema is auto-applied via Prisma migrations on the first run.
+
+Verify with:
+
+```bash
+docker ps --format '{{.Names}}\t{{.Ports}}'
+# or, on the host:
+lsof -iTCP:5432 -sTCP:LISTEN
+```
+
+**Observed:** 2026-05-11 during Phase B dashboard live verification.
+
+**Notes:** Don't try to install Postgres directly on macOS as a "lighter" alternative — the compose stack's volume names and credentials are baked into `.env`'s `DATABASE_URL` and a sibling install would force a divergence. If Docker Desktop is undesirable, OrbStack runs the same compose file with less overhead. Either way, the goal is `lsof -iTCP:5432 -sTCP:LISTEN` returning a row.
