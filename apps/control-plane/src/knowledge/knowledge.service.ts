@@ -45,6 +45,16 @@ export interface ChunkHit {
   content: string;
   /** SHA-256 hex of the chunk plaintext (hex of `content_hash`). */
   content_hash: string;
+  /** Source object's Walrus blob id (base-N string). Renders as the
+   *  Walruscan deep-link on the dashboard's citation row. */
+  source_walrus_blob_id: string;
+  /** Source object's on-chain SharedBlob id. Pairs with the above
+   *  for callers that want the Sui-explorer link instead. */
+  source_shared_blob_object_id: string;
+  /** Manifest's Walrus blob id, once K5 has archived it. Null on
+   *  every row until that lands; the dashboard hides the link when
+   *  null. */
+  manifest_walrus_blob_id: string | null;
   /** Vector-cosine distance (lower = closer). Null when the chunk only
    *  ranked through the BM25 leg. */
   vector_distance: number | null;
@@ -64,6 +74,9 @@ interface RawHybridRow {
   ordinal: number;
   content: string;
   content_hash: Buffer;
+  source_walrus_blob_id: string;
+  source_shared_blob_object_id: string;
+  manifest_walrus_blob_id: string | null;
   vector_distance: number | null;
   bm25_score: number | null;
   rrf_score: number;
@@ -181,6 +194,9 @@ export class KnowledgeService {
           c.id,
           c.s3_object_id,
           s.s3_key,
+          s.walrus_blob_id        AS source_walrus_blob_id,
+          s.shared_blob_object_id AS source_shared_blob_object_id,
+          m.manifest_walrus_blob_id,
           c.bucket_id,
           c.manifest_id,
           c.ordinal,
@@ -195,6 +211,7 @@ export class KnowledgeService {
         FROM candidates cd
         JOIN "KnowledgeChunk" c ON c.id = cd.id
         JOIN "S3Object" s ON s.id = c.s3_object_id
+        LEFT JOIN "KnowledgeManifest" m ON m.id = c.manifest_id
         LEFT JOIN vec_leg v ON v.id = c.id
         LEFT JOIN bm_leg  b ON b.id = c.id
         WHERE c.bucket_id = ${args.bucketId}::text
@@ -212,6 +229,9 @@ export class KnowledgeService {
       ordinal: r.ordinal,
       content: r.content,
       content_hash: Buffer.from(r.content_hash).toString("hex"),
+      source_walrus_blob_id: r.source_walrus_blob_id,
+      source_shared_blob_object_id: r.source_shared_blob_object_id,
+      manifest_walrus_blob_id: r.manifest_walrus_blob_id,
       vector_distance: r.vector_distance,
       bm25_score: r.bm25_score,
       rrf_score: r.rrf_score,

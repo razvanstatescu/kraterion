@@ -22,6 +22,7 @@ import {
   EMBEDDINGS_QUEUE,
   type EmbeddingsJobData,
 } from "./embeddings.service.js";
+import { archiveManifestToWalrus } from "./manifest-archive.js";
 
 /**
  * BullMQ processor for the `kraterion-embeddings` queue.
@@ -236,6 +237,17 @@ export class EmbeddingsProcessor extends WorkerHost implements OnModuleDestroy {
       this.logger.log(
         `indexed s3_object=${s3_object_id} v=${manifest_version} chunks=${chunks.length} tokens=${embedded.prompt_tokens}`,
       );
+
+      // K5: archive the manifest as a Walrus blob. Best-effort —
+      // failure leaves `manifest_walrus_blob_id` null but doesn't fail
+      // the job. The dashboard hides the link when null.
+      await archiveManifestToWalrus({
+        prisma: this.prisma,
+        signer: this.keypair.getKeypair(),
+        logger: this.logger,
+        manifestId: manifest.id,
+      });
+
       return { chunk_count: chunks.length, status: "indexed" };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

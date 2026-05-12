@@ -157,6 +157,8 @@ export interface BucketJson {
   funding_pool_wal: string;
   created_at: string;
   deleted_at: string | null;
+  /** CP join with KnowledgeBucketSettings; absent on older CP builds. */
+  knowledge_enabled?: boolean;
 }
 
 export interface FolderMarkerJson {
@@ -189,7 +191,9 @@ export type ActivityEventKind =
   | "bucket_created"
   | "bucket_deleted"
   | "object_uploaded"
-  | "object_deleted";
+  | "object_deleted"
+  | "knowledge_search"
+  | "knowledge_ask";
 
 export interface ActivityEventJson {
   id: string;
@@ -206,6 +210,14 @@ export interface ActivityEventJson {
     s3_key: string;
     content_type: string | null;
     size_bytes: string;
+  } | null;
+  knowledge: {
+    query: string;
+    top_k: number;
+    chunk_count: number;
+    latency_ms: number;
+    llm_model: string | null;
+    llm_tokens: number | null;
   } | null;
 }
 

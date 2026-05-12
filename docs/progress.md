@@ -2435,3 +2435,244 @@ _Calendar weeks anchored in `docs/timeline.md`._
     worker; not wiring the worker today.
 
 ---
+
+
+## 2026-05-12 — [k5+polish] Manifest archive on Walrus, citation links, Knowledge in Activity, bucket badge
+
+  Four demo-critical gaps from the cross-plan audit, all in one cut.
+  Closes the K4 exit criteria ("Walruscan deep-links on citations",
+  "All copy is sentence case, no emoji") and the K5 entry surface
+  ("verifiable retrieval").
+
+  **What shipped:**
+
+  - **K5 — manifest archive on Walrus (worker):**
+    - New module
+      `apps/worker/src/embeddings/manifest-archive.ts`. After the
+      embeddings processor finalizes a manifest at `status=indexed`, it
+      builds the v1 manifest JSON (source ids, etag, embedding model
+      + dims, chunking params, ordered list of per-chunk hashes +
+      boundaries — no plaintext, no vectors), writes it to Walrus via
+      `WalrusClient.writeBlob({ epochs: 26, deletable: false })` signed
+      by the `knowledge_indexer` sub-wallet, and stores
+      `manifest_walrus_blob_id` + `manifest_shared_blob_object_id` on
+      the row.
+    - **Idempotent.** A re-run on a manifest that already has a
+      `manifest_walrus_blob_id` is a no-op.
+    - **Best-effort.** A `writeBlob` failure logs at WARN and leaves
+      `manifest_walrus_blob_id` null. The chunks stay searchable; the
+      dashboard hides the link when null.
+    - **Scope deferral (documented in the module header):** the blob
+      is a regular Walrus `Blob` owned by the worker keypair, NOT
+      wrapped via `kraterion::wrap_in_shared_blob` into the bucket.
+      That upgrade is a ~half-day follow-up (re-uses the gateway's
+      PTB1 + relay + PTB2 dance). The Walruscan link works either way;
+      the bucket-owned variant tightens the "verifiable retrieval
+      co-owned with the data" claim.
+    - **Manifests are written in cleartext** regardless of the
+      bucket's encryption mode. Manifest content is hashes only, so
+      leaking it is no worse than leaking the schema. Seal-encrypted
+      manifests for private buckets is a follow-up.
+  - **Walruscan citation links (backend + dashboard):**
+    - `KnowledgeService.search` now joins `S3Object` for
+      `walrus_blob_id` + `shared_blob_object_id`, and joins
+      `KnowledgeManifest` for `manifest_walrus_blob_id`. The wire
+      shape gains three fields per hit:
+      `source_walrus_blob_id`, `source_shared_blob_object_id`,
+      `manifest_walrus_blob_id`.
+    - `KnowledgeSearch.tsx`: each hit row gets a links cluster —
+      *Source blob* (Walruscan, source object), *On chain* (Sui
+      explorer, SharedBlob), and *Manifest* (Walruscan, indexing
+      record, only when populated). Quiet hairline links, color
+      steps from text-secondary → text-primary on hover with a
+      lazy underline. No Krater accent on the footer so the citation
+      cluster doesn't compete with the page's existing accents.
+    - Wire-shape mismatch fixed while in there: dashboard was
+      reading `hit.chunk_id` against a backend that returned `id`.
+      React's `key=` was the only consumer, so nothing visible
+      broke — but the cleanup avoids surprises later.
+  - **Activity feed renders Knowledge events:**
+    - `ActivityService` adds a third Promise.all leg pulling the
+      last N `KnowledgeQuery` rows (`fetchSize = 2× limit`) scoped to
+      the account via the bucket join, materializes
+      `knowledge_search` / `knowledge_ask` rows, sorts the union by
+      timestamp.
+    - `ActivityEventJson` gains a `knowledge` sub-object: `query`,
+      `top_k`, `chunk_count`, `latency_ms`, `llm_model`, `llm_tokens`.
+    - Dashboard `activity/page.tsx` renders the new kinds — `search`
+      icon for searches, `info` icon for asks. Title shows the
+      truncated query in italic quotes (no mono background — quotes
+      do the framing). Sub-line shows hit count + latency, and for
+      ask rows also the LLM model + token count.
+  - **Knowledge badge on bucket list:**
+    - Backend: `BucketsController.list` / `get` does a single
+      follow-up `KnowledgeBucketSettings.findMany` keyed on the
+      page's bucket ids, sets `knowledge_enabled: boolean` on each
+      row. Sub-millisecond PK lookup, no N+1.
+    - Dashboard: `BucketsList.tsx` renders a small Knowledge chip
+      next to enabled buckets — Lucide search icon + label, hairline
+      stone-200 border, stone-50 background, text-secondary color.
+      No emoji (plan called for "🧠 Knowledge"; design-system bans
+      emoji in product surfaces, so it's a Lucide icon + sentence-case
+      label instead). Chip uses tokens only — no hardcoded colors,
+      radii, or font sizes.
+
+  **Design-system compliance:**
+
+  - Every new class in `globals.css` (`ks-knowledge-chip`,
+    `ks-hit-foot`, `ks-hit-links`, `ks-hit-link`, `ks-activity-q`)
+    references only `--ink`, `--cream`, `--krater`, `--stone-*`,
+    `--space-*`, `--radius-*`, `--dur-*`, `--ease`. No hardcoded hex.
+  - No shadows; the chip elevates by hairline border + warm stone
+    background.
+  - Sentence case throughout. The only ALL-CAPS bits are the
+    11px micro-labels.
+  - No emoji. Lucide 1.5px-stroke icons in every new surface.
+  - Krater is reserved for primary CTAs + active tab; the citation
+    links cluster stays in stone-greys so it reads as metadata.
+
+  **Smoke verified:**
+  - `pnpm typecheck` green across all 19 workspace tasks.
+  - CP + worker bounced cleanly. `GET /v1/activity` returns 401
+    without a session token (expected); 200 + new wire shape with
+    a token.
+
+  **Out of scope / follow-ups:**
+
+  - K5 SharedBlob wrap (`register_blob_for_bucket` →
+    `wrap_in_shared_blob`) to make the manifest blob bucket-owned on
+    chain, matching the source-object pattern. ~half a day; re-uses
+    the gateway's PTB structure. Today the manifest blob is owned by
+    the `knowledge_indexer` sub-wallet.
+  - Seal-encrypted manifests for private buckets — content is
+    hashes-only so it's not a leak, but the demo's
+    `revoke_all_api_access`-cuts-manifest-reads beat needs it.
+  - Activity feed cross-cancels: when a search runs against a
+    bucket the user has since deleted, the `bucket` join still
+    works (soft delete keeps the row); rendering on the dashboard
+    side is consistent — but worth re-testing once the renewal
+    worker lands.
+
+---
+
+
+## 2026-05-12 — [k5-full] Manifest blobs are bucket-owned SharedBlobs on chain
+
+  Closes the K5 gap left open in the earlier round. Manifests now ride
+  the same `register_blob_for_bucket` → `wrap_in_shared_blob` pipeline
+  the gateway uses for user PutObjects. They land as SharedBlobs
+  attached to the bucket — same on-chain ownership pattern, same
+  revocation surface (`revoke_all_api_access` cuts the platform off
+  from reading manifests too).
+
+  **What shipped:**
+
+  - **Worker — full PTB pipeline.**
+    Rewrote `apps/worker/src/embeddings/manifest-archive.ts` to
+    replicate the gateway's PutObject flow exactly:
+    - **PTB1:** relay tip + `kraterion::register_blob_for_bucket`,
+      signed by the `knowledge_indexer` sub-wallet.
+    - **Relay upload:** `WalrusClient.writeBlobToUploadRelay` with the
+      registered Blob object id + the tip's tx digest.
+    - **PTB2:** `walrus::system::certify_blob` +
+      `kraterion::wrap_in_shared_blob`. The Move wrap call carries
+      the manifest's s3_key, content_type, seal_identity (48-byte
+      shape: bucket_object_id + manifest_uuid), size, and the
+      plaintext MD5 etag.
+    - **Graceful fallback.** If PTB1 reverts (most likely cause: the
+      indexer hasn't been granted yet on the bucket) the function
+      falls back to a worker-owned `WalrusClient.writeBlob` so the
+      dashboard's Walruscan link still resolves. Logged at WARN.
+      Idempotent: a later retry skips when `manifest_walrus_blob_id`
+      is already set.
+
+  - **Reserved key prefix.**
+    The bucket-wrap path emits `KraterionObjectCreated`, which the
+    indexer would normally translate to an `S3Object` row. To avoid
+    polluting `ListObjectsV2` and the file browser, manifests land
+    under `_kraterion/manifests/<manifest_id>.json`. Two pieces enforce
+    this:
+    - The gateway's `PutObject` controller rejects any user-supplied
+      key starting with `_kraterion/` (400 `InvalidArgument`).
+    - The indexer's `ObjectCreatedHandler` detects the prefix BEFORE
+      hitting the S3Object upsert and routes the event to
+      `KnowledgeManifest.update` — writing `manifest_walrus_blob_id` +
+      `manifest_shared_blob_object_id` and returning. Idempotent under
+      `indexer:reset` because we update by `(id, bucket_id)`.
+    - Why not a new Move function + event? A package republish
+      orphans every existing bucket on chain. The reserved-prefix
+      pattern is the hackathon-friendly equivalent — same on-chain
+      ownership, no migration.
+
+  - **Control plane — indexer address service + grant signal.**
+    - `KnowledgeIndexerAddressService` reads the singleton
+      `SubWallet { role: "knowledge_indexer" }` row and caches the
+      address. Mirrors `GatewayAddressService` exactly.
+    - `POST /v1/buckets/:bucketId/knowledge` (enable path) now reads
+      the bucket's live on-chain `api_decryption_addresses` vector
+      and returns `indexer_address` + `needs_indexer_grant` so the
+      dashboard knows whether to follow up with a sponsored grant tx.
+      Read-failure-tolerant: a failed RPC defaults to `true`, and the
+      Move call is idempotent (`grant_api_access` is a no-op when the
+      address is already present), so duplicate grants are harmless.
+
+  - **Dashboard — auto-grant on enable.**
+    The `KnowledgeToggle` component, on enable, now:
+    1. POSTs `/v1/buckets/:id/knowledge { enabled: true }` — fires
+       backfill, returns `indexer_address` + `needs_indexer_grant`.
+    2. If a grant is needed, fires a sponsored `grant_api_access` tx
+       via the existing `useSponsoredTx` hook, passing
+       `api_addr_override` = indexer address. The user signs once;
+       there's no second on-chain mutation surfacing in the UI.
+    3. Renders a toast for the grant with the Suiscan link, or a
+       softer warning if the grant fails — indexing still works,
+       manifests fall back to worker-owned.
+    Button label flips to "Granting indexer access…" during the
+    sponsored-tx round-trip; the user gets a single "Knowledge enabled"
+    + "Indexer access granted" sequence with no extra UI to navigate.
+
+  **Design-system compliance:**
+  No new classes; the grant flow reuses the existing toast +
+  sponsored-tx infrastructure. The added "Granting indexer access…"
+  copy is sentence case; the suiscan link is the dashboard's
+  standard underline-on-hover style.
+
+  **Smoke verified:**
+  - `pnpm typecheck` green across 19 workspace tasks.
+  - CP + gateway + worker bounced cleanly. Knowledge enable endpoint
+    returns 401 without a session (expected); the new route map
+    appears in the CP boot log.
+  - Reserved-prefix PUT manually rejected via curl simulation in the
+    write controller.
+
+  **End-to-end demo flow:**
+  1. User toggles Knowledge on a bucket → dashboard fires
+     `POST /knowledge`.
+  2. CP returns `{ enabled: true, needs_indexer_grant: true,
+     indexer_address: "0x..." }`.
+  3. Dashboard fires sponsored `grant_api_access` tx → user signs →
+     bucket's `api_decryption_addresses` grows by one address.
+  4. Worker processes the backfill queue → for each indexed object,
+     builds the manifest, runs PTB1 (`register_blob_for_bucket`,
+     signed by the now-authorized worker keypair), uploads via relay,
+     runs PTB2 (`certify_blob` + `wrap_in_shared_blob`) → SharedBlob
+     created.
+  5. Indexer sees `KraterionObjectCreated` with key
+     `_kraterion/manifests/...` → routes to `KnowledgeManifest`
+     update → writes `manifest_walrus_blob_id` + the SharedBlob id.
+  6. Dashboard's search hits show the *Manifest* Walruscan link;
+     `revoke_all_api_access` on the bucket cuts manifest reads too.
+
+  **Out of scope / follow-ups:**
+  - Seal-encrypted manifests for private buckets. Today manifests
+    are written cleartext regardless of bucket mode. Content is
+    hashes-only so not a leak, but the "revoke cuts manifest reads"
+    demo beat needs Seal-encryption to be fully sharp.
+  - Re-indexing on `encryption_mode` flip. Bucket toggles between
+    private/public don't currently re-write manifests.
+  - Re-grant prompt on previously-revoked buckets. If a user
+    revokes-all then re-grants on a Knowledge bucket, the worker
+    would need to re-establish the indexer grant; today the user
+    must toggle Knowledge off and back on.
+
+---

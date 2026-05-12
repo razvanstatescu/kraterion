@@ -73,6 +73,7 @@ export default function ActivityPage() {
 function Row({ event }: { event: ActivityEventJson }) {
   const { icon, verb, accent } = describe(event);
   const filename = event.object ? leaf(event.object.s3_key) : null;
+  const k = event.knowledge;
 
   return (
     <div className="ks-activity-row">
@@ -88,6 +89,12 @@ function Row({ event }: { event: ActivityEventJson }) {
               in{" "}
             </>
           ) : null}
+          {k ? (
+            <>
+              <span className="ks-activity-q">&ldquo;{truncateQuery(k.query)}&rdquo;</span>{" "}
+              in{" "}
+            </>
+          ) : null}
           <Link
             href={`/buckets/${event.bucket.id}`}
             style={{ color: "var(--text-primary)", textDecoration: "underline", textUnderlineOffset: 2 }}
@@ -98,6 +105,21 @@ function Row({ event }: { event: ActivityEventJson }) {
         <div className="ks-activity-sub">
           {event.bucket.encryption_mode === "private" ? "Private bucket" : "Public-read bucket"}
           {event.object ? <> · {formatBytes(event.object.size_bytes)}</> : null}
+          {k ? (
+            <>
+              {" · "}
+              {k.chunk_count} hit{k.chunk_count === 1 ? "" : "s"}
+              {" · "}
+              {k.latency_ms} ms
+              {k.llm_model ? (
+                <>
+                  {" · "}
+                  {k.llm_model}
+                  {k.llm_tokens ? <> ({k.llm_tokens.toLocaleString()} tokens)</> : null}
+                </>
+              ) : null}
+            </>
+          ) : null}
           {event.tx_digest ? (
             <>
               {" · "}
@@ -133,7 +155,16 @@ function describe(event: ActivityEventJson): {
       return { icon: "upload", verb: "Uploaded", accent: "success" };
     case "object_deleted":
       return { icon: "trash", verb: "Deleted", accent: "danger" };
+    case "knowledge_search":
+      return { icon: "search", verb: "Searched", accent: null };
+    case "knowledge_ask":
+      return { icon: "info", verb: "Asked", accent: null };
   }
+}
+
+function truncateQuery(s: string): string {
+  const MAX = 80;
+  return s.length > MAX ? `${s.slice(0, MAX).trimEnd()}…` : s;
 }
 
 function leaf(key: string): string {

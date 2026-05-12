@@ -102,7 +102,7 @@ export class McpToolsService {
           includeDeleted: false,
           limit: 100,
         });
-        const rows = page.items.map(serializeBucket);
+        const rows = page.items.map((b) => serializeBucket(b));
         return textJson(rows);
       },
     );

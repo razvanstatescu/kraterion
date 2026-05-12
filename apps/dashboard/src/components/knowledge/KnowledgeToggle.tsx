@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
+import { env } from "@/lib/env";
+import { suiscanTxUrl } from "@/lib/format";
 import { useToggleKnowledge, type KnowledgeStatus } from "@/lib/queries";
+import { useSponsoredTx } from "@/lib/sponsor";
 
 interface Props {
   bucketId: string;
@@ -21,12 +24,15 @@ interface Props {
  */
 export function KnowledgeToggle({ bucketId, status }: Props) {
   const toggle = useToggleKnowledge(bucketId);
+  const runSponsored = useSponsoredTx();
   const { show } = useToast();
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [granting, setGranting] = useState(false);
 
   const onEnable = async () => {
     try {
       const res = await toggle.mutateAsync(true);
+      // First step done — settings row written, backfill enqueued.
       show({
         tone: "success",
         title: "Knowledge enabled",
@@ -35,6 +41,50 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             ? `Queued ${res.backfilled_objects} object${res.backfilled_objects === 1 ? "" : "s"} for indexing.`
             : "New uploads will be indexed automatically.",
       });
+
+      // K5: ask the user to grant the worker's `knowledge_indexer`
+      // sub-wallet access to this bucket so future manifest blobs are
+      // bucket-owned on chain. Sponsored tx — the user signs but pays
+      // nothing. Skipped when the address is already on the bucket's
+      // `api_decryption_addresses` list (the CP checks on chain before
+      // returning `needs_indexer_grant`).
+      if (res.needs_indexer_grant && res.indexer_address) {
+        setGranting(true);
+        try {
+          const grant = await runSponsored({
+            prepareEndpoint: `/v1/buckets/${bucketId}/prepare-grant-api`,
+            body: { api_addr_override: res.indexer_address },
+          });
+          show({
+            tone: "success",
+            title: "Indexer access granted",
+            body: (
+              <>
+                Future indexing manifests will be archived as
+                bucket-owned SharedBlobs.{" "}
+                <a
+                  href={suiscanTxUrl(grant.digest, env.network)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on-chain
+                </a>
+              </>
+            ),
+          });
+        } catch (err) {
+          show({
+            tone: "warning",
+            title: "Couldn't grant indexer access",
+            body:
+              err instanceof Error
+                ? `${err.message} Indexing still works; manifests will be worker-owned until you retry.`
+                : "Indexing still works; manifests will be worker-owned until you retry.",
+          });
+        } finally {
+          setGranting(false);
+        }
+      }
     } catch (err) {
       show({
         tone: "error",
@@ -88,9 +138,9 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             variant="cta"
             icon="plus"
             onClick={onEnable}
-            loading={toggle.isPending}
+            loading={toggle.isPending || granting}
           >
-            Enable Knowledge
+            {granting ? "Granting indexer access…" : "Enable Knowledge"}
           </Button>
         </div>
       </div>

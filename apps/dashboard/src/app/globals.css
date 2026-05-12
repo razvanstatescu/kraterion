@@ -987,6 +987,12 @@ code, kbd, samp {
   padding: 1px 6px;
   border-radius: var(--radius-sm);
 }
+.ks-activity-q {
+  /* Knowledge query strings — italic so they read as quoted input, not
+     as a file name. No background; the quotes carry the framing. */
+  font-style: italic;
+  color: var(--text-primary);
+}
 .ks-activity-link {
   color: var(--text-tertiary);
   text-decoration: underline;
@@ -1597,4 +1603,60 @@ code, kbd, samp {
 @media (max-width: 720px) {
   .ks-method-toggle, .ks-flow-grid { grid-template-columns: 1fr; }
   .ks-agent { flex-direction: column; align-items: flex-start; }
+}
+
+/* === Knowledge chip on bucket rows =======================================
+   Small inline marker. Hairline border + warm stone background so it
+   reads as metadata, not as a call to action — Krater accent stays
+   reserved for the row's actual interactive state. */
+
+.ks-knowledge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--stone-50);
+  color: var(--text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* === Knowledge hit footer (citation links + scores) =====================
+   Two clusters separated by flex space — scores on the left, on-chain
+   references on the right. Links are quiet (text-secondary) with a
+   hover step to primary; underline appears on hover only because
+   they're surrounded by score text and a constant underline would
+   read as noise. */
+
+.ks-hit-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ks-hit-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.ks-hit-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color var(--dur-base) var(--ease);
+}
+.ks-hit-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

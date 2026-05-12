@@ -277,20 +277,29 @@ async function fundGatewayWithSui(
   info(`funded gateway with ${need / MIST_PER_SUI} SUI (tx ${r.digest})`);
 }
 
-async function authorizeGatewayOnReserve(
+/**
+ * Idempotent reserve authorization. Used for both the gateway and the
+ * knowledge-indexer sub-wallets — anyone who calls
+ * `register_blob_for_bucket` (which pulls WAL from the reserve) must be
+ * on the reserve's `authorized_callers` list.
+ *
+ * Skips when the address is already authorized so the bootstrap stays
+ * cheap on re-runs.
+ */
+async function authorizeAddressOnReserve(
   suiClient: ReturnType<typeof getSuiClient>,
   deployer: Ed25519Keypair,
-  gatewayAddress: string,
+  address: string,
+  label: string,
 ) {
-  // Read current authorized list off-chain to skip if already present.
   const obj = await suiClient.getObject({
     id: KRATERION_RESERVE_ID,
     options: { showContent: true },
   });
   const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)?.fields;
   const authorized = (fields?.["authorized_callers"] as string[] | undefined) ?? [];
-  if (authorized.map((a) => a.toLowerCase()).includes(gatewayAddress.toLowerCase())) {
-    info(`gateway already authorized on reserve; skipping`);
+  if (authorized.map((a) => a.toLowerCase()).includes(address.toLowerCase())) {
+    info(`${label} already authorized on reserve; skipping`);
     return;
   }
 
@@ -298,7 +307,7 @@ async function authorizeGatewayOnReserve(
   tx.add(
     reserve.authorizeCaller({
       package: KRATERION_PACKAGE_ID,
-      arguments: { reserve: KRATERION_RESERVE_ID, addr: gatewayAddress },
+      arguments: { reserve: KRATERION_RESERVE_ID, addr: address },
     }),
   );
   const r = await suiClient.signAndExecuteTransaction({
@@ -309,7 +318,7 @@ async function authorizeGatewayOnReserve(
   if (r.effects?.status?.status !== "success") {
     throw new Error(`reserve.authorize_caller failed: ${JSON.stringify(r.effects?.status)}`);
   }
-  info(`authorized gateway on reserve (tx ${r.digest})`);
+  info(`authorized ${label} on reserve (tx ${r.digest})`);
 }
 
 async function fundReserveWithWal(
@@ -499,7 +508,15 @@ async function main() {
   await fundKnowledgeIndexerWithSui(suiClient, deployer, knowledgeIndexerAddress);
 
   bold("▸ reserve authorization");
-  await authorizeGatewayOnReserve(suiClient, deployer, gatewayAddress);
+  await authorizeAddressOnReserve(suiClient, deployer, gatewayAddress, "gateway");
+  // K5: the knowledge_indexer signs `register_blob_for_bucket` when
+  // archiving manifests, so it needs the same reserve grant.
+  await authorizeAddressOnReserve(
+    suiClient,
+    deployer,
+    knowledgeIndexerAddress,
+    "knowledge-indexer",
+  );
 
   bold("▸ reserve WAL funding");
   await fundReserveWithWal(suiClient, deployer);

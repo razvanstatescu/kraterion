@@ -17,9 +17,18 @@ export interface BucketJson {
   funding_pool_wal: string;
   created_at: string;
   deleted_at: string | null;
+  /**
+   * Whether Knowledge indexing is on for this bucket. The CP joins
+   * `KnowledgeBucketSettings` in the list/get paths so the dashboard
+   * can badge enabled buckets without an N+1 follow-up.
+   */
+  knowledge_enabled?: boolean;
 }
 
-export function serializeBucket(b: Bucket): BucketJson {
+export function serializeBucket(
+  b: Bucket,
+  opts?: { knowledgeEnabled?: boolean },
+): BucketJson {
   return {
     id: b.id,
     project_id: b.project_id,
@@ -31,6 +40,9 @@ export function serializeBucket(b: Bucket): BucketJson {
     funding_pool_wal: b.funding_pool_wal_balance.toString(),
     created_at: b.created_at.toISOString(),
     deleted_at: b.deleted_at ? b.deleted_at.toISOString() : null,
+    ...(opts?.knowledgeEnabled !== undefined
+      ? { knowledge_enabled: opts.knowledgeEnabled }
+      : {}),
   };
 }
 

@@ -5,7 +5,9 @@ export type ActivityEventKind =
   | "bucket_created"
   | "bucket_deleted"
   | "object_uploaded"
-  | "object_deleted";
+  | "object_deleted"
+  | "knowledge_search"
+  | "knowledge_ask";
 
 /**
  * Wire shape for `/v1/activity`. One row per state change a user can
@@ -13,6 +15,11 @@ export type ActivityEventKind =
  * `tx_digest` is best-effort — the indexer populates it for events with
  * an on-chain origin (bucket-create, object-upload) so the dashboard
  * can render a Suiscan link; null for soft-deletes (DB-only).
+ *
+ * `knowledge` lights up for `knowledge_search` / `knowledge_ask` rows
+ * sourced from `KnowledgeQuery`. It carries the actual query string
+ * (truncated upstream if needed) plus the retrieval shape so the
+ * dashboard can render it without a follow-up fetch.
  */
 export interface ActivityEventJson {
   id: string;
@@ -29,6 +36,14 @@ export interface ActivityEventJson {
     s3_key: string;
     content_type: string | null;
     size_bytes: string;
+  } | null;
+  knowledge: {
+    query: string;
+    top_k: number;
+    chunk_count: number;
+    latency_ms: number;
+    llm_model: string | null;
+    llm_tokens: number | null;
   } | null;
 }
 
@@ -51,7 +66,7 @@ export class ActivityService {
     // the top once their `deleted_at` lands in the past `limit` window.
     const fetchSize = Math.max(opts.limit * 2, 20);
 
-    const [buckets, objects] = await Promise.all([
+    const [buckets, objects, queries] = await Promise.all([
       this.prisma.bucket.findMany({
         where: { project: { account_id: accountId } },
         orderBy: { created_at: "desc" },
@@ -65,6 +80,16 @@ export class ActivityService {
           },
         },
         orderBy: { uploaded_at: "desc" },
+        take: fetchSize,
+      }),
+      this.prisma.knowledgeQuery.findMany({
+        where: { bucket: { project: { account_id: accountId } } },
+        include: {
+          bucket: {
+            select: { id: true, name: true, encryption_mode: true },
+          },
+        },
+        orderBy: { created_at: "desc" },
         take: fetchSize,
       }),
     ]);
@@ -82,6 +107,7 @@ export class ActivityService {
           encryption_mode: b.encryption_mode as "private" | "public-read",
         },
         object: null,
+        knowledge: null,
       });
       if (b.deleted_at) {
         events.push({
@@ -95,6 +121,7 @@ export class ActivityService {
             encryption_mode: b.encryption_mode as "private" | "public-read",
           },
           object: null,
+          knowledge: null,
         });
       }
     }
@@ -117,6 +144,7 @@ export class ActivityService {
         tx_digest: digestToHex(o.tx_digest),
         bucket: bucketMeta,
         object: objMeta,
+        knowledge: null,
       });
       if (o.deleted_at) {
         events.push({
@@ -126,8 +154,32 @@ export class ActivityService {
           tx_digest: null,
           bucket: bucketMeta,
           object: objMeta,
+          knowledge: null,
         });
       }
+    }
+    for (const q of queries) {
+      const isAsk = q.kind === "ask";
+      events.push({
+        id: `kq-${q.id}`,
+        kind: isAsk ? "knowledge_ask" : "knowledge_search",
+        at: q.created_at.toISOString(),
+        tx_digest: null,
+        bucket: {
+          id: q.bucket.id,
+          name: q.bucket.name,
+          encryption_mode: q.bucket.encryption_mode as "private" | "public-read",
+        },
+        object: null,
+        knowledge: {
+          query: q.query,
+          top_k: q.top_k,
+          chunk_count: q.chunk_count,
+          latency_ms: q.latency_ms,
+          llm_model: q.llm_model,
+          llm_tokens: q.llm_tokens,
+        },
+      });
     }
 
     events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));

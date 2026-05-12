@@ -8,6 +8,8 @@ import { requireUser } from "../auth/request-context.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { KnowledgeIndexerAddressService } from "../sui/knowledge-indexer-address.service.js";
+import { SuiClientService } from "../sui/sui-client.service.js";
 import { parseBody } from "../validation/zod-pipe.js";
 import { answerWithLLM } from "./ask.js";
 import {
@@ -71,9 +73,42 @@ export class KnowledgeController {
     private readonly prisma: PrismaService,
     private readonly buckets: BucketsService,
     private readonly knowledge: KnowledgeService,
+    private readonly knowledgeIndexerAddress: KnowledgeIndexerAddressService,
+    private readonly suiClient: SuiClientService,
     @InjectQueue(EMBEDDINGS_QUEUE_NAME)
     private readonly embeddingsQueue: Queue<EmbeddingsJobData>,
   ) {}
+
+  /**
+   * Reads the live `KraterionBucket` object's `api_decryption_addresses`
+   * vector and returns whether `addr` is already on it. Used by the
+   * enable response so the dashboard only fires a sponsored
+   * `grant_api_access` tx when actually needed.
+   *
+   * Case-insensitive compare: Sui addresses serialize lowercase on
+   * chain but JS typings sometimes hand us mixed case.
+   */
+  private async isAddressGrantedOnBucket(
+    bucketObjectId: string,
+    addr: string,
+  ): Promise<boolean> {
+    try {
+      const obj = await this.suiClient.get().getObject({
+        id: bucketObjectId,
+        options: { showContent: true },
+      });
+      const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
+        ?.fields;
+      const list = (fields?.["api_decryption_addresses"] as string[] | undefined) ?? [];
+      const norm = (a: string) => a.toLowerCase();
+      return list.map(norm).includes(norm(addr));
+    } catch {
+      // Treat read failures as "not granted" so the dashboard always
+      // attempts the grant — `grant_api_access` is idempotent on chain,
+      // so a duplicate is harmless (no-op + event).
+      return false;
+    }
+  }
 
   @Get()
   async get(@Req() req: FastifyRequest, @Param("bucketId") bucketId: string) {
@@ -132,7 +167,7 @@ export class KnowledgeController {
     @Body(parseBody(enableKnowledgeSchema)) dto: EnableKnowledgeDto,
   ) {
     const user = requireUser(req);
-    await this.buckets.getOwned(user.accountId, bucketId);
+    const bucket = await this.buckets.getOwned(user.accountId, bucketId);
 
     if (!dto.enabled) {
       const [chunks] = await this.prisma.$transaction([
@@ -169,9 +204,22 @@ export class KnowledgeController {
       backfilled = await this.backfillBucket(bucketId);
     }
 
+    // K5 grant: the worker's `knowledge_indexer` sub-wallet must be in
+    // the bucket's `api_decryption_addresses` list before it can call
+    // `register_blob_for_bucket` + `wrap_in_shared_blob` to archive
+    // manifests on chain. The dashboard fires a sponsored
+    // `grant_api_access` tx when `needs_indexer_grant` is true.
+    const indexerAddress = await this.knowledgeIndexerAddress.get();
+    const granted = await this.isAddressGrantedOnBucket(
+      bucket.kraterion_bucket_object_id,
+      indexerAddress,
+    );
+
     return {
       enabled: true,
       backfilled_objects: backfilled,
+      indexer_address: indexerAddress,
+      needs_indexer_grant: !granted,
       settings: {
         embedding_model: row.embedding_model,
         embedding_dimensions: row.embedding_dimensions,

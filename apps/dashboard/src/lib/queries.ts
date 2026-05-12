@@ -358,16 +358,31 @@ export function useKnowledgeStatus(bucketId: string | undefined) {
   });
 }
 
+export interface ToggleKnowledgeResponse {
+  enabled: boolean;
+  backfilled_objects?: number;
+  chunks_deleted?: number;
+  /** Sui address of the worker's `knowledge_indexer` sub-wallet. Present
+   *  on enable responses only; the dashboard reads this to decide
+   *  whether to follow up with a sponsored `grant_api_access` tx. */
+  indexer_address?: string;
+  /** True when the indexer address is NOT yet on the bucket's
+   *  `api_decryption_addresses` list, so the dashboard must trigger the
+   *  grant tx before manifests can be archived on chain (K5). */
+  needs_indexer_grant?: boolean;
+}
+
 export function useToggleKnowledge(bucketId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (enabled: boolean) =>
-      cpFetch<{ enabled: boolean; backfilled_objects?: number; chunks_deleted?: number }>(
+      cpFetch<ToggleKnowledgeResponse>(
         `/v1/buckets/${bucketId}/knowledge`,
         { method: "POST", body: { enabled } },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
+      void queryClient.invalidateQueries({ queryKey: ["v1", "bucket", bucketId ?? "none"] });
     },
   });
 }
@@ -378,12 +393,20 @@ export function useToggleKnowledge(bucketId: string | undefined) {
  * stay separate so power users can inspect why something ranked.
  */
 export interface KnowledgeSearchHit {
-  chunk_id: string;
+  id: string;
   s3_object_id: string;
   s3_key: string;
+  bucket_id: string;
+  manifest_id: string;
   ordinal: number;
   content: string;
   content_hash: string;
+  /** Source object's Walrus blob id — the Walruscan deep-link target. */
+  source_walrus_blob_id: string;
+  /** Source object's on-chain SharedBlob id (Sui explorer link). */
+  source_shared_blob_object_id: string;
+  /** Manifest's Walrus blob id (K5). Null until the worker archives it. */
+  manifest_walrus_blob_id: string | null;
   rrf_score: number;
   bm25_score: number | null;
   vector_distance: number | null;

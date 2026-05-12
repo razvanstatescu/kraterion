@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError } from "@/lib/api";
+import { env } from "@/lib/env";
+import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
 import {
   useKnowledgeSearch,
   type KnowledgeSearchHit,
@@ -116,7 +118,7 @@ function SearchResults({ result }: { result: KnowledgeSearchResponse }) {
       </div>
       <ul className="ks-hits">
         {result.hits.map((h) => (
-          <SearchHit key={h.chunk_id} hit={h} />
+          <SearchHit key={h.id} hit={h} />
         ))}
       </ul>
     </>
@@ -134,26 +136,62 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
         <span className="ks-hit-ord">#{hit.ordinal}</span>
       </div>
       <p className="ks-hit-body">{hit.content}</p>
-      <div className="ks-hit-scores">
-        <span>
-          <em>rrf</em> {hit.rrf_score.toFixed(4)}
-        </span>
-        {hit.bm25_score !== null ? (
-          <>
-            <span className="ks-meta-sep">·</span>
-            <span>
-              <em>bm25</em> {hit.bm25_score.toFixed(4)}
-            </span>
-          </>
-        ) : null}
-        {hit.vector_distance !== null ? (
-          <>
-            <span className="ks-meta-sep">·</span>
-            <span>
-              <em>distance</em> {hit.vector_distance.toFixed(4)}
-            </span>
-          </>
-        ) : null}
+      <div className="ks-hit-foot">
+        <div className="ks-hit-scores">
+          <span>
+            <em>rrf</em> {hit.rrf_score.toFixed(4)}
+          </span>
+          {hit.bm25_score !== null ? (
+            <>
+              <span className="ks-meta-sep">·</span>
+              <span>
+                <em>bm25</em> {hit.bm25_score.toFixed(4)}
+              </span>
+            </>
+          ) : null}
+          {hit.vector_distance !== null ? (
+            <>
+              <span className="ks-meta-sep">·</span>
+              <span>
+                <em>distance</em> {hit.vector_distance.toFixed(4)}
+              </span>
+            </>
+          ) : null}
+        </div>
+        <div className="ks-hit-links">
+          <a
+            className="ks-hit-link"
+            href={walruscanUrl(hit.source_walrus_blob_id)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open the source object on Walruscan"
+          >
+            <Icon name="link" size={14} />
+            Source blob
+          </a>
+          <a
+            className="ks-hit-link"
+            href={suiscanObjectUrl(hit.source_shared_blob_object_id, env.network)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open the on-chain SharedBlob on Sui explorer"
+          >
+            <Icon name="arrow-up-right" size={14} />
+            On chain
+          </a>
+          {hit.manifest_walrus_blob_id ? (
+            <a
+              className="ks-hit-link"
+              href={walruscanUrl(hit.manifest_walrus_blob_id)}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the indexing manifest on Walruscan"
+            >
+              <Icon name="text" size={14} />
+              Manifest
+            </a>
+          ) : null}
+        </div>
       </div>
     </li>
   );

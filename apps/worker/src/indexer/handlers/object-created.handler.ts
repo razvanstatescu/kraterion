@@ -82,6 +82,34 @@ export class ObjectCreatedHandler implements EventHandler {
     const walrusBlobIdString = walrusBlobIdU256ToString(parsed.walrus_blob_id);
     const etagHex = parsed.etag_md5.toString("hex");
 
+    // K5: manifest archive blobs land under a reserved key prefix. The
+    // Move package emits the same `KraterionObjectCreated` event we use
+    // for user objects (a separate event would require a Move bump +
+    // package republish, which would orphan every existing bucket).
+    // Instead, the worker writes manifests under
+    // `_kraterion/manifests/<manifest_id>.json` and the indexer routes
+    // those events to `KnowledgeManifest` updates without ever creating
+    // an `S3Object` row — so they don't pollute ListObjectsV2 or the
+    // bucket's file browser. The user can never PUT under `_kraterion/`
+    // (the gateway rejects it; see `objects.write.controller.ts`).
+    const MANIFEST_PREFIX = "_kraterion/manifests/";
+    if (s3Key.startsWith(MANIFEST_PREFIX)) {
+      const manifestId = s3Key.slice(MANIFEST_PREFIX.length, -".json".length);
+      const updated = await tx.knowledgeManifest.updateMany({
+        where: { id: manifestId, bucket_id: bucket.id },
+        data: {
+          manifest_walrus_blob_id: walrusBlobIdString,
+          manifest_shared_blob_object_id: sharedBlob.objectId,
+        },
+      });
+      this.logger.log(
+        `KnowledgeManifest archived on chain: manifest=${manifestId} ` +
+          `bucket=${parsed.bucket_id} blob_id=${walrusBlobIdString} ` +
+          `shared=${sharedBlob.objectId.slice(0, 12)}… (updated=${updated.count})`,
+      );
+      return;
+    }
+
     // S3 semantics: `PUT s3://bucket/key` is unconditionally
     // last-write-wins. The natural key for the row is
     // `(bucket_id, s3_key)` — a fresh PutObject with the same key

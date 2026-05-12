@@ -123,6 +123,18 @@ export class ObjectsWriteController {
     const bucketName = requireBucket(ctx);
     const s3Key = requireKey(ctx);
 
+    // Reserved namespace for internal artifacts (Knowledge manifests
+    // landed as bucket-owned SharedBlobs by the worker — K5). The
+    // indexer routes events under this prefix to `KnowledgeManifest`
+    // instead of `S3Object`; admitting user PUTs here would break the
+    // routing assumption.
+    if (s3Key.startsWith("_kraterion/")) {
+      throw new S3Error(
+        "InvalidArgument",
+        "Object keys starting with '_kraterion/' are reserved for platform-managed artifacts.",
+      );
+    }
+
     rejectUnsupportedWriteHeaders(headers);
     // Parse `x-amz-meta-*` ahead of the (expensive) Walrus+Seal+PTB flow
     // so an over-sized metadata payload fails fast without wasting a

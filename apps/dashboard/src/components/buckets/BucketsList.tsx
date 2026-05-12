@@ -97,6 +97,16 @@ export function BucketsList() {
                 <span style={{ fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {b.name}
                 </span>
+                {b.knowledge_enabled ? (
+                  <span
+                    className="ks-knowledge-chip"
+                    title="Knowledge indexing on — searchable by agents"
+                    aria-label="Knowledge indexing on"
+                  >
+                    <Icon name="search" size={14} />
+                    Knowledge
+                  </span>
+                ) : null}
               </div>
               <div style={{ flex: "1 1 0" }}>
                 <Pill tone={b.encryption_mode === "private" ? "neutral" : "info"}>
