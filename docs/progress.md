@@ -2676,3 +2676,80 @@ _Calendar weeks anchored in `docs/timeline.md`._
     must toggle Knowledge off and back on.
 
 ---
+
+
+## 2026-05-12 — [audit-1] Wallet + access-flow hardening (5 fixes)
+
+  Five issues from the cross-flow audit, all landed without a Move
+  republish. Together they tighten the demo's auth posture (twist 1
+  now actually cuts MCP), close the K5 grant lifecycle (indexer's
+  on-chain authority matches user intent on both enable and disable),
+  and kill the race that left first-batch manifests unarchived.
+
+  **What shipped:**
+
+  - **Token-type discriminator (RFC 8725 §3.11).** Session JWTs now
+    carry `typ: "kraterion.session+jwt"`; `TokensService.verify`
+    rejects anything where `typ` is set to something else. OAuth MCP
+    access JWTs already enforced `typ: "kraterion.mcp+jwt"`. With both
+    sides strict, an OAuth access token presented as a dashboard
+    bearer no longer parses through `AuthGuard` even though both
+    tokens share the HS256 secret. Backward compat: tokens with no
+    `typ` are accepted as session for one 7-day rotation window so
+    existing logins aren't kicked out; tighten after that.
+
+  - **Cancel-account blocks MCP.** `McpAuthGuard.authenticateApiKey`
+    deepens its query to include `project.account.status` and refuses
+    any non-`active` row. `authenticateOAuth` adds a single PK lookup
+    on `Account` after the JWT verifies. Twist 1 (cancel subscription)
+    now cuts SDK *and* connected agents, matching gateway behavior.
+
+  - **Restore re-grants the indexer too.** `prepareGrantApi` with no
+    `api_addr_override` builds a PTB that grants the gateway and,
+    when the bucket has `KnowledgeBucketSettings`, ALSO grants the
+    `knowledge_indexer` address in the same transaction. One user
+    signature, two on-chain grants. Behavior before: revoke-all +
+    restore left Knowledge half-broken; after: full restoration in
+    one click.
+
+  - **Disable Knowledge revokes the indexer on chain.** Move package
+    only exposes `revoke_all_api_access`; a per-address revoke would
+    need a republish. We emulate it via a new
+    `POST /v1/buckets/:id/prepare-revoke-indexer` that builds a
+    single PTB running `revoke_all_api_access` and then
+    `grant_api_access` for the gateway. Net: only the indexer is
+    removed, atomically. `sponsor()` now accepts an array of allowed
+    Move-call targets so the dual-target PTB passes the sponsorship
+    allow-list. The dashboard's Knowledge toggle fires the sponsored
+    tx when the CP returns `needs_indexer_revoke: true`.
+
+  - **Race fix — gate backfill on grant + retry the archive.**
+    1. Enable response no longer enqueues backfill jobs when the
+       indexer grant hasn't landed (`backfill_deferred: true`). New
+       `POST /v1/buckets/:id/knowledge/backfill` endpoint kicks the
+       queue after the sponsored grant tx confirms.
+    2. `manifest-archive.ts` wraps the PTB1+relay+PTB2 sequence in a
+       bounded retry loop — 3 attempts at 1 s / 3 s / 9 s. The
+       transient failures we observed on Walrus testnet (relay 500,
+       `400 transaction has no timestamp`, occasional auth races)
+       all clear within that window. After 3 failures, falls back
+       to worker-owned `writeBlob` so the dashboard link still
+       resolves.
+
+  **Smoke verified:**
+  - Per-app `tsc --noEmit` green on control-plane, dashboard, worker.
+  - CP boot log shows `prepare-revoke-indexer` and `knowledge/backfill`
+    routes mapped.
+  - CP + worker bounced cleanly on 4001/4003. Existing PDF manifest
+    on the public bucket still shows `manifest_walrus_blob_id` set
+    (no regression).
+
+  **Follow-ups (not in this round):**
+  - JWT denylist (Redis) for true revoke-on-disconnect on OAuth grants.
+  - Per-tool fine-grained scopes on the MCP path.
+  - Periodic backfill cron in the worker — if the bounded retry loop
+    fails (extended Walrus outage), no automated re-attempt later.
+  - `funding_pool_wal_balance` still decorative; the renewal worker
+    that would use it doesn't exist yet.
+
+---

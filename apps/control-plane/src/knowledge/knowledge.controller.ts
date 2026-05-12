@@ -174,7 +174,21 @@ export class KnowledgeController {
         this.prisma.knowledgeChunk.deleteMany({ where: { bucket_id: bucketId } }),
         this.prisma.knowledgeBucketSettings.deleteMany({ where: { bucket_id: bucketId } }),
       ]);
-      return { enabled: false, chunks_deleted: chunks.count };
+      // K5: tell the dashboard whether an on-chain revoke is needed so
+      // the indexer's authority doesn't outlive the disable intent.
+      // The Move package has no per-address revoke; the dashboard
+      // emulates it with `revoke_all + grant(gateway)` in one PTB.
+      const indexerAddress = await this.knowledgeIndexerAddress.get();
+      const grantedOnChain = await this.isAddressGrantedOnBucket(
+        bucket.kraterion_bucket_object_id,
+        indexerAddress,
+      );
+      return {
+        enabled: false,
+        chunks_deleted: chunks.count,
+        indexer_address: indexerAddress,
+        needs_indexer_revoke: grantedOnChain,
+      };
     }
 
     const data = {
@@ -196,28 +210,30 @@ export class KnowledgeController {
       update: data,
     });
 
-    // K2 enable-time backfill: enqueue every non-deleted object in
-    // the bucket so the worker indexes them. Skips when the bucket
-    // was already enabled (no point re-embedding).
-    let backfilled = 0;
-    if (!previouslyEnabled) {
-      backfilled = await this.backfillBucket(bucketId);
-    }
-
-    // K5 grant: the worker's `knowledge_indexer` sub-wallet must be in
-    // the bucket's `api_decryption_addresses` list before it can call
-    // `register_blob_for_bucket` + `wrap_in_shared_blob` to archive
-    // manifests on chain. The dashboard fires a sponsored
-    // `grant_api_access` tx when `needs_indexer_grant` is true.
+    // K5 grant + race fix: the worker's `knowledge_indexer` sub-wallet
+    // must be in the bucket's `api_decryption_addresses` list before it
+    // can call `register_blob_for_bucket` + `wrap_in_shared_blob` to
+    // archive manifests on chain. If the grant hasn't landed yet, we
+    // skip enqueueing the backfill — those jobs would burn through
+    // their first archive attempt against an unauthorized bucket and
+    // fall back to worker-owned blobs. The dashboard calls
+    // `POST /v1/buckets/:id/knowledge/backfill` once the sponsored
+    // grant tx confirms.
     const indexerAddress = await this.knowledgeIndexerAddress.get();
     const granted = await this.isAddressGrantedOnBucket(
       bucket.kraterion_bucket_object_id,
       indexerAddress,
     );
 
+    let backfilled = 0;
+    if (!previouslyEnabled && granted) {
+      backfilled = await this.backfillBucket(bucketId);
+    }
+
     return {
       enabled: true,
       backfilled_objects: backfilled,
+      backfill_deferred: !previouslyEnabled && !granted,
       indexer_address: indexerAddress,
       needs_indexer_grant: !granted,
       settings: {
@@ -228,6 +244,34 @@ export class KnowledgeController {
         updated_at: row.updated_at.toISOString(),
       },
     };
+  }
+
+  /**
+   * Explicit backfill kick. Called by the dashboard after the
+   * sponsored `grant_api_access` tx confirms, when the enable response
+   * returned `backfill_deferred: true`.
+   *
+   * Idempotent: re-running on an already-backfilled bucket just
+   * re-enqueues jobs the worker dedups at the queue layer (job id =
+   * `manifest_<s3_object_id>_v<version>`).
+   */
+  @Post("backfill")
+  @HttpCode(200)
+  async backfill(@Req() req: FastifyRequest, @Param("bucketId") bucketId: string) {
+    const user = requireUser(req);
+    await this.buckets.getOwned(user.accountId, bucketId);
+    const settings = await this.prisma.knowledgeBucketSettings.findUnique({
+      where: { bucket_id: bucketId },
+      select: { bucket_id: true },
+    });
+    if (!settings) {
+      throw new ControlPlaneError(
+        "Conflict",
+        "Knowledge is not enabled for this bucket. Toggle it on first.",
+      );
+    }
+    const queued = await this.backfillBucket(bucketId);
+    return { queued_objects: queued };
   }
 
   @Post("search")

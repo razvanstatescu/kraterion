@@ -8,7 +8,11 @@ import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
 import { suiscanTxUrl } from "@/lib/format";
-import { useToggleKnowledge, type KnowledgeStatus } from "@/lib/queries";
+import {
+  useKnowledgeBackfill,
+  useToggleKnowledge,
+  type KnowledgeStatus,
+} from "@/lib/queries";
 import { useSponsoredTx } from "@/lib/sponsor";
 
 interface Props {
@@ -24,6 +28,7 @@ interface Props {
  */
 export function KnowledgeToggle({ bucketId, status }: Props) {
   const toggle = useToggleKnowledge(bucketId);
+  const backfill = useKnowledgeBackfill(bucketId);
   const runSponsored = useSponsoredTx();
   const { show } = useToast();
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -72,14 +77,42 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
               </>
             ),
           });
+
+          // Race fix (Issue #5): the enable response deferred the
+          // backfill while waiting for the grant tx. Now that it's
+          // landed, kick the worker queue. If we'd let backfill fire at
+          // enable time, the first batch of archive attempts would
+          // burn through their retries trying to write manifests
+          // against an unauthorized bucket.
+          if (res.backfill_deferred) {
+            try {
+              const queued = await backfill.mutateAsync();
+              if (queued.queued_objects > 0) {
+                show({
+                  tone: "info",
+                  title: "Indexing started",
+                  body: `Queued ${queued.queued_objects} object${queued.queued_objects === 1 ? "" : "s"} for indexing.`,
+                });
+              }
+            } catch (err) {
+              show({
+                tone: "warning",
+                title: "Couldn't start indexing",
+                body:
+                  err instanceof Error
+                    ? `${err.message} Re-toggle Knowledge to retry.`
+                    : "Re-toggle Knowledge to retry.",
+              });
+            }
+          }
         } catch (err) {
           show({
             tone: "warning",
             title: "Couldn't grant indexer access",
             body:
               err instanceof Error
-                ? `${err.message} Indexing still works; manifests will be worker-owned until you retry.`
-                : "Indexing still works; manifests will be worker-owned until you retry.",
+                ? `${err.message} New uploads index normally; manifests will be worker-owned until you retry.`
+                : "New uploads index normally; manifests will be worker-owned until you retry.",
           });
         } finally {
           setGranting(false);
@@ -109,6 +142,48 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             ? `Removed ${res.chunks_deleted.toLocaleString()} chunk${res.chunks_deleted === 1 ? "" : "s"}.`
             : "No chunks to remove.",
       });
+
+      // K5: if the indexer is still on the bucket's on-chain grant list,
+      // fire a sponsored revoke so its authority matches the disable
+      // intent. The Move package doesn't expose a per-address revoke,
+      // so the CP builds a `revoke_all + grant(gateway)` PTB that
+      // atomically removes only the indexer.
+      if (res.needs_indexer_revoke) {
+        setGranting(true);
+        try {
+          const revoke = await runSponsored({
+            prepareEndpoint: `/v1/buckets/${bucketId}/prepare-revoke-indexer`,
+          });
+          show({
+            tone: "success",
+            title: "Indexer access revoked",
+            body: (
+              <>
+                The Knowledge indexer no longer has authority on this
+                bucket.{" "}
+                <a
+                  href={suiscanTxUrl(revoke.digest, env.network)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on-chain
+                </a>
+              </>
+            ),
+          });
+        } catch (err) {
+          show({
+            tone: "warning",
+            title: "Couldn't revoke indexer access on chain",
+            body:
+              err instanceof Error
+                ? `${err.message} Indexing is already disabled in our system; the on-chain ACL still grants the indexer until you retry.`
+                : "Indexing is already disabled; retry to clean up the on-chain ACL.",
+          });
+        } finally {
+          setGranting(false);
+        }
+      }
     } catch (err) {
       show({
         tone: "error",

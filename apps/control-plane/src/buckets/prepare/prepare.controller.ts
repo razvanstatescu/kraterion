@@ -57,6 +57,16 @@ export class PrepareTxController {
     return this.prepare.prepareRevokeAll(user.accountId, user.suiAddress, bucketId);
   }
 
+  @Post(":bucketId/prepare-revoke-indexer")
+  @HttpCode(200)
+  async prepareRevokeIndexer(
+    @Req() req: FastifyRequest,
+    @Param("bucketId") bucketId: string,
+  ) {
+    const user = requireUser(req);
+    return this.prepare.prepareRevokeIndexer(user.accountId, user.suiAddress, bucketId);
+  }
+
   @Post(":bucketId/prepare-visibility")
   @HttpCode(200)
   async prepareVisibility(

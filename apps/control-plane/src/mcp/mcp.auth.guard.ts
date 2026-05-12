@@ -86,6 +86,10 @@ export class McpAuthGuard {
       const payload = await this.oauth.verifyAccessToken(token, expectedAudience);
       const scopes = parseScopes(payload.scope);
       if (scopes.length === 0) return null;
+      if (!(await this.isAccountActive(payload.sub))) {
+        this.logger.debug(`OAuth token: account ${payload.sub} is not active`);
+        return null;
+      }
       return {
         account_id: payload.sub,
         project_id: payload.project_id,
@@ -110,10 +114,28 @@ export class McpAuthGuard {
 
     const apiKey = await this.prisma.apiKey.findUnique({
       where: { access_key_id: akia },
-      include: { project: { select: { id: true, account_id: true } } },
+      include: {
+        project: {
+          select: {
+            id: true,
+            account_id: true,
+            account: { select: { status: true } },
+          },
+        },
+      },
     });
     if (!apiKey || apiKey.revoked_at !== null) {
       this.logger.debug(`unknown or revoked AKIA: ${akia}`);
+      return null;
+    }
+    if (apiKey.project.account.status !== "active") {
+      // Cancel-subscription (twist 1) flips status to "cancelled". The
+      // MCP surface must follow the same "account is over" semantics as
+      // the gateway's SDK paths — without this, connected agents keep
+      // working until the API key is manually revoked.
+      this.logger.debug(
+        `API-key auth: account ${apiKey.project.account_id} is ${apiKey.project.account.status}`,
+      );
       return null;
     }
 
@@ -141,6 +163,25 @@ export class McpAuthGuard {
       api_key_id: apiKey.id,
       scopes: ["mcp:*"],
     };
+  }
+
+  /**
+   * Single-row lookup on `Account.status`. Called from both auth
+   * branches so cancel-subscription (twist 1) cuts MCP access too — not
+   * just gateway SDK access. Fail-closed on missing or non-"active"
+   * accounts.
+   *
+   * Cost: one indexed PK lookup per MCP request. At hackathon traffic
+   * this is sub-millisecond. If MCP load grows past low-100s req/s, the
+   * right fix is a 30-second Redis cache keyed by `account:<id>:status`
+   * with invalidation on the cancel-subscription endpoint.
+   */
+  private async isAccountActive(accountId: string): Promise<boolean> {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { status: true },
+    });
+    return account?.status === "active";
   }
 }
 

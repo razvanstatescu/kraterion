@@ -66,6 +66,23 @@ const MANIFEST_EPOCHS_AHEAD = 5;
 const MANIFEST_PAYMENT_AMOUNT_MIST = 200_000_000n; // 0.2 WAL — same ceiling as PutObject
 const ENCODING_TYPE_RS2 = 1;
 
+/**
+ * Bounded retries on the PTB1+relay+PTB2 sequence. The failures we
+ * actually see on Walrus testnet are transient:
+ *   - PTB1 abort 1 (`assert_caller_authorized_for_bucket`) when the
+ *     `knowledge_indexer` grant hasn't propagated to the bucket object
+ *     a checkpoint earlier;
+ *   - Relay returns `500 internal client error` or
+ *     `400 the transaction does not have a timestamp` when its full
+ *     node hasn't observed the register tx yet.
+ *
+ * 3 attempts at 1s / 3s / 9s covers both with margin. After that we
+ * fall back to `WalrusClient.writeBlob` so the dashboard's Walruscan
+ * link still resolves even if the on-chain path is genuinely broken.
+ */
+const MAX_ARCHIVE_ATTEMPTS = 3;
+const ARCHIVE_BACKOFF_MS = [1_000, 3_000, 9_000];
+
 export async function archiveManifestToWalrus(args: {
   prisma: PrismaService;
   signer: Ed25519Keypair;
@@ -150,147 +167,170 @@ export async function archiveManifestToWalrus(args: {
   // future "encrypt manifest for private buckets" follow-up.
   const sealIdentity = buildSealIdentity(bucket.kraterion_bucket_object_id, manifestId);
 
-  // === PTB1 + relay + PTB2 (matches gateway PutObject) ===
-  try {
-    const walrus = getWalrusClient();
-    const suiClient = getSuiClient();
-    const senderAddress = signer.toSuiAddress();
-
-    const meta = await walrus.computeBlobMetadata({ bytes });
-    const systemState = await walrus.systemState();
-    const encodedSize = getEncodedBlobLength(
-      bytes.length,
-      systemState.committee.n_shards,
-    );
-
-    // PTB1
-    const tx1 = new Transaction();
-    tx1.add(
-      walrus.sendUploadRelayTip({
-        size: bytes.length,
-        blobDigest: meta.blobDigest,
-        nonce: meta.nonce,
-      }),
-    );
-    const blobArg = tx1.add(
-      kraterion.registerBlobForBucket({
-        package: KRATERION_PACKAGE_ID,
-        arguments: {
-          reserve: KRATERION_RESERVE_ID,
-          bucket: bucket.kraterion_bucket_object_id,
-          system: WALRUS_SYSTEM_OBJECT_ID,
-          paymentAmount: MANIFEST_PAYMENT_AMOUNT_MIST,
-          storageAmount: BigInt(encodedSize),
-          epochsAhead: MANIFEST_EPOCHS_AHEAD,
-          blobId: blobIdStringToU256(meta.blobId),
-          rootHash: rootHashBytesToU256(meta.rootHash),
-          size: BigInt(bytes.length),
-          encodingType: ENCODING_TYPE_RS2,
-        },
-      }),
-    );
-    tx1.transferObjects([blobArg], senderAddress);
-
-    const r1 = await suiClient.signAndExecuteTransaction({
-      transaction: tx1,
-      signer,
-      options: { showEffects: true, showObjectChanges: true },
-    });
-    if (r1.effects?.status?.status !== "success") {
-      const err = r1.effects?.status?.error ?? "unknown";
-      // Authorization failure (worker not granted on the bucket) lands
-      // here. Fall back to the worker-owned writeBlob path so the
-      // demo's Walruscan link still works.
-      logger.warn(
-        `manifest-archive: register_blob_for_bucket failed (${err}); falling back to worker-owned writeBlob.`,
-      );
-      await fallbackWriteBlob({ prisma, signer, logger, manifestId, bytes });
-      return;
-    }
-    const blobObjectId = pickCreatedObjectId(r1, "::blob::Blob");
-    if (!blobObjectId) {
-      logger.warn(
-        `manifest-archive: PTB1 produced no Blob object for manifest ${manifestId}; falling back.`,
-      );
-      await fallbackWriteBlob({ prisma, signer, logger, manifestId, bytes });
-      return;
-    }
-
-    // Relay upload
-    let certificate;
+  // === PTB1 + relay + PTB2 (matches gateway PutObject), with bounded retry ===
+  for (let attempt = 1; attempt <= MAX_ARCHIVE_ATTEMPTS; attempt++) {
     try {
-      const relayResult = await walrus.writeBlobToUploadRelay({
-        blob: bytes,
-        blobId: meta.blobId,
-        nonce: meta.nonce,
-        txDigest: r1.digest,
-        blobObjectId,
-        deletable: false,
+      await tryArchiveOnChain({
+        prisma,
+        signer,
+        logger,
+        manifestId,
+        bytes,
+        md5,
+        s3Key,
+        sealIdentity,
+        bucketObjectId: bucket.kraterion_bucket_object_id,
       });
-      certificate = relayResult.certificate;
-    } catch (err) {
-      logger.error(
-        `manifest-archive: relay upload failed for ${manifestId} ` +
-          `(blobObjectId=${blobObjectId}): ${(err as Error).message}`,
-      );
-      return; // orphan blob; row stays null
-    }
-
-    // PTB2
-    const tx2 = new Transaction();
-    tx2.add(
-      walrus.certifyBlob({
-        blobId: meta.blobId,
-        blobObjectId,
-        certificate,
-        deletable: false,
-      }),
-    );
-    tx2.add(
-      kraterion.wrapInSharedBlob({
-        package: KRATERION_PACKAGE_ID,
-        arguments: {
-          bucket: bucket.kraterion_bucket_object_id,
-          blob: blobObjectId,
-          s3Key: Array.from(new TextEncoder().encode(s3Key)),
-          contentType: Array.from(new TextEncoder().encode(MANIFEST_CONTENT_TYPE)),
-          sealIdentity: Array.from(sealIdentity),
-          sizeBytes: BigInt(bytes.length),
-          etagMd5: Array.from(md5),
-        },
-      }),
-    );
-
-    const r2 = await suiClient.signAndExecuteTransaction({
-      transaction: tx2,
-      signer,
-      options: { showEffects: true, showObjectChanges: true },
-    });
-    if (r2.effects?.status?.status !== "success") {
-      logger.error(
-        `manifest-archive: PTB2 reverted (orphan): ` +
-          `${r2.effects?.status?.error ?? "unknown"}`,
-      );
       return;
+    } catch (err) {
+      const isLast = attempt === MAX_ARCHIVE_ATTEMPTS;
+      const wait = ARCHIVE_BACKOFF_MS[attempt - 1] ?? 9_000;
+      logger.warn(
+        `manifest-archive: attempt ${attempt}/${MAX_ARCHIVE_ATTEMPTS} for ${manifestId} ` +
+          `failed: ${(err as Error).message}` +
+          (isLast ? `; falling back to worker-owned writeBlob` : `; retrying in ${wait}ms`),
+      );
+      if (!isLast) {
+        await sleep(wait);
+      }
     }
-    const sharedBlobObjectId = pickCreatedObjectId(r2, "::shared_blob::SharedBlob");
-
-    await prisma.knowledgeManifest.update({
-      where: { id: manifestId },
-      data: {
-        manifest_walrus_blob_id: meta.blobId,
-        manifest_shared_blob_object_id: sharedBlobObjectId,
-      },
-    });
-    logger.log(
-      `manifest-archive: ${manifestId} -> blob_id=${meta.blobId} shared=${sharedBlobObjectId} (bucket-owned)`,
-    );
-  } catch (err) {
-    logger.warn(
-      `manifest-archive: unexpected error for ${manifestId}: ${(err as Error).message}; falling back.`,
-    );
-    await fallbackWriteBlob({ prisma, signer, logger, manifestId, bytes });
   }
+  // All bucket-owned attempts exhausted — best-effort fallback so the
+  // dashboard's Walruscan link still resolves.
+  await fallbackWriteBlob({ prisma, signer, logger, manifestId, bytes });
+}
+
+/**
+ * One attempt of the bucket-owned archive sequence. Throws on any
+ * failure (relay error, PTB revert, missing object). The outer retry
+ * loop catches and retries with backoff.
+ *
+ * Returns nothing on success — the manifest row is updated in-place.
+ */
+async function tryArchiveOnChain(args: {
+  prisma: PrismaService;
+  signer: Ed25519Keypair;
+  logger: Logger;
+  manifestId: string;
+  bytes: Uint8Array;
+  md5: Buffer;
+  s3Key: string;
+  sealIdentity: Uint8Array;
+  bucketObjectId: string;
+}): Promise<void> {
+  const { prisma, signer, logger, manifestId, bytes, md5, s3Key, sealIdentity, bucketObjectId } =
+    args;
+  const walrus = getWalrusClient();
+  const suiClient = getSuiClient();
+  const senderAddress = signer.toSuiAddress();
+
+  const meta = await walrus.computeBlobMetadata({ bytes });
+  const systemState = await walrus.systemState();
+  const encodedSize = getEncodedBlobLength(bytes.length, systemState.committee.n_shards);
+
+  // PTB1: relay tip + register_blob_for_bucket
+  const tx1 = new Transaction();
+  tx1.add(
+    walrus.sendUploadRelayTip({
+      size: bytes.length,
+      blobDigest: meta.blobDigest,
+      nonce: meta.nonce,
+    }),
+  );
+  const blobArg = tx1.add(
+    kraterion.registerBlobForBucket({
+      package: KRATERION_PACKAGE_ID,
+      arguments: {
+        reserve: KRATERION_RESERVE_ID,
+        bucket: bucketObjectId,
+        system: WALRUS_SYSTEM_OBJECT_ID,
+        paymentAmount: MANIFEST_PAYMENT_AMOUNT_MIST,
+        storageAmount: BigInt(encodedSize),
+        epochsAhead: MANIFEST_EPOCHS_AHEAD,
+        blobId: blobIdStringToU256(meta.blobId),
+        rootHash: rootHashBytesToU256(meta.rootHash),
+        size: BigInt(bytes.length),
+        encodingType: ENCODING_TYPE_RS2,
+      },
+    }),
+  );
+  tx1.transferObjects([blobArg], senderAddress);
+
+  const r1 = await suiClient.signAndExecuteTransaction({
+    transaction: tx1,
+    signer,
+    options: { showEffects: true, showObjectChanges: true },
+  });
+  if (r1.effects?.status?.status !== "success") {
+    throw new Error(
+      `register_blob_for_bucket reverted: ${r1.effects?.status?.error ?? "unknown"}`,
+    );
+  }
+  const blobObjectId = pickCreatedObjectId(r1, "::blob::Blob");
+  if (!blobObjectId) {
+    throw new Error("PTB1 produced no Blob object");
+  }
+
+  // Relay upload — the most likely transient failure point on testnet.
+  const relayResult = await walrus.writeBlobToUploadRelay({
+    blob: bytes,
+    blobId: meta.blobId,
+    nonce: meta.nonce,
+    txDigest: r1.digest,
+    blobObjectId,
+    deletable: false,
+  });
+  const certificate = relayResult.certificate;
+
+  // PTB2: certifyBlob + wrap_in_shared_blob
+  const tx2 = new Transaction();
+  tx2.add(
+    walrus.certifyBlob({
+      blobId: meta.blobId,
+      blobObjectId,
+      certificate,
+      deletable: false,
+    }),
+  );
+  tx2.add(
+    kraterion.wrapInSharedBlob({
+      package: KRATERION_PACKAGE_ID,
+      arguments: {
+        bucket: bucketObjectId,
+        blob: blobObjectId,
+        s3Key: Array.from(new TextEncoder().encode(s3Key)),
+        contentType: Array.from(new TextEncoder().encode(MANIFEST_CONTENT_TYPE)),
+        sealIdentity: Array.from(sealIdentity),
+        sizeBytes: BigInt(bytes.length),
+        etagMd5: Array.from(md5),
+      },
+    }),
+  );
+
+  const r2 = await suiClient.signAndExecuteTransaction({
+    transaction: tx2,
+    signer,
+    options: { showEffects: true, showObjectChanges: true },
+  });
+  if (r2.effects?.status?.status !== "success") {
+    throw new Error(`certify_blob + wrap_in_shared_blob reverted: ${r2.effects?.status?.error ?? "unknown"}`);
+  }
+  const sharedBlobObjectId = pickCreatedObjectId(r2, "::shared_blob::SharedBlob");
+
+  await prisma.knowledgeManifest.update({
+    where: { id: manifestId },
+    data: {
+      manifest_walrus_blob_id: meta.blobId,
+      manifest_shared_blob_object_id: sharedBlobObjectId,
+    },
+  });
+  logger.log(
+    `manifest-archive: ${manifestId} -> blob_id=${meta.blobId} shared=${sharedBlobObjectId} (bucket-owned)`,
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

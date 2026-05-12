@@ -361,15 +361,26 @@ export function useKnowledgeStatus(bucketId: string | undefined) {
 export interface ToggleKnowledgeResponse {
   enabled: boolean;
   backfilled_objects?: number;
+  /** True when the enable response intentionally skipped the backfill
+   *  because the on-chain indexer grant hadn't landed yet. The
+   *  dashboard kicks the backfill via the dedicated endpoint after the
+   *  sponsored grant tx confirms. */
+  backfill_deferred?: boolean;
   chunks_deleted?: number;
   /** Sui address of the worker's `knowledge_indexer` sub-wallet. Present
-   *  on enable responses only; the dashboard reads this to decide
-   *  whether to follow up with a sponsored `grant_api_access` tx. */
+   *  on both enable and disable responses; the dashboard reads this to
+   *  decide whether to follow up with a sponsored on-chain grant or
+   *  revoke tx. */
   indexer_address?: string;
-  /** True when the indexer address is NOT yet on the bucket's
-   *  `api_decryption_addresses` list, so the dashboard must trigger the
-   *  grant tx before manifests can be archived on chain (K5). */
+  /** Enable path: true when the indexer is NOT yet on the bucket's
+   *  `api_decryption_addresses` list — dashboard must trigger a grant tx
+   *  before manifests can be archived on chain (K5). */
   needs_indexer_grant?: boolean;
+  /** Disable path: true when the indexer IS on the bucket's
+   *  `api_decryption_addresses` list — dashboard fires a sponsored
+   *  `revoke-indexer` tx so the indexer's on-chain authority doesn't
+   *  outlive the disable intent. */
+  needs_indexer_revoke?: boolean;
 }
 
 export function useToggleKnowledge(bucketId: string | undefined) {
@@ -383,6 +394,27 @@ export function useToggleKnowledge(bucketId: string | undefined) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
       void queryClient.invalidateQueries({ queryKey: ["v1", "bucket", bucketId ?? "none"] });
+    },
+  });
+}
+
+/**
+ * Kick the deferred backfill after the sponsored `grant_api_access`
+ * tx confirms. The enable response sets `backfill_deferred: true`
+ * when the indexer wasn't yet on the bucket; we hold the queue until
+ * the on-chain grant lands to avoid burning archive attempts against
+ * an unauthorized bucket.
+ */
+export function useKnowledgeBackfill(bucketId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      cpFetch<{ queued_objects: number }>(
+        `/v1/buckets/${bucketId}/knowledge/backfill`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
     },
   });
 }

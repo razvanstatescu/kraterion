@@ -3,9 +3,11 @@ import { KRATERION_PACKAGE_ID, kraterion } from "@kraterion/kraterion-move-sdk";
 import { Transaction, type TransactionObjectArgument } from "@mysten/sui/transactions";
 import { BucketsService } from "../buckets.service.js";
 import { ControlPlaneError } from "../../errors/control-plane-error.js";
+import { PrismaService } from "../../prisma/prisma.service.js";
 import { ProjectsService } from "../../projects/projects.service.js";
 import { SponsorshipService } from "../../enoki/sponsorship.service.js";
 import { GatewayAddressService } from "../../sui/gateway-address.service.js";
+import { KnowledgeIndexerAddressService } from "../../sui/knowledge-indexer-address.service.js";
 import { SuiClientService } from "../../sui/sui-client.service.js";
 import { type EncryptionMode, encodeMode } from "./dto.js";
 import type { PrepareTxResponse } from "./wire.js";
@@ -45,6 +47,8 @@ export class PrepareTxService {
     private readonly buckets: BucketsService,
     private readonly projects: ProjectsService,
     private readonly gateway: GatewayAddressService,
+    private readonly knowledgeIndexer: KnowledgeIndexerAddressService,
+    private readonly prisma: PrismaService,
     private readonly sui: SuiClientService,
     private readonly sponsorship: SponsorshipService,
   ) {}
@@ -96,6 +100,24 @@ export class PrepareTxService {
 
   // === grant API to existing bucket ===
 
+  /**
+   * Grant API access on a bucket.
+   *
+   * Two modes:
+   *   - **Specific address (override).** Caller passes an explicit
+   *     `apiAddrOverride` — only that address is granted. Used by the
+   *     Knowledge-enable flow (grants the indexer) and any future
+   *     fine-grained tooling.
+   *   - **Default (no override).** Re-grants the gateway. If the bucket
+   *     has Knowledge enabled, also re-grants the indexer in the SAME
+   *     PTB so post-revoke restoration brings the indexer back too —
+   *     otherwise a `revoke_all` + restore cycle leaves Knowledge
+   *     half-broken (chunks searchable, new uploads fail to archive).
+   *
+   * `grant_api_access` is idempotent on chain (no-op if already
+   * present), so the duplicate grant on already-authorized buckets
+   * costs nothing.
+   */
   async prepareGrantApi(
     accountId: string,
     senderAddress: string,
@@ -103,16 +125,103 @@ export class PrepareTxService {
     args: { apiAddrOverride?: string | undefined },
   ): Promise<PrepareTxResponse> {
     const bucket = await this.buckets.getOwned(accountId, bucketId);
-    const apiAddr = args.apiAddrOverride ?? (await this.gateway.get());
     const tx = new Transaction();
+    const bucketArg = mutableShared(tx, bucket.kraterion_bucket_object_id);
+
+    if (args.apiAddrOverride) {
+      tx.add(
+        kraterion.grantApiAccess({
+          package: KRATERION_PACKAGE_ID,
+          arguments: { bucket: bucketArg, apiAddr: args.apiAddrOverride },
+        }),
+      );
+      const summary = `Grant API access on "${bucket.name}" to ${shorten(args.apiAddrOverride)}`;
+      return this.sponsor(tx, senderAddress, qualified(FN.grantApi), summary);
+    }
+
+    // Default path: gateway grant + (conditional) indexer grant.
+    const gatewayAddr = await this.gateway.get();
     tx.add(
       kraterion.grantApiAccess({
         package: KRATERION_PACKAGE_ID,
-        arguments: { bucket: mutableShared(tx, bucket.kraterion_bucket_object_id), apiAddr },
+        arguments: { bucket: bucketArg, apiAddr: gatewayAddr },
       }),
     );
-    const summary = `Grant API access on "${bucket.name}" to ${shorten(apiAddr)}`;
+
+    const knowledgeEnabled = await this.prisma.knowledgeBucketSettings.findUnique({
+      where: { bucket_id: bucket.id },
+      select: { bucket_id: true },
+    });
+    let summary: string;
+    if (knowledgeEnabled) {
+      const indexerAddr = await this.knowledgeIndexer.get();
+      tx.add(
+        kraterion.grantApiAccess({
+          package: KRATERION_PACKAGE_ID,
+          arguments: { bucket: bucketArg, apiAddr: indexerAddr },
+        }),
+      );
+      summary =
+        `Restore API access on "${bucket.name}" (gateway ${shorten(gatewayAddr)} + ` +
+        `Knowledge indexer ${shorten(indexerAddr)})`;
+    } else {
+      summary = `Grant API access on "${bucket.name}" to ${shorten(gatewayAddr)}`;
+    }
+
     return this.sponsor(tx, senderAddress, qualified(FN.grantApi), summary);
+  }
+
+  // === revoke just the knowledge_indexer ===
+
+  /**
+   * Remove the Knowledge indexer from the bucket's
+   * `api_decryption_addresses` list without affecting the gateway.
+   *
+   * The Move package only exposes `revoke_all_api_access` (clears the
+   * whole vector) and `grant_api_access` (adds one address). A
+   * dedicated per-address revoke would need a Move bump + republish,
+   * which would orphan every existing bucket. So we emulate it: the
+   * PTB runs `revoke_all_api_access` and then `grant_api_access` for
+   * the gateway in the same transaction. Net effect: only the indexer
+   * is removed, atomically.
+   *
+   * The dashboard calls this when Knowledge is disabled on a bucket so
+   * the indexer's on-chain authority doesn't outlive the user's
+   * intent.
+   *
+   * Idempotent on chain — re-running when the indexer isn't on the
+   * list is a no-op cycle (revoke clears nothing relevant, grant adds
+   * back the gateway which was already there). Cheap.
+   */
+  async prepareRevokeIndexer(
+    accountId: string,
+    senderAddress: string,
+    bucketId: string,
+  ): Promise<PrepareTxResponse> {
+    const bucket = await this.buckets.getOwned(accountId, bucketId);
+    const gatewayAddr = await this.gateway.get();
+    const tx = new Transaction();
+    const bucketArg = mutableShared(tx, bucket.kraterion_bucket_object_id);
+    tx.add(
+      kraterion.revokeAllApiAccess({
+        package: KRATERION_PACKAGE_ID,
+        arguments: { bucket: bucketArg },
+      }),
+    );
+    tx.add(
+      kraterion.grantApiAccess({
+        package: KRATERION_PACKAGE_ID,
+        arguments: { bucket: bucketArg, apiAddr: gatewayAddr },
+      }),
+    );
+    const summary =
+      `Remove Knowledge indexer from "${bucket.name}" (keeps gateway ${shorten(gatewayAddr)})`;
+    return this.sponsor(
+      tx,
+      senderAddress,
+      [qualified(FN.revokeAll), qualified(FN.grantApi)],
+      summary,
+    );
   }
 
   // === revoke all API access ===
@@ -172,7 +281,7 @@ export class PrepareTxService {
   private async sponsor(
     tx: Transaction,
     senderAddress: string,
-    moveCallTarget: string,
+    moveCallTarget: string | string[],
     summary: string,
   ): Promise<PrepareTxResponse> {
     const kindBytes = await tx.build({
@@ -180,20 +289,25 @@ export class PrepareTxService {
       onlyTransactionKind: true,
     });
     const transactionKindBytes = Buffer.from(kindBytes).toString("base64");
+    // PTBs that bundle two distinct entry functions (e.g. revoke_all +
+    // grant_api_access for the "remove indexer, keep gateway" flow)
+    // need both targets allow-listed. A single string still works for
+    // the common one-function-per-PTB case.
+    const targets = Array.isArray(moveCallTarget) ? moveCallTarget : [moveCallTarget];
     const sponsored = await this.sponsorship.createSponsored({
       transactionKindBytes,
       sender: senderAddress,
-      allowedMoveCallTargets: [moveCallTarget],
+      allowedMoveCallTargets: targets,
     });
     return {
       digest: sponsored.digest,
       bytes: sponsored.bytes,
       expected: {
         package_id: KRATERION_PACKAGE_ID,
-        function: moveCallTarget,
+        function: targets[0]!,
         summary,
         sender: senderAddress,
-        allowed_move_call_targets: [moveCallTarget],
+        allowed_move_call_targets: targets,
         sponsored_by: "enoki",
       },
     };
