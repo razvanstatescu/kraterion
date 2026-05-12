@@ -519,6 +519,108 @@ code, kbd, samp {
   padding: 20px;
   height: fit-content;
 }
+
+/* Object inspector inside the right-side Drawer overlay.
+   The Drawer provides the outer card; this is the body content.
+
+   Layout intent — three zones, in order of why the user opened the
+   drawer:
+
+     1. METADATA — a tight 2-column dl rendering facts (size, type,
+        access, modified, etag, custom metadata). Earns its keep
+        horizontally so the drawer's 480 px width isn't wasted on a
+        single-column key/value list. No file-preview tile — the
+        drawer header already names the file; an icon adds vertical
+        weight without information.
+
+     2. SECTIONS — Identifiers (Key + S3 URI to copy) followed by
+        Sharing (Public URL / Share link). Each section has a small
+        eyebrow heading so the visual hierarchy reads as
+        "context → primary copy targets → sharing → actions" rather
+        than "list of fields with hairline dividers between every
+        one."
+
+     3. ACTIONS + On-chain — Download + Delete buttons, and the
+        collapsed On-chain disclosure for the verifiability layer. */
+.ks-inspector-body {
+  display: block;
+  min-width: 0;
+}
+.ks-inspector-body div { min-width: 0; }
+.ks-inspector-body .ks-codeline { max-width: 100%; }
+
+/* === Metadata block (top) ===
+   2-column grid: label-value-label-value. Most rows pair two facts;
+   long facts (etag, custom metadata) take a `-full` variant that
+   spans both columns on their own row. */
+.ks-inspector-meta {
+  margin: 0 0 16px 0;
+  padding: 0 0 16px 0;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+}
+.ks-inspector-meta-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.ks-inspector-meta-row-full {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.ks-inspector-meta dt {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ks-inspector-meta dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.ks-inspector-meta-type {
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* === Sectioned blocks (Identifiers, Sharing, etc.) ===
+   No explicit heading per section — the field labels inside (KEY,
+   S3 URI, PUBLIC URL, SHARE LINK) are already micro-uppercase
+   eyebrows, and a second-level "Identifiers" label above them would
+   stack two same-typography labels and read as redundant.
+
+   Sections are elevated by a hairline `border-top` (consistent with
+   the rest of the design system's elevation-via-borders rule) and
+   `padding-top` that bookends the section like an open envelope. The
+   first section after the metadata block intentionally has no extra
+   top border — the metadata's own `border-bottom` already draws the
+   dividing line. */
+.ks-inspector-section {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+/* The first `.ks-inspector-section` after the metadata block doesn't
+   need its own top border — the metadata's `border-bottom` already
+   draws the dividing line. `:first-of-type` keeps that defense even
+   if the JSX adds wrapper elements above (e.g. conditional banners). */
+.ks-inspector-body > .ks-inspector-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
 .ks-file-preview {
   width: 56px; height: 56px;
   background: var(--stone-100);
@@ -584,18 +686,41 @@ code, kbd, samp {
   margin-bottom: 16px;
 }
 
-/* Drawer */
+/* Drawer
+   Right-side overlay. Scrim fades in (180 ms) and the panel slides in
+   from the right edge (220 ms, design-system standard easing). The
+   slight stagger — panel motion starts ~30 ms behind the scrim — makes
+   the panel feel like it's coming OUT of the scrim, not arriving on top
+   of it. Cleaner than a single motion. */
 .ks-drawer-scrim {
   position: fixed; inset: 0;
   background: var(--scrim);
   display: flex; justify-content: flex-end;
   z-index: 100;
+  animation: ks-drawer-scrim-in 180ms var(--ease);
+}
+@keyframes ks-drawer-scrim-in {
+  from { background: transparent; }
+  to   { background: var(--scrim); }
 }
 .ks-drawer {
   background: var(--bg-elevated);
   border-left: 1px solid var(--border);
   display: flex; flex-direction: column;
   height: 100vh;
+  /* `min-width: 0` lets flex children (the body) shrink under their
+     natural content width, which is what makes long URLs / hash blobs
+     wrap inside the panel instead of pushing the panel wider than its
+     `width` prop. */
+  min-width: 0;
+  animation: ks-drawer-in 220ms var(--ease) 30ms both;
+}
+@keyframes ks-drawer-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-drawer-scrim, .ks-drawer { animation: none; }
 }
 .ks-drawer-head {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -607,8 +732,36 @@ code, kbd, samp {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em;
   color: var(--text-tertiary); margin-bottom: 4px;
 }
-.ks-drawer-title { font-size: 18px; font-weight: 500; }
-.ks-drawer-body { padding: 20px 24px; flex: 1; overflow: auto; }
+.ks-drawer-title {
+  font-size: 18px;
+  font-weight: 500;
+  /* Long filenames (S3 keys with slashes / extensions) should wrap
+     gracefully inside the drawer header, never push the title bar
+     past the panel width. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+.ks-drawer-body {
+  padding: 20px 24px;
+  flex: 1;
+  /* Only allow vertical scroll. Without `overflow-x: hidden`, a single
+     un-wrappable child (long URL, base64 hash) would create a
+     horizontal scrollbar on the whole drawer. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Long mono values (Walrus blob ids, Seal identities, public URLs)
+     wrap on any character rather than overflow the panel. The codeline
+     ellipsis treatment still handles its own truncation inside
+     `.ks-codeline > span`. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.ks-drawer-body code,
+.ks-drawer-body .ks-field-helper {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .ks-drawer-foot {
   padding: 16px 24px;
   border-top: 1px solid var(--border);
@@ -2017,35 +2170,91 @@ code, kbd, samp {
 }
 
 /* === Ownership card (Tier 2 on bucket detail) ===========================
-   Hairline-bordered, warm-stone background so it reads as
-   meta-information layered on top of the page's primary content. No
-   Krater accent — the page's accent budget belongs to the Files tab
-   underline + Upload CTA. */
+   Default state: a single hairline-bordered strip with a teaser that
+   already proves ownership (short address + `you` badge), so the user
+   gets the value without opening anything.
+   Expanded state: full grid with bucket object id and platform access
+   pills. Collapsed by default because verifying ownership is a
+   sometimes-action, not an every-visit action.
 
-.ks-ownership {
+   No Krater accent on the strip itself; the `you` badge is the page's
+   only Krater on this surface (which is fine — one element). */
+
+.ks-ownership-details {
   margin-bottom: 24px;
-  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
+  transition: border-color var(--dur-base) var(--ease);
 }
-.ks-ownership-head {
+.ks-ownership-details[open] {
+  border-color: var(--border-strong);
+}
+.ks-ownership-summary {
+  cursor: pointer;
+  list-style: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  /* Match `.ks-ownership-grid` padding-top + padding-bottom so the
+     divider line between summary and grid sits at an even 12 px on
+     either side. */
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: color var(--dur-base) var(--ease);
 }
-.ks-ownership-hint {
+.ks-ownership-summary::-webkit-details-marker { display: none; }
+.ks-ownership-summary::before {
+  content: "›";
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  transition: transform var(--dur-base) var(--ease);
+}
+.ks-ownership-details[open] .ks-ownership-summary::before {
+  transform: rotate(90deg);
+}
+.ks-ownership-summary:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+  border-radius: var(--radius-md);
+}
+.ks-ownership-summary-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.ks-ownership-summary-teaser {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ks-ownership-summary-hint {
   font-size: 12px;
   color: var(--text-tertiary);
 }
 .ks-ownership-grid {
   display: grid;
   gap: 8px;
+  /* 12 px top — matches the summary's bottom-padding to keep the
+     divider visually centered between the two zones. 14 px bottom for
+     consistent breathing room with the card's outer radius. */
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border);
 }
 .ks-ownership-row {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  /* `minmax(0, 1fr)` (not bare `1fr`) so the value column can shrink
+     below the intrinsic content width — otherwise long mono refs and
+     the access-pill row push the whole card past the page width. */
+  grid-template-columns: 140px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   font-size: 13px;

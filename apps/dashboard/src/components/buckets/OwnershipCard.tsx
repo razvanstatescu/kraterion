@@ -39,13 +39,17 @@ export function OwnershipCard({ bucket }: Props) {
   const network = env.network;
 
   return (
-    <section className="ks-ownership">
-      <header className="ks-ownership-head">
-        <span className="ks-section-label">Ownership</span>
-        <span className="ks-ownership-hint">
-          Verifiable proof that this bucket is yours.
+    <details className="ks-ownership-details">
+      <summary className="ks-ownership-summary">
+        <span className="ks-ownership-summary-label">Ownership</span>
+        <span className="ks-ownership-summary-teaser">
+          <span className="ks-onchain-mono">{shortAddress(owner)}</span>
+          {isYou ? <YouBadge /> : null}
+          <span className="ks-ownership-summary-hint">
+            owns this bucket on chain
+          </span>
         </span>
-      </header>
+      </summary>
 
       <div className="ks-ownership-grid">
         <div className="ks-ownership-row">
@@ -99,7 +103,7 @@ export function OwnershipCard({ bucket }: Props) {
           </div>
         ) : null}
       </div>
-    </section>
+    </details>
   );
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import { IconButton } from "@/components/ui/IconButton";
+import { Drawer } from "@/components/ui/Drawer";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError, type BucketJson, type S3ObjectJson } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
@@ -107,15 +107,28 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
     return <Banner tone="error" title="Failed to load objects" body={message} />;
   }
 
-  const inspector = selected ? (
-    <aside className="ks-inspector-pane">
-      <div className="ks-inspector-pane-head">
-        <div className="micro">Object details</div>
-        <IconButton name="x" label="Close inspector" onClick={() => setSelected(null)} />
-      </div>
-      <Inspector object={selected} bucket={bucket} />
-    </aside>
-  ) : null;
+  // Object details lives in a right-side overlay drawer rather than an
+  // inline column. Three reasons:
+  //   1. Inspector content is long (file details + on-chain expander +
+  //      action buttons). An inline pane shoves the file table
+  //      narrower and scrolls past the bucket header — the user loses
+  //      context.
+  //   2. A floating drawer has its own scroll container, so the file
+  //      list keeps its position while the user reads details.
+  //   3. Matches the pattern users already know from BucketSettingsDrawer
+  //      + the Linear/Notion/GitHub side-panel convention.
+  const filename = selected ? selected.s3_key.split("/").pop() || selected.s3_key : "";
+  const inspectorDrawer = (
+    <Drawer
+      open={!!selected}
+      onClose={() => setSelected(null)}
+      title={filename}
+      eyebrow="Object details"
+      width={480}
+    >
+      {selected ? <Inspector object={selected} bucket={bucket} /> : null}
+    </Drawer>
+  );
 
   return (
     <div className="ks-browser-v2">
@@ -292,7 +305,7 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
         ) : null}
       </div>
 
-      {inspector}
+      {inspectorDrawer}
 
       <NewFolderDialog
         open={newFolderOpen}

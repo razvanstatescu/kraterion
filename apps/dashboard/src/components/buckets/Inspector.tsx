@@ -20,7 +20,6 @@ import {
   usePrepareDownload,
   usePrepareShareLink,
 } from "@/lib/objects";
-import { iconForContentType } from "@/lib/objects-tree";
 import type { BucketJson, S3ObjectJson } from "@/lib/api";
 
 interface Props {
@@ -47,7 +46,6 @@ interface Props {
  * correct outcome.
  */
 export function Inspector({ object, bucket }: Props) {
-  const iconName = iconForContentType(object.content_type);
   const network = env.network;
   const { show } = useToast();
   const prepareDownload = usePrepareDownload();
@@ -138,65 +136,84 @@ export function Inspector({ object, bucket }: Props) {
     }
   };
 
-  return (
-    <aside className="ks-inspector">
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <div className="ks-file-preview">
-          <Icon name={iconName} size={20} style={{ color: "var(--text-secondary)" }} />
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 500, fontSize: 14, wordBreak: "break-all" }}>
-            {object.s3_key.split("/").pop() || object.s3_key}
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>
-            {formatBytes(object.size_bytes)} · {formatRelative(object.uploaded_at)}
-          </div>
-        </div>
-      </div>
+  const contentType = object.content_type ?? "application/octet-stream";
 
-      <div style={{ display: "grid", gap: 14, marginTop: 24 }}>
+  return (
+    <div className="ks-inspector-body">
+      {/* Metadata — 2-column grid (label · value · label · value) so the
+          drawer's horizontal width earns its keep. ETag spans both
+          columns on its own row because the full hash needs the room.
+          No file-preview tile — the drawer header already names the
+          file; an icon adds visual weight without adding information. */}
+      <dl className="ks-inspector-meta">
+        <div className="ks-inspector-meta-row">
+          <dt>Size</dt>
+          <dd>{formatBytes(object.size_bytes)}</dd>
+          <dt>Access</dt>
+          <dd>
+            <Pill tone={encryptionMode === "private" ? "neutral" : "info"}>
+              {encryptionMode === "private" ? "Private" : "Public"}
+            </Pill>
+          </dd>
+        </div>
+        <div className="ks-inspector-meta-row">
+          <dt>Type</dt>
+          <dd className="ks-inspector-meta-type" title={contentType}>
+            {contentType}
+          </dd>
+          <dt>Modified</dt>
+          <dd>{formatRelative(object.uploaded_at)}</dd>
+        </div>
+        <div className="ks-inspector-meta-row ks-inspector-meta-row-full">
+          <dt>ETag</dt>
+          <dd className="ks-onchain-mono">{object.etag}</dd>
+        </div>
+        {object.metadata
+          ? Object.entries(object.metadata).map(([k, v]) => (
+              <div
+                className="ks-inspector-meta-row ks-inspector-meta-row-full"
+                key={k}
+              >
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))
+          : null}
+      </dl>
+
+      {/* Identifiers — the two values most users open this drawer to
+          copy. No section heading: the field labels (KEY, S3 URI)
+          already name what's inside, and an extra "Identifiers"
+          eyebrow would just stack two micro-uppercase labels on top
+          of each other. The visual rhythm of two boxed codelines in a
+          tight gap reads as one group. */}
+      <section className="ks-inspector-section">
         <Detail label="Key">
           <CopyableMono value={object.s3_key} ariaLabel="Copy key" />
         </Detail>
-
         <Detail label="S3 URI">
-          <CopyableMono value={`s3://${bucketName}/${object.s3_key}`} ariaLabel="Copy S3 URI" />
+          <CopyableMono
+            value={`s3://${bucketName}/${object.s3_key}`}
+            ariaLabel="Copy S3 URI"
+          />
         </Detail>
+      </section>
 
-        <Detail label="Content type">
-          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-            {object.content_type ?? "application/octet-stream"}
-          </span>
-        </Detail>
-
-        <Detail label="ETag (MD5)">
-          <span className="ks-onchain-mono" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            {object.etag}
-          </span>
-        </Detail>
-
-        <Detail label="Visibility">
-          <Pill tone={encryptionMode === "private" ? "neutral" : "info"}>
-            {encryptionMode === "private" ? "Private" : "Public"}
-          </Pill>
-        </Detail>
-
+      {/* Sharing — Public URL renders only for public-read buckets;
+          share link works for both modes when API access is granted.
+          Hairline border-top separates this section from Identifiers
+          above; same divider treatment elevates Sharing without an
+          explicit heading. */}
+      <section className="ks-inspector-section">
         {encryptionMode === "public-read" ? (
           <Detail label="Public URL">
             <PublicUrl bucketName={bucketName} s3Key={object.s3_key} />
           </Detail>
         ) : null}
-
         <Detail label="Share link">
           <ShareLink objectId={object.id} apiAccessGranted={apiAccessGranted} />
         </Detail>
-
-        {object.metadata ? (
-          <Detail label="Metadata">
-            <MetadataList metadata={object.metadata} />
-          </Detail>
-        ) : null}
-      </div>
+      </section>
 
       <OnchainDisclosure
         walrusBlobId={object.walrus_blob_id}
@@ -257,7 +274,7 @@ export function Inspector({ object, bucket }: Props) {
         }
         onchainNote="Files remain encrypted on-chain at your Sui address."
       />
-    </aside>
+    </div>
   );
 }
 
@@ -267,41 +284,6 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
       <div className="micro" style={{ marginBottom: 6 }}>{label}</div>
       {children}
     </div>
-  );
-}
-
-/**
- * Custom `x-amz-meta-*` headers captured at PutObject time. Rendered as
- * a compact key/value list. The CP filters to string-valued entries
- * only, so we can trust the shape.
- */
-function MetadataList({ metadata }: { metadata: Record<string, string> }) {
-  return (
-    <ul
-      style={{
-        listStyle: "none",
-        margin: 0,
-        padding: 0,
-        display: "grid",
-        gap: 4,
-        fontSize: 12,
-      }}
-    >
-      {Object.entries(metadata).map(([k, v]) => (
-        <li
-          key={k}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "auto 1fr",
-            gap: 8,
-            color: "var(--text-secondary)",
-          }}
-        >
-          <span style={{ color: "var(--text-tertiary)" }}>{k}</span>
-          <span style={{ color: "var(--text-primary)", wordBreak: "break-word" }}>{v}</span>
-        </li>
-      ))}
-    </ul>
   );
 }
 
