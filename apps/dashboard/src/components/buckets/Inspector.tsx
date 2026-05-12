@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useCurrentAccount, useSignPersonalMessage, useSuiClient } from "@mysten/dapp-kit";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { OnchainRef } from "@/components/ui/OnchainRef";
 import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
@@ -20,6 +20,7 @@ import {
   usePrepareDownload,
   usePrepareShareLink,
 } from "@/lib/objects";
+import { iconForContentType } from "@/lib/objects-tree";
 import type { BucketJson, S3ObjectJson } from "@/lib/api";
 
 interface Props {
@@ -50,10 +51,13 @@ export function Inspector({ object, bucket }: Props) {
   const { show } = useToast();
   const prepareDownload = usePrepareDownload();
   const prepareDelete = usePrepareDelete();
+  const prepareShareLink = usePrepareShareLink();
   const invalidate = useInvalidateBucketObjects();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const bucketName = bucket.name;
   const bucketId = bucket.id;
@@ -137,82 +141,158 @@ export function Inspector({ object, bucket }: Props) {
   };
 
   const contentType = object.content_type ?? "application/octet-stream";
+  const typeIcon = iconForContentType(object.content_type);
+  const accessIcon = encryptionMode === "private" ? "lock" : "unlock";
+
+  // Unified Get URL action — public bucket gives a permanent URL,
+  // private gives a 5-minute SigV4 signature. Dispatch by visibility.
+  const isPublic = encryptionMode === "public-read";
+  const linkDisabled = !isPublic && (!apiAccessGranted || prepareShareLink.isPending);
+  const linkBusy = !isPublic && prepareShareLink.isPending;
+  const onGetUrl = async () => {
+    try {
+      let resolved: string;
+      if (isPublic) {
+        resolved = `${window.location.origin}/public/${encodeURIComponent(bucketName)}/${object.s3_key
+          .split("/")
+          .map((s) => encodeURIComponent(s))
+          .join("/")}`;
+      } else {
+        const signed = await prepareShareLink.mutateAsync(object.id);
+        resolved = signed.url;
+      }
+      await navigator.clipboard.writeText(resolved);
+      setLinkUrl(resolved);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1800);
+    } catch (err) {
+      const message =
+        err instanceof ControlPlaneError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Couldn't get a URL for this file.";
+      show({ tone: "error", title: "Couldn't generate URL", body: message });
+    }
+  };
+  const linkLabel = linkUrl
+    ? linkCopied
+      ? "Copied"
+      : isPublic
+        ? "Copy URL"
+        : "Renew & copy"
+    : linkBusy
+      ? "Generating…"
+      : "Get URL";
 
   return (
     <div className="ks-inspector-body">
-      {/* Metadata — 2-column grid (label · value · label · value) so the
-          drawer's horizontal width earns its keep. ETag spans both
-          columns on its own row because the full hash needs the room.
-          No file-preview tile — the drawer header already names the
-          file; an icon adds visual weight without adding information. */}
-      <dl className="ks-inspector-meta">
-        <div className="ks-inspector-meta-row">
-          <dt>Size</dt>
-          <dd>{formatBytes(object.size_bytes)}</dd>
-          <dt>Access</dt>
-          <dd>
-            <Pill tone={encryptionMode === "private" ? "neutral" : "info"}>
-              {encryptionMode === "private" ? "Private" : "Public"}
-            </Pill>
-          </dd>
-        </div>
-        <div className="ks-inspector-meta-row">
-          <dt>Type</dt>
-          <dd className="ks-inspector-meta-type" title={contentType}>
-            {contentType}
-          </dd>
-          <dt>Modified</dt>
-          <dd>{formatRelative(object.uploaded_at)}</dd>
-        </div>
-        <div className="ks-inspector-meta-row ks-inspector-meta-row-full">
-          <dt>ETag</dt>
-          <dd className="ks-onchain-mono">{object.etag}</dd>
-        </div>
-        {object.metadata
-          ? Object.entries(object.metadata).map(([k, v]) => (
-              <div
-                className="ks-inspector-meta-row ks-inspector-meta-row-full"
-                key={k}
-              >
-                <dt>{k}</dt>
-                <dd>{v}</dd>
-              </div>
-            ))
-          : null}
-      </dl>
-
-      {/* Identifiers — the two values most users open this drawer to
-          copy. No section heading: the field labels (KEY, S3 URI)
-          already name what's inside, and an extra "Identifiers"
-          eyebrow would just stack two micro-uppercase labels on top
-          of each other. The visual rhythm of two boxed codelines in a
-          tight gap reads as one group. */}
+      {/* Identifier — the bucket-relative key, prominent at the top
+          as the most-copied value. S3 URI dropped (constructible from
+          bucket name in the breadcrumb + this key). */}
       <section className="ks-inspector-section">
         <Detail label="Key">
           <CopyableMono value={object.s3_key} ariaLabel="Copy key" />
         </Detail>
-        <Detail label="S3 URI">
-          <CopyableMono
-            value={`s3://${bucketName}/${object.s3_key}`}
-            ariaLabel="Copy S3 URI"
-          />
-        </Detail>
       </section>
 
-      {/* Sharing — Public URL renders only for public-read buckets;
-          share link works for both modes when API access is granted.
-          Hairline border-top separates this section from Identifiers
-          above; same divider treatment elevates Sharing without an
-          explicit heading. */}
+      {/* Metadata — each fact gets a Lucide icon, a sentence-case
+          label, and its value. Reads as a stat list rather than a
+          dense table; the icons anchor each row visually so the eye
+          can jump straight to the property it needs (clock for
+          modified, lock for access, etc.). Sentence-case labels per
+          the design system's casing rule (uppercase reserved for
+          11px micro labels above sections; here we're at 13px). */}
       <section className="ks-inspector-section">
-        {encryptionMode === "public-read" ? (
-          <Detail label="Public URL">
-            <PublicUrl bucketName={bucketName} s3Key={object.s3_key} />
-          </Detail>
+        <dl className="ks-inspector-stats">
+          <StatRow icon="database" label="Size" value={formatBytes(object.size_bytes)} />
+          <StatRow icon={typeIcon} label="Type" value={contentType} mono />
+          <StatRow
+            icon={accessIcon}
+            label="Access"
+            value={
+              <Pill tone={encryptionMode === "private" ? "neutral" : "info"}>
+                {encryptionMode === "private" ? "Private" : "Public"}
+              </Pill>
+            }
+          />
+          <StatRow icon="clock" label="Modified" value={formatRelative(object.uploaded_at)} />
+          <StatRow icon="hash" label="ETag" value={object.etag} mono />
+          {object.metadata
+            ? Object.entries(object.metadata).map(([k, v]) => (
+                <StatRow key={k} icon="info" label={k} value={v} />
+              ))
+            : null}
+        </dl>
+      </section>
+
+      {/* Primary actions — Get URL and Download as twin secondary
+          buttons. Same variant + size so they read as peers; the
+          paired layout makes "what can I do with this file?" obvious
+          at a glance. Delete is intentionally absent here — destructive
+          actions live in their own section below the on-chain
+          disclosure, away from everyday clicks. */}
+      <section className="ks-inspector-section">
+        <div className="ks-inspector-actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={linkCopied ? "check" : "link"}
+            onClick={() => void onGetUrl()}
+            disabled={linkDisabled}
+            loading={linkBusy}
+            title={
+              linkDisabled
+                ? "API access is revoked — restore it to mint share links."
+                : undefined
+            }
+          >
+            {linkLabel}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="download"
+            onClick={onDownload}
+            loading={downloading}
+            disabled={downloadDisabled}
+            title={downloadTooltip}
+          >
+            Download
+          </Button>
+        </div>
+        {linkUrl ? (
+          <div className="ks-codeline" onClick={() => void onGetUrl()}>
+            <span
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontFamily: "var(--font-jetbrains-mono), ui-monospace, Menlo, monospace",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+              }}
+              title={linkUrl}
+            >
+              {linkUrl}
+            </span>
+            <Icon name="copy" size={14} />
+          </div>
         ) : null}
-        <Detail label="Share link">
-          <ShareLink objectId={object.id} apiAccessGranted={apiAccessGranted} />
-        </Detail>
+        <div className="ks-field-helper">
+          {isPublic
+            ? "Permanent link. Anyone with the URL can view the file."
+            : "Signed for 5 minutes. Revoking API access invalidates outstanding links immediately."}
+        </div>
+        {useBrowserDecrypt ? (
+          <div
+            className="ks-field-helper"
+            title="Ciphertext is fetched directly from Walrus; the gateway never sees plaintext."
+          >
+            Downloads decrypt in your browser — survives platform revoke.
+          </div>
+        ) : null}
       </section>
 
       <OnchainDisclosure
@@ -222,18 +302,11 @@ export function Inspector({ object, bucket }: Props) {
         network={network}
       />
 
-      <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon="download"
-          onClick={onDownload}
-          loading={downloading}
-          disabled={downloadDisabled}
-          title={downloadTooltip}
-        >
-          Download
-        </Button>
+      {/* Delete sits alone in a destructive-action zone below the
+          on-chain disclosure. The visual distance + the red text
+          marks it as different from the everyday Get URL / Download
+          twins above. */}
+      <section className="ks-inspector-section ks-inspector-danger">
         <Button
           variant="ghost"
           size="sm"
@@ -241,20 +314,11 @@ export function Inspector({ object, bucket }: Props) {
           onClick={() => setConfirmDelete(true)}
           disabled={!apiAccessGranted || deleting}
           title={apiAccessGranted ? undefined : "API access is revoked."}
-          style={{ marginLeft: "auto", color: "var(--error)" }}
+          style={{ color: "var(--error)" }}
         >
-          Delete
+          Delete file
         </Button>
-      </div>
-      {useBrowserDecrypt ? (
-        <div
-          className="ks-field-helper"
-          style={{ marginTop: 8, color: "var(--text-tertiary)" }}
-          title="Ciphertext is fetched directly from Walrus; the gateway never sees plaintext."
-        >
-          Decrypts in your browser — survives platform revoke.
-        </div>
-      ) : null}
+      </section>
       <ConfirmModal
         open={confirmDelete}
         onCancel={() => (deleting ? undefined : setConfirmDelete(false))}
@@ -394,135 +458,55 @@ function CopyableMono({ value, ariaLabel }: { value: string; ariaLabel: string }
 }
 
 /**
- * Shareable URL for public-read objects. Two surfaces:
- *   - The **dashboard URL** (`http://localhost:3001/public/...`) — reads
- *     nicely in messages and previews. Server-side-redirects to the
- *     gateway in `app/public/[bucket]/[...key]/page.tsx`.
- *   - A direct **gateway URL** the dashboard URL redirects to, available
- *     via a secondary copy button for power users / aws-cli folks.
- */
-function PublicUrl({ bucketName, s3Key }: { bucketName: string; s3Key: string }) {
-  // Use the browser's own origin so the URL is portable across
-  // localhost / staging / prod without env wiring on every render.
-  const [origin, setOrigin] = useState("");
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
-
-  const dashboardUrl = origin
-    ? `${origin}/public/${encodeURIComponent(bucketName)}/${s3Key
-        .split("/")
-        .map((s) => encodeURIComponent(s))
-        .join("/")}`
-    : "";
-
-  const [copied, setCopied] = useState(false);
-  const onCopy = async () => {
-    if (!dashboardUrl) return;
-    try {
-      await navigator.clipboard.writeText(dashboardUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API can fail in non-secure contexts; ignore quietly.
-    }
-  };
-
-  return (
-    <>
-      <div className="ks-codeline">
-        <span
-          style={{
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontFamily: "var(--font-jetbrains-mono), ui-monospace, Menlo, monospace",
-            fontSize: 12,
-          }}
-          title={dashboardUrl}
-        >
-          {dashboardUrl || "Loading…"}
-        </span>
-        <button
-          className="icon-btn"
-          onClick={() => void onCopy()}
-          type="button"
-          title="Copy URL"
-          aria-label="Copy URL"
-        >
-          <Icon name="copy" size={14} />
-        </button>
-      </div>
-      {copied ? (
-        <div className="ks-field-helper" style={{ color: "var(--success)", marginTop: 4 }}>
-          Copied
-        </div>
-      ) : (
-        <div className="ks-field-helper" style={{ marginTop: 4 }}>
-          Anyone with this link can view the file. Open it in any browser, paste it in a
-          tweet, embed it in <code>&lt;img src&gt;</code>.
-        </div>
-      )}
-    </>
-  );
-}
-
-/**
- * Generate-then-copy affordance for query-string SigV4 share links.
+ * Unified share-URL affordance. Replaces what used to be two distinct
+ * components (`PublicUrl` for permanent links to public-read files,
+ * `ShareLink` for 5-minute SigV4-signed links to private files). The
+ * user-visible action is the same in both cases — "get me a URL I can
+ * paste somewhere" — so the dashboard collapses them into one button
+ * and dispatches by bucket visibility internally.
  *
- * Two-step UX rather than a typed URL field: the link contains a fresh
- * SigV4 signature that's only valid for 5 minutes, so showing a
- * pre-generated value would be misleading. The user clicks once to
- * mint, the dashboard copies it straight to the clipboard, and a small
- * helper line confirms the 5-min window.
+ * Semantics surface in the helper text below the link:
+ *   - **Public bucket** → permanent dashboard URL (server-side redirects
+ *     to the gateway's public route). Anyone with the link can read.
+ *   - **Private bucket** → 5-minute SigV4 query-string URL minted via
+ *     `usePrepareShareLink`. Bound to the bucket's API access — flipping
+ *     `revoke_all_api_access` invalidates outstanding links instantly.
+ *
+ * Click → generates if needed → copies to clipboard → reveals the
+ * resolved URL inline. Subsequent clicks re-copy (for private buckets,
+ * mint a fresh signature).
  */
-function ShareLink({ objectId, apiAccessGranted }: { objectId: string; apiAccessGranted: boolean }) {
-  const prepare = usePrepareShareLink();
-  const [copied, setCopied] = useState(false);
-  const { show } = useToast();
-
-  const onGenerate = async () => {
-    if (!apiAccessGranted) return;
-    try {
-      const signed = await prepare.mutateAsync(objectId);
-      await navigator.clipboard.writeText(signed.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 4000);
-    } catch (err) {
-      const message =
-        err instanceof ControlPlaneError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "Couldn't create share link.";
-      show({ tone: "error", title: "Share link failed", body: message });
-    }
-  };
-
+/**
+ * One row in the inspector's metadata stat list. Renders as:
+ *
+ *   [icon]  Label    Value
+ *
+ * Icon is a 16 px Lucide glyph in `--text-tertiary`; label is
+ * sentence-case at 13 px tertiary; value is 13 px primary (or mono
+ * when the value is a technical identifier like an ETag or a long
+ * MIME type — `mono` prop opts into that treatment).
+ */
+function StatRow({
+  icon,
+  label,
+  value,
+  mono,
+}: {
+  icon: IconName;
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
   return (
-    <>
-      <div className="ks-codeline" style={{ alignItems: "center" }}>
-        <span style={{ flex: 1, fontSize: 12, color: "var(--text-tertiary)" }}>
-          {copied
-            ? "Copied to clipboard — expires in 5 minutes"
-            : "Click to generate a 5-minute shareable URL"}
-        </span>
-        <button
-          className="icon-btn"
-          onClick={() => void onGenerate()}
-          type="button"
-          title={apiAccessGranted ? "Generate and copy" : "API access is revoked."}
-          aria-label="Generate share link"
-          disabled={!apiAccessGranted || prepare.isPending}
-        >
-          <Icon name={copied ? "info" : "link"} size={14} />
-        </button>
-      </div>
-      <div className="ks-field-helper" style={{ marginTop: 4 }}>
-        Works with anything that takes a URL — <code>curl</code>, <code>&lt;img src&gt;</code>,
-        Slack. Revoking API access invalidates outstanding links immediately.
-      </div>
-    </>
+    <div className="ks-stat-row">
+      <Icon name={icon} size={14} className="ks-stat-icon" />
+      <span className="ks-stat-label">{label}</span>
+      <span
+        className={`ks-stat-value${mono ? " ks-stat-value-mono" : ""}`}
+        title={typeof value === "string" ? value : undefined}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
