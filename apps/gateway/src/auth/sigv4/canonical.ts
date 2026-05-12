@@ -60,8 +60,12 @@ export function canonicalUri(path: string): string {
  *
  * Multi-value keys are kept as separate `key=value` entries; both their
  * encoded keys and values participate in the sort.
+ *
+ * `excludeEncodedKey` (optional) drops a single encoded key from the
+ * canonical set — query-string SigV4 needs this to exclude
+ * `X-Amz-Signature` from its own input.
  */
-export function canonicalQueryString(rawQuery: string): string {
+export function canonicalQueryString(rawQuery: string, excludeEncodedKey?: string): string {
   if (!rawQuery) return "";
   const pairs: [string, string][] = [];
   for (const part of rawQuery.split("&")) {
@@ -69,10 +73,9 @@ export function canonicalQueryString(rawQuery: string): string {
     const eq = part.indexOf("=");
     const k = eq === -1 ? part : part.slice(0, eq);
     const v = eq === -1 ? "" : part.slice(eq + 1);
-    pairs.push([
-      awsUriEncode(decodeURIComponent(k), false),
-      awsUriEncode(decodeURIComponent(v), false),
-    ]);
+    const encKey = awsUriEncode(decodeURIComponent(k), false);
+    if (excludeEncodedKey && encKey === excludeEncodedKey) continue;
+    pairs.push([encKey, awsUriEncode(decodeURIComponent(v), false)]);
   }
   pairs.sort(([k1, v1], [k2, v2]) => (k1 < k2 ? -1 : k1 > k2 ? 1 : v1 < v2 ? -1 : v1 > v2 ? 1 : 0));
   return pairs.map(([k, v]) => `${k}=${v}`).join("&");
@@ -121,10 +124,18 @@ function sha256Hex(input: Buffer | string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
-/** Build the canonical request string (5 \n-separated parts + payload hash). */
+/**
+ * Build the canonical request string (5 \n-separated parts + payload
+ * hash).
+ *
+ * `excludeQueryKey` (optional) lets the query-string SigV4 path drop
+ * `X-Amz-Signature` from the canonical query — it would otherwise sign
+ * its own output. Header-mode SigV4 never needs it.
+ */
 export function buildCanonicalRequest(
   inputs: CanonicalRequestInputs,
   signedHeaders: string[],
+  excludeQueryKey?: string,
 ): { canonical: string; signedHeadersJoined: string } {
   const { canonical: headersStr, missing } = canonicalHeaders(inputs.headers, signedHeaders);
   if (missing.length > 0) {
@@ -136,7 +147,7 @@ export function buildCanonicalRequest(
     "\n" +
     canonicalUri(inputs.path) +
     "\n" +
-    canonicalQueryString(inputs.rawQuery) +
+    canonicalQueryString(inputs.rawQuery, excludeQueryKey) +
     "\n" +
     headersStr +
     "\n" +

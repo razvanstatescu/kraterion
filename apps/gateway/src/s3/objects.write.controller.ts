@@ -124,6 +124,10 @@ export class ObjectsWriteController {
     const s3Key = requireKey(ctx);
 
     rejectUnsupportedWriteHeaders(headers);
+    // Parse `x-amz-meta-*` ahead of the (expensive) Walrus+Seal+PTB flow
+    // so an over-sized metadata payload fails fast without wasting a
+    // round-trip.
+    const metadata = pickMetadata(headers);
 
     // Fastify's catch-all parser yields a Buffer for any body; an empty
     // PUT (`Body=b""`) becomes `Buffer.alloc(0)`. A missing body
@@ -368,6 +372,17 @@ export class ObjectsWriteController {
     // indexer has caught up.
     await waitForS3Object(this.prisma, sharedBlobObjectId);
 
+    // `metadata` is the one column on `S3Object` that does NOT flow
+    // through the indexer — the on-chain `KraterionObjectCreated` event
+    // carries no metadata because it isn't consensus-critical. So we
+    // patch it here, scoped to the row the indexer just wrote.
+    if (metadata) {
+      await this.prisma.s3Object.update({
+        where: { shared_blob_object_id: sharedBlobObjectId },
+        data: { metadata },
+      });
+    }
+
     setWriteResponseHeaders(reply, etag);
     void reply.status(200).send();
   }
@@ -415,20 +430,55 @@ function rejectUnsupportedWriteHeaders(
       "Object tagging is not supported in this phase.",
     );
   }
-  // x-amz-meta-* (user metadata) — Phase 7 feature; reject for now so
-  // clients don't silently lose data they think they stored.
-  for (const name of Object.keys(headers)) {
-    if (name.toLowerCase().startsWith("x-amz-meta-")) {
-      throw new S3Error(
-        "NotImplemented",
-        "Custom user metadata (x-amz-meta-*) is not supported in this phase.",
-      );
-    }
-  }
   // x-amz-acl, x-amz-storage-class, x-amz-server-side-encryption: AWS
   // accepts a fixed enum for each. We always encrypt + don't expose
   // ACLs or storage classes, so silently accept-and-ignore — matches
   // what rclone/aws-cli send by default; rejecting them breaks both.
+  //
+  // x-amz-meta-* is now supported — see `pickMetadata` below.
+}
+
+/**
+ * AWS S3 user-metadata cap: the total serialized size of `x-amz-meta-*`
+ * headers (each `name + value`, sum across all entries) must not exceed
+ * 2 KiB for PUT requests. Mirroring the spec keeps us drop-in compatible
+ * with the AWS Java/Python SDKs that already validate against this.
+ */
+const MAX_METADATA_BYTES = 2 * 1024;
+
+/**
+ * Parse `x-amz-meta-*` headers into a flat key→value map.
+ *
+ * Returns `null` if no metadata headers were sent (so the column stays
+ * NULL on the row instead of `{}`). Throws `MetadataTooLarge` when the
+ * combined header bytes exceed the AWS cap.
+ *
+ * Keys are lowercased and prefix-stripped (`X-Amz-Meta-Author` →
+ * `author`). Values are taken verbatim. Duplicate headers collapse
+ * last-wins, matching what Node's lowercased header bag already does.
+ */
+function pickMetadata(
+  headers: Record<string, string | string[] | undefined>,
+): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  let total = 0;
+  for (const [rawName, rawValue] of Object.entries(headers)) {
+    const name = rawName.toLowerCase();
+    if (!name.startsWith("x-amz-meta-")) continue;
+    const key = name.slice("x-amz-meta-".length);
+    if (!key) continue;
+    const value = Array.isArray(rawValue) ? rawValue.join(",") : (rawValue ?? "");
+    total += Buffer.byteLength(key, "utf8") + Buffer.byteLength(value, "utf8");
+    out[key] = value;
+  }
+  if (total === 0) return null;
+  if (total > MAX_METADATA_BYTES) {
+    throw new S3Error(
+      "MetadataTooLarge",
+      `Your metadata headers exceed the maximum allowed metadata size.`,
+    );
+  }
+  return out;
 }
 
 function validateContentLength(

@@ -29,10 +29,12 @@ export type S3ErrorCode =
   | "InvalidRequest"
   | "KeyAccessRevoked"
   | "MalformedDate"
+  | "MetadataTooLarge"
   | "MissingContentLength"
   | "NoSuchBucket"
   | "NoSuchKey"
   | "NotImplemented"
+  | "RequestExpired"
   | "RequestTimeTooSkewed"
   // Transient backend unavailability (Walrus aggregator down, Seal key
   // server timeout). Boto3 auto-retries on 503 with capped exponential
@@ -56,10 +58,12 @@ const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   InvalidRequest: HttpStatus.BAD_REQUEST,
   KeyAccessRevoked: HttpStatus.FORBIDDEN,
   MalformedDate: HttpStatus.BAD_REQUEST,
+  MetadataTooLarge: HttpStatus.BAD_REQUEST,
   MissingContentLength: HttpStatus.LENGTH_REQUIRED,
   NoSuchBucket: HttpStatus.NOT_FOUND,
   NoSuchKey: HttpStatus.NOT_FOUND,
   NotImplemented: HttpStatus.NOT_IMPLEMENTED,
+  RequestExpired: HttpStatus.FORBIDDEN,
   RequestTimeTooSkewed: HttpStatus.FORBIDDEN,
   ServiceUnavailable: HttpStatus.SERVICE_UNAVAILABLE,
   SignatureDoesNotMatch: HttpStatus.FORBIDDEN,

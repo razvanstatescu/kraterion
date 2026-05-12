@@ -113,13 +113,7 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
         <div className="micro">Object details</div>
         <IconButton name="x" label="Close inspector" onClick={() => setSelected(null)} />
       </div>
-      <Inspector
-        object={selected}
-        bucketName={bucket.name}
-        bucketId={bucket.id}
-        encryptionMode={bucket.encryption_mode}
-        apiAccessGranted={bucket.api_access_granted}
-      />
+      <Inspector object={selected} bucket={bucket} />
     </aside>
   ) : null;
 

@@ -13,7 +13,8 @@
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { cpFetch } from "./api";
+import { cpFetch, type BucketJson, type S3ObjectJson } from "./api";
+import { decryptObjectInBrowser, type SealSuiClient, type SignPersonalMessage } from "./seal";
 
 export interface SignedRequest {
   method: "PUT" | "GET" | "DELETE";
@@ -39,6 +40,21 @@ export function usePrepareDownload() {
     mutationFn: async (objectId: string) =>
       cpFetch<SignedRequest>(`/v1/objects/${objectId}/prepare-download`, {
         method: "POST",
+      }),
+  });
+}
+
+/**
+ * Mints a stand-alone shareable download URL — query-string SigV4, no
+ * auth headers required. Anyone with the URL can fetch the object until
+ * the URL expires (5 minutes from issuance).
+ */
+export function usePrepareShareLink() {
+  return useMutation({
+    mutationFn: async (objectId: string) =>
+      cpFetch<SignedRequest>(`/v1/objects/${objectId}/prepare-download`, {
+        method: "POST",
+        body: { share: true },
       }),
   });
 }
@@ -116,6 +132,46 @@ export async function downloadAsBlob(signed: SignedRequest): Promise<Blob> {
 /** Trigger a browser download via an anchor click. */
 export async function downloadToDisk(signed: SignedRequest, filename: string): Promise<void> {
   const blob = await downloadAsBlob(signed);
+  await saveBlobAsFile(blob, filename);
+}
+
+/**
+ * Browser-native download path for private files. Skips the gateway
+ * entirely: ciphertext comes from the public Walrus aggregator and Seal
+ * decrypts in the browser with a SessionKey signed by the bucket owner.
+ * Survives platform API revocation — that's the demo moment.
+ */
+export async function downloadPrivateInBrowser(args: {
+  suiClient: SealSuiClient;
+  accountAddress: string;
+  signPersonalMessage: SignPersonalMessage;
+  object: S3ObjectJson;
+  bucket: BucketJson;
+  filename: string;
+  contentType?: string | null;
+}): Promise<void> {
+  const plaintext = await decryptObjectInBrowser({
+    suiClient: args.suiClient,
+    accountAddress: args.accountAddress,
+    signPersonalMessage: args.signPersonalMessage,
+    object: args.object,
+    bucket: args.bucket,
+  });
+  // Re-wrap the SDK's `Uint8Array<ArrayBufferLike>` as a plain
+  // `ArrayBuffer` slice. Modern TypeScript treats `ArrayBufferLike` as
+  // a SharedArrayBuffer-possible parent, but `Blob` only accepts the
+  // narrower type — the copy is cheap relative to the decrypt itself.
+  const buffer = plaintext.buffer.slice(
+    plaintext.byteOffset,
+    plaintext.byteOffset + plaintext.byteLength,
+  ) as ArrayBuffer;
+  const blob = new Blob([buffer], {
+    type: args.contentType ?? args.object.content_type ?? "application/octet-stream",
+  });
+  await saveBlobAsFile(blob, args.filename);
+}
+
+async function saveBlobAsFile(blob: Blob, filename: string): Promise<void> {
   const url = URL.createObjectURL(blob);
   try {
     const a = document.createElement("a");

@@ -41,6 +41,7 @@ export const OBJECT_SELECT = {
   walrus_blob_id: true,
   seal_identity: true,
   uploaded_at: true,
+  metadata: true,
 } satisfies Prisma.S3ObjectSelect;
 
 export type ObjectRow = Prisma.S3ObjectGetPayload<{ select: typeof OBJECT_SELECT }>;
@@ -200,6 +201,17 @@ export class ObjectBytesService {
       // origins does. Override `@fastify/cors`'s allowlist for this route.
       void reply.header("Access-Control-Allow-Origin", "*");
       void reply.header("Access-Control-Expose-Headers", "ETag, Content-Type, Content-Length, Last-Modified");
+    }
+
+    // User metadata round-trip: emit each stored `x-amz-meta-*` pair
+    // back as a header. The shape on disk is a flat string→string map;
+    // we trust the PUT-time `pickMetadata` validator to have kept the
+    // total size under AWS's 2 KiB cap.
+    if (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)) {
+      for (const [key, value] of Object.entries(row.metadata as Record<string, unknown>)) {
+        if (typeof value !== "string") continue;
+        void reply.header(`x-amz-meta-${key}`, value);
+      }
     }
   }
 }

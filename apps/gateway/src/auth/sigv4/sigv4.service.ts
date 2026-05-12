@@ -27,6 +27,7 @@ import {
   signaturesEqual,
 } from "./canonical.js";
 import { parseAuthorizationHeader } from "./parser.js";
+import { assertNotExpired, detectAndParseQuerySigv4, type ParsedQuerySigv4 } from "./query-mode.js";
 import type {
   CanonicalRequestInputs,
   ParsedAuthorizationHeader,
@@ -54,7 +55,16 @@ export class Sigv4VerificationService {
 
   async verify(input: VerifyInput): Promise<ResolvedIdentity> {
     const auth = input.headers["authorization"];
-    if (!auth) throw new S3Error("AccessDenied", "Missing Authorization header");
+
+    // Presigned URLs ("query-string SigV4") arrive with no Authorization
+    // header — the sig components live in `?X-Amz-…` query params. If we
+    // detect that mode, take the dedicated path. Otherwise require the
+    // standard Authorization header.
+    if (!auth) {
+      const query = detectAndParseQuerySigv4(input.rawQuery);
+      if (query) return this.verifyQueryMode(input, query);
+      throw new S3Error("AccessDenied", "Missing Authorization header");
+    }
 
     const parsed = parseAuthorizationHeader(auth);
     const amzDate = input.headers["x-amz-date"];
@@ -108,6 +118,76 @@ export class Sigv4VerificationService {
       );
     }
 
+    return {
+      accountId: apiKey.project.account_id,
+      projectId: apiKey.project_id,
+      apiKeyId: apiKey.id,
+    };
+  }
+
+  /**
+   * Query-string SigV4 ("presigned URL") verification.
+   *
+   * Differences from the header-mode path:
+   *   - The payload hash is implicitly `UNSIGNED-PAYLOAD` (clients
+   *     usually omit `X-Amz-Content-Sha256` from presigned URLs; we
+   *     accept it if present but don't require it).
+   *   - The canonical query string MUST exclude `X-Amz-Signature` —
+   *     otherwise the gateway would sign its own output.
+   *   - An explicit per-URL TTL (`X-Amz-Expires`) bounds validity on
+   *     top of the ±5min `X-Amz-Date` skew tolerance.
+   */
+  private async verifyQueryMode(
+    input: VerifyInput,
+    parsed: ParsedQuerySigv4,
+  ): Promise<ResolvedIdentity> {
+    this.validateAmzDateSkew(parsed.amzDate, parsed);
+    assertNotExpired(parsed);
+
+    const apiKey = await this.lookupApiKey(parsed.accessKeyId);
+
+    const contentSha = input.headers["x-amz-content-sha256"] ?? "UNSIGNED-PAYLOAD";
+    if (contentSha === "STREAMING-AWS4-HMAC-SHA256-PAYLOAD") {
+      throw new S3Error(
+        "NotImplemented",
+        "Chunked SigV4 payloads are not supported for presigned URLs.",
+      );
+    }
+
+    const canonicalInputs: CanonicalRequestInputs = {
+      method: input.method,
+      path: input.path,
+      rawQuery: input.rawQuery,
+      headers: input.headers,
+      contentSha256: contentSha,
+    };
+
+    const { canonical } = (() => {
+      try {
+        return buildCanonicalRequest(canonicalInputs, parsed.signedHeaders, "X-Amz-Signature");
+      } catch (err) {
+        throw new S3Error("InvalidRequest", (err as Error).message);
+      }
+    })();
+
+    const secretKey = this.unwrapSecret(apiKey.secret_wrapped);
+    const stringToSign = buildStringToSign(parsed.amzDate, parsed, canonical);
+    const signingKey = deriveSigningKey(
+      secretKey,
+      parsed.scopeDate,
+      parsed.scopeRegion,
+      parsed.scopeService,
+    );
+    const expected = computeSignature(signingKey, stringToSign);
+    if (!signaturesEqual(expected, parsed.signature)) {
+      this.logger.debug(
+        `presign sig mismatch akid=${parsed.accessKeyId} expected=${expected.slice(0, 8)} got=${parsed.signature.slice(0, 8)}`,
+      );
+      throw new S3Error(
+        "SignatureDoesNotMatch",
+        "The request signature we calculated does not match the signature you provided.",
+      );
+    }
     return {
       accountId: apiKey.project.account_id,
       projectId: apiKey.project_id,

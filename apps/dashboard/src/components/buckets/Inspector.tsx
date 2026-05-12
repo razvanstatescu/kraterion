@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useCurrentAccount, useSignPersonalMessage, useSuiClient } from "@mysten/dapp-kit";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Icon } from "@/components/ui/Icon";
@@ -12,37 +13,40 @@ import { env } from "@/lib/env";
 import { formatBytes, formatRelative, suiscanObjectUrl, walruscanUrl } from "@/lib/format";
 import {
   deleteSigned,
+  downloadPrivateInBrowser,
   downloadToDisk,
   useInvalidateBucketObjects,
   usePrepareDelete,
   usePrepareDownload,
+  usePrepareShareLink,
 } from "@/lib/objects";
 import { iconForContentType } from "@/lib/objects-tree";
-import type { S3ObjectJson } from "@/lib/api";
+import type { BucketJson, S3ObjectJson } from "@/lib/api";
 
 interface Props {
   object: S3ObjectJson;
-  bucketName: string;
-  bucketId: string;
-  encryptionMode: "private" | "public-read";
-  apiAccessGranted: boolean;
+  bucket: BucketJson;
 }
 
 /**
  * Right-pane object inspector. Surfaces the on-chain identifiers behind
  * each file so the demo's "this is owned on-chain" claim is visible.
  *
- * Download / Delete go through the CP-signed envelope. Both are
- * disabled when `api_access_granted` is false — the gateway rejects
- * those requests anyway, so this is a friendlier-than-an-error gate.
+ * Download paths split on `encryption_mode`:
+ *   - **public-read** → gateway-signed envelope. The gateway decrypts
+ *     using its own sub-wallet's Seal SessionKey; fine because the bucket
+ *     is open.
+ *   - **private** → browser-side Seal decrypt. Ciphertext comes from the
+ *     public Walrus aggregator, decryption happens locally via a
+ *     SessionKey the user signs through zkLogin. The gateway is bypassed
+ *     entirely — so the download keeps working after the user revokes
+ *     platform API access. That's the demo's headline.
+ *
+ * Delete still uses the CP-signed gateway path: after revocation the
+ * platform can't delete on the user's behalf either, which is the
+ * correct outcome.
  */
-export function Inspector({
-  object,
-  bucketName,
-  bucketId,
-  encryptionMode,
-  apiAccessGranted,
-}: Props) {
+export function Inspector({ object, bucket }: Props) {
   const iconName = iconForContentType(object.content_type);
   const network = env.network;
   const { show } = useToast();
@@ -53,13 +57,53 @@ export function Inspector({
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const bucketName = bucket.name;
+  const bucketId = bucket.id;
+  const encryptionMode = bucket.encryption_mode;
+  const apiAccessGranted = bucket.api_access_granted;
+
+  // Browser-decrypt path dependencies. `useCurrentAccount()` is the
+  // signed-in Sui address (the bucket owner during normal use); the
+  // `signPersonalMessage` mutation pipes through Enoki's zkLogin signer.
+  const suiClient = useSuiClient();
+  const currentAccount = useCurrentAccount();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+
   const filename = object.s3_key.split("/").pop() || object.s3_key;
+  // Browser decrypt requires the wallet to be connected (we need the
+  // user's address to seed the SessionKey + the signer to sign it).
+  // Without it we can't run the private path at all.
+  const browserDecryptReady = encryptionMode === "private" && Boolean(currentAccount);
+  // Gateway path is the fallback (public-read) or the only path when the
+  // wallet isn't connected. It's blocked by api_access_granted.
+  const useBrowserDecrypt = encryptionMode === "private" && browserDecryptReady;
+  const downloadDisabled = useBrowserDecrypt
+    ? !browserDecryptReady
+    : !apiAccessGranted;
+  const downloadTooltip = useBrowserDecrypt
+    ? browserDecryptReady
+      ? undefined
+      : "Sign in with a wallet to decrypt this file in your browser."
+    : apiAccessGranted
+      ? undefined
+      : "API access is revoked.";
 
   const onDownload = async () => {
     setDownloading(true);
     try {
-      const signed = await prepareDownload.mutateAsync(object.id);
-      await downloadToDisk(signed, filename);
+      if (useBrowserDecrypt && currentAccount) {
+        await downloadPrivateInBrowser({
+          suiClient,
+          accountAddress: currentAccount.address,
+          signPersonalMessage: async (msg) => signPersonalMessage({ message: msg }),
+          object,
+          bucket,
+          filename,
+        });
+      } else {
+        const signed = await prepareDownload.mutateAsync(object.id);
+        await downloadToDisk(signed, filename);
+      }
     } catch (err) {
       const message =
         err instanceof ControlPlaneError
@@ -142,6 +186,10 @@ export function Inspector({
             <PublicUrl bucketName={bucketName} s3Key={object.s3_key} />
           </Detail>
         ) : null}
+
+        <Detail label="Share link">
+          <ShareLink objectId={object.id} apiAccessGranted={apiAccessGranted} />
+        </Detail>
       </div>
 
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
@@ -173,8 +221,8 @@ export function Inspector({
           icon="download"
           onClick={onDownload}
           loading={downloading}
-          disabled={!apiAccessGranted}
-          title={apiAccessGranted ? undefined : "API access is revoked."}
+          disabled={downloadDisabled}
+          title={downloadTooltip}
         >
           Download
         </Button>
@@ -190,6 +238,15 @@ export function Inspector({
           Delete
         </Button>
       </div>
+      {useBrowserDecrypt ? (
+        <div
+          className="ks-field-helper"
+          style={{ marginTop: 8, color: "var(--text-tertiary)" }}
+          title="Ciphertext is fetched directly from Walrus; the gateway never sees plaintext."
+        >
+          Decrypts in your browser — survives platform revoke.
+        </div>
+      ) : null}
       <ConfirmModal
         open={confirmDelete}
         onCancel={() => (deleting ? undefined : setConfirmDelete(false))}
@@ -337,6 +394,65 @@ function PublicUrl({ bucketName, s3Key }: { bucketName: string; s3Key: string })
           tweet, embed it in <code>&lt;img src&gt;</code>.
         </div>
       )}
+    </>
+  );
+}
+
+/**
+ * Generate-then-copy affordance for query-string SigV4 share links.
+ *
+ * Two-step UX rather than a typed URL field: the link contains a fresh
+ * SigV4 signature that's only valid for 5 minutes, so showing a
+ * pre-generated value would be misleading. The user clicks once to
+ * mint, the dashboard copies it straight to the clipboard, and a small
+ * helper line confirms the 5-min window.
+ */
+function ShareLink({ objectId, apiAccessGranted }: { objectId: string; apiAccessGranted: boolean }) {
+  const prepare = usePrepareShareLink();
+  const [copied, setCopied] = useState(false);
+  const { show } = useToast();
+
+  const onGenerate = async () => {
+    if (!apiAccessGranted) return;
+    try {
+      const signed = await prepare.mutateAsync(objectId);
+      await navigator.clipboard.writeText(signed.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 4000);
+    } catch (err) {
+      const message =
+        err instanceof ControlPlaneError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Couldn't create share link.";
+      show({ tone: "error", title: "Share link failed", body: message });
+    }
+  };
+
+  return (
+    <>
+      <div className="ks-codeline" style={{ alignItems: "center" }}>
+        <span style={{ flex: 1, fontSize: 12, color: "var(--text-tertiary)" }}>
+          {copied
+            ? "Copied to clipboard — expires in 5 minutes"
+            : "Click to generate a 5-minute shareable URL"}
+        </span>
+        <button
+          className="icon-btn"
+          onClick={() => void onGenerate()}
+          type="button"
+          title={apiAccessGranted ? "Generate and copy" : "API access is revoked."}
+          aria-label="Generate share link"
+          disabled={!apiAccessGranted || prepare.isPending}
+        >
+          <Icon name={copied ? "info" : "link"} size={14} />
+        </button>
+      </div>
+      <div className="ks-field-helper" style={{ marginTop: 4 }}>
+        Works with anything that takes a URL — <code>curl</code>, <code>&lt;img src&gt;</code>,
+        Slack. Revoking API access invalidates outstanding links immediately.
+      </div>
     </>
   );
 }

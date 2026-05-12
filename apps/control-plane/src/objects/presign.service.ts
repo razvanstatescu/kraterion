@@ -56,6 +56,9 @@ export class PresignService {
   async signDownload(args: {
     accountId: string;
     objectId: string;
+    /** When true, emit a stand-alone shareable URL (query-string SigV4)
+     *  rather than a header envelope. See `sign()` for the contract. */
+    share?: boolean;
   }): Promise<SignedRequest> {
     const object = await this.buckets.getObject(args.accountId, args.objectId);
     const bucket = await this.buckets.getOwned(args.accountId, object.bucket_id);
@@ -66,6 +69,7 @@ export class PresignService {
       bucketName: bucket.name,
       key: object.s3_key,
       creds,
+      share: args.share ?? false,
     });
   }
 
@@ -139,6 +143,16 @@ export class PresignService {
     key: string;
     contentType?: string;
     creds: { akia: string; secret: string };
+    /**
+     * Two output shapes:
+     *   - `false` (default) — header-mode SigV4. URL is plain; auth lives
+     *     in the returned `headers`. Used by the dashboard's own fetch.
+     *   - `true` — query-string SigV4 ("presigned URL"). All auth params
+     *     end up in the URL itself; `headers` comes back empty so the URL
+     *     works in `<img src>`, `curl`, or anywhere else without
+     *     accompanying headers.
+     */
+    share?: boolean;
   }): SignedRequest {
     const gatewayUrl = process.env["GATEWAY_URL"] ?? "http://localhost:4002";
     const parsed = new URL(gatewayUrl);
@@ -148,6 +162,17 @@ export class PresignService {
       .split("/")
       .map((s) => encodeURIComponent(s))
       .join("/")}`;
+
+    if (args.share) {
+      return this.signQueryMode({
+        method: args.method,
+        bucketName: args.bucketName,
+        host: hostHeader,
+        path,
+        urlBase: `${parsed.protocol}//${parsed.host}`,
+        creds: args.creds,
+      });
+    }
 
     const requestHeaders: Record<string, string> = {
       "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
@@ -193,6 +218,54 @@ export class PresignService {
       method: args.method,
       url: `${parsed.protocol}//${parsed.host}${path}`,
       headers: outHeaders,
+      expires_at: expires,
+    };
+  }
+
+  /**
+   * Build a stand-alone shareable URL. `aws4.sign` defaults
+   * `X-Amz-Expires` to 24h for S3 query-mode — we override to 300s so
+   * shared links match the same 5-min window the dashboard uses for
+   * header-mode envelopes. `path` is the unencoded path; aws4 handles
+   * the canonical encoding.
+   */
+  private signQueryMode(args: {
+    method: "PUT" | "GET" | "DELETE";
+    bucketName: string;
+    host: string;
+    path: string;
+    urlBase: string;
+    creds: { akia: string; secret: string };
+  }): SignedRequest {
+    // aws4 reads existing `?X-Amz-Expires=...` from the path's query
+    // string before falling back to its 24h default (see aws4.js where
+    // `parsedPath.query['X-Amz-Expires']` is checked). Embedding the
+    // value directly in `path` is the supported way to override it.
+    const pathWithExpires = `${args.path}?X-Amz-Expires=300`;
+    const signed = aws4.sign(
+      {
+        host: args.host,
+        path: pathWithExpires,
+        method: args.method,
+        service: "s3",
+        region: REGION,
+        signQuery: true,
+        headers: {},
+      },
+      {
+        accessKeyId: args.creds.akia,
+        secretAccessKey: args.creds.secret,
+      },
+    );
+
+    // `signed.path` is the path WITH the appended query string in
+    // query-mode. Append directly to the URL base to preserve it.
+    const url = `${args.urlBase}${signed.path ?? pathWithExpires}`;
+    const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    return {
+      method: args.method,
+      url,
+      headers: {},
       expires_at: expires,
     };
   }

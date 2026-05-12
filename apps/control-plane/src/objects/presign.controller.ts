@@ -3,7 +3,12 @@ import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { requireUser } from "../auth/request-context.js";
 import { parseBody } from "../validation/zod-pipe.js";
-import { type PrepareUploadDto, prepareUploadSchema } from "./dto.js";
+import {
+  type PrepareDownloadDto,
+  type PrepareUploadDto,
+  prepareDownloadSchema,
+  prepareUploadSchema,
+} from "./dto.js";
 import { PresignService } from "./presign.service.js";
 
 /**
@@ -40,9 +45,14 @@ export class PresignController {
   async prepareDownload(
     @Req() req: FastifyRequest,
     @Param("objectId") objectId: string,
+    @Body(parseBody(prepareDownloadSchema.optional().default({ share: false }))) dto: PrepareDownloadDto,
   ) {
     const user = requireUser(req);
-    return this.presign.signDownload({ accountId: user.accountId, objectId });
+    return this.presign.signDownload({
+      accountId: user.accountId,
+      objectId,
+      share: dto.share,
+    });
   }
 
   @Post(":objectId/prepare-delete")

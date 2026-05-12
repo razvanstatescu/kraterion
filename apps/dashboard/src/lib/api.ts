@@ -178,6 +178,9 @@ export interface S3ObjectJson {
   shared_blob_object_id: string;
   storage_end_epoch: number;
   seal_identity_b64: string;
+  /** User-provided `x-amz-meta-*` headers captured at PUT time. Empty
+   *  object → null on the wire to keep the shape minimal. */
+  metadata: Record<string, string> | null;
   uploaded_at: string;
   deleted_at: string | null;
 }

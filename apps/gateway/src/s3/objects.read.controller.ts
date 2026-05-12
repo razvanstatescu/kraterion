@@ -26,12 +26,15 @@
  *
  * Behavior of `Range:` and conditional headers:
  *   We advertise `Accept-Ranges: none`, which per RFC 7233 §3.1 means
- *   "MUST ignore Range." We also silently ignore `If-Match`,
- *   `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since` — RFC
- *   7232 permits ignoring conditionals on resources that don't support
- *   them. The earlier 501 behavior broke `aws s3 sync` (re-downloads on
- *   every run) and boto3's multipart-download fallback. Honoring
- *   `If-None-Match` → 304 is a Phase-6 follow-up.
+ *   "MUST ignore Range." `If-Match`, `If-Modified-Since`,
+ *   `If-Unmodified-Since` are still silently ignored — RFC 7232 permits
+ *   ignoring conditionals on resources that don't support them.
+ *
+ *   `If-None-Match` IS honored: a matching ETag returns 304 with no
+ *   body and no Walrus read — saves bandwidth + decrypt cost for the
+ *   common "did this change?" probe. Accepts both quoted (`"<etag>"`,
+ *   RFC-compliant) and bare (`<etag>`, lenient client) forms. `*`
+ *   matches any current representation per RFC 7232 §3.2.
  *
  * Decryption size cap:
  *   AES-GCM is non-streaming — the auth tag at the end of the ciphertext
@@ -42,6 +45,7 @@
  */
 
 import { Controller, Get, Head, Logger, Req, Res, UseGuards } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -77,6 +81,10 @@ export class ObjectsReadController {
   ): Promise<void> {
     const ctx = requireKraterion(req);
     const { bucketRow, objectRow } = await this.loadObject(ctx);
+    if (ifNoneMatchSatisfied(req.headers["if-none-match"], objectRow.etag)) {
+      sendNotModified(reply, objectRow.etag);
+      return;
+    }
     await this.bytes.serve({ bucket: bucketRow, object: objectRow, reply });
   }
 
@@ -87,6 +95,10 @@ export class ObjectsReadController {
   ): Promise<void> {
     const ctx = requireKraterion(req);
     const { objectRow } = await this.loadObject(ctx);
+    if (ifNoneMatchSatisfied(req.headers["if-none-match"], objectRow.etag)) {
+      sendNotModified(reply, objectRow.etag);
+      return;
+    }
     this.bytes.head({ object: objectRow, reply });
   }
 
@@ -123,4 +135,42 @@ export class ObjectsReadController {
     }
     return { bucketRow, objectRow };
   }
+}
+
+/**
+ * RFC 7232 §3.2 — match the request's `If-None-Match` value against the
+ * resource's current ETag.
+ *
+ * Accepts the canonical quoted form (`"<etag>"`), the bare unquoted form
+ * many real clients send, and the wildcard (`*`, matches any current
+ * representation). Comma-separated lists are split per the spec —
+ * uncommon but valid.
+ */
+function ifNoneMatchSatisfied(
+  header: string | string[] | undefined,
+  currentEtag: string,
+): boolean {
+  if (!header) return false;
+  const raw = Array.isArray(header) ? header.join(",") : header;
+  for (const piece of raw.split(",")) {
+    const candidate = piece.trim().replace(/^W\//, "").replace(/^"(.*)"$/, "$1");
+    if (candidate === "*" || candidate === currentEtag) return true;
+  }
+  return false;
+}
+
+/**
+ * 304 response shape per RFC 7232 §4.1: no body, no `Content-Type`, no
+ * `Content-Length`. Only `ETag`, request-id headers, and `Date` go on the
+ * wire so caches and SDKs can match without parsing a body.
+ */
+function sendNotModified(reply: FastifyReply, etag: string): void {
+  const requestId = randomUUID();
+  void reply
+    .status(304)
+    .header("ETag", `"${etag}"`)
+    .header("x-amz-request-id", requestId)
+    .header("x-amz-id-2", requestId)
+    .header("Date", new Date().toUTCString())
+    .send();
 }

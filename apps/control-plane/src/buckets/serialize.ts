@@ -50,6 +50,8 @@ export interface S3ObjectJson {
   shared_blob_object_id: string;
   storage_end_epoch: number;
   seal_identity_b64: string;
+  /** User-provided `x-amz-meta-*` headers captured at PUT time. */
+  metadata: Record<string, string> | null;
   uploaded_at: string;
   deleted_at: string | null;
 }
@@ -66,7 +68,17 @@ export function serializeObject(o: S3Object): S3ObjectJson {
     shared_blob_object_id: o.shared_blob_object_id,
     storage_end_epoch: o.storage_end_epoch,
     seal_identity_b64: Buffer.from(o.seal_identity).toString("base64"),
+    metadata: filterStringMap(o.metadata),
     uploaded_at: o.uploaded_at.toISOString(),
     deleted_at: o.deleted_at ? o.deleted_at.toISOString() : null,
   };
+}
+
+function filterStringMap(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }

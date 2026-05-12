@@ -168,6 +168,17 @@ model S3Object {
   event_seq     Int?
   event_payload Json?
 
+  // === User metadata ===
+  // S3 `x-amz-meta-*` user-provided headers, captured at PUT time as a
+  // flat string→string map. AWS caps the total serialized form at 2 KiB;
+  // we enforce the same limit at the gateway boundary.
+  //
+  // Writer: the gateway PUT handler, *after* the indexer settles the
+  // event-derived row. This is the one column on `S3Object` that doesn't
+  // flow from a Move event — the on-chain `KraterionObjectCreated` event
+  // doesn't carry metadata because it isn't consensus-critical.
+  metadata    Json?
+
   // === Bookkeeping ===
   uploaded_at DateTime  @default(now())
   deleted_at  DateTime?
