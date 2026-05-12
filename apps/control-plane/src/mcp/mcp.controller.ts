@@ -51,13 +51,16 @@ export class McpController {
 
   @All("mcp")
   async handle(@Req() req: FastifyRequest, @Res({ passthrough: false }) reply: FastifyReply): Promise<void> {
+    const baseUrl = baseUrlFromRequest(req);
+    const resourceUrl = `${baseUrl}/mcp`;
     const principal = await this.auth.authenticate(
       typeof req.headers["authorization"] === "string"
         ? req.headers["authorization"]
         : undefined,
+      resourceUrl,
     );
     if (!principal) {
-      this.write401(reply);
+      this.write401(reply, baseUrl);
       return;
     }
 
@@ -133,13 +136,19 @@ export class McpController {
   }
 
   /**
-   * 401 response shape. The `WWW-Authenticate` header signals MCP
-   * clients that we expect a Bearer token; K3b extends this with
-   * `resource_metadata=` for RFC 9728-aware clients.
+   * 401 response shape. `WWW-Authenticate` carries both the realm and a
+   * `resource_metadata=` link (RFC 9728) so OAuth-aware MCP clients can
+   * discover `/oauth/authorize` and `/oauth/token` without out-of-band
+   * configuration. K3a's API-key clients ignore the metadata link and
+   * fall back to the realm prompt.
    */
-  private write401(reply: FastifyReply): void {
+  private write401(reply: FastifyReply, baseUrl: string): void {
+    const resourceMetadata = `${baseUrl}/.well-known/oauth-protected-resource`;
     reply.raw.statusCode = 401;
-    reply.raw.setHeader("WWW-Authenticate", 'Bearer realm="kraterion-mcp"');
+    reply.raw.setHeader(
+      "WWW-Authenticate",
+      `Bearer realm="kraterion-mcp", resource_metadata="${resourceMetadata}"`,
+    );
     reply.raw.setHeader("Content-Type", "application/json");
     reply.raw.end(
       JSON.stringify({
@@ -147,11 +156,29 @@ export class McpController {
         error: {
           code: -32001,
           message:
-            "Missing or invalid bearer credentials. Send " +
-            'Authorization: Bearer "<AKIA>:<secret>" from a non-revoked Kraterion API key.',
+            "Missing or invalid bearer credentials. Either send " +
+            'Authorization: Bearer "<AKIA>:<secret>" from a non-revoked ' +
+            "Kraterion API key, or complete the OAuth flow advertised at " +
+            "the resource_metadata URL.",
         },
         id: null,
       }),
     );
   }
+}
+
+/**
+ * Resource URL the OAuth `aud` claim must match (RFC 8707). Derived
+ * from the request so localhost dev and production-behind-proxy both
+ * work; relies on the gateway/dashboard sharing the same LB so
+ * `x-forwarded-*` is trusted.
+ */
+function baseUrlFromRequest(req: FastifyRequest): string {
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol ?? "http";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ??
+    (req.headers["host"] as string | undefined) ??
+    "localhost:4001";
+  return `${proto}://${host}`;
 }

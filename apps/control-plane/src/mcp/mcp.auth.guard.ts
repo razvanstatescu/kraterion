@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { timingSafeEqual } from "node:crypto";
 import { KeyWrappingService } from "../auth/key-wrapping.service.js";
+import { OAuthService } from "../oauth/oauth.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import type { McpPrincipal } from "./mcp.types.js";
+import type { McpPrincipal, McpScope } from "./mcp.types.js";
 
 /**
  * Pluggable MCP auth guard.
@@ -42,27 +43,59 @@ export class McpAuthGuard {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keyWrapping: KeyWrappingService,
+    private readonly oauth: OAuthService,
   ) {}
 
   /**
    * Resolve the principal for an MCP request, or return null if the
    * `Authorization` header is missing / malformed / invalid.
    *
+   * Dispatch:
+   *   - JWT (`eyJ`-prefixed) → K3b OAuth branch. Validates signature,
+   *     `aud` against the live MCP URL (RFC 8707), and `exp`.
+   *   - Anything else → K3a API-key branch (`<AKIA>:<secret>`).
+   *
    * Returning null instead of throwing keeps the controller's 401
    * response handling in one place (auth guard branch in the
    * controller's `handle()` early-return).
    */
-  async authenticate(authorizationHeader: string | undefined): Promise<McpPrincipal | null> {
+  async authenticate(
+    authorizationHeader: string | undefined,
+    expectedAudience: string,
+  ): Promise<McpPrincipal | null> {
     if (!authorizationHeader) return null;
     const match = /^Bearer\s+(.+)$/i.exec(authorizationHeader.trim());
     if (!match) return null;
     const token = match[1]!.trim();
     if (!token) return null;
 
-    // Future: detect `eyJ`-prefixed JWTs and dispatch to the K3b
-    // OAuth branch here. For K3a the bearer is always an API-key pair.
-
+    // JWTs always start with the base64url of `{"alg":...}` which is
+    // `eyJ`. Detection is cheap; if the parse / verify fails we
+    // return null and the controller serves 401.
+    if (token.startsWith("eyJ") && token.split(".").length === 3) {
+      return this.authenticateOAuth(token, expectedAudience);
+    }
     return this.authenticateApiKey(token);
+  }
+
+  private async authenticateOAuth(
+    token: string,
+    expectedAudience: string,
+  ): Promise<McpPrincipal | null> {
+    try {
+      const payload = await this.oauth.verifyAccessToken(token, expectedAudience);
+      const scopes = parseScopes(payload.scope);
+      if (scopes.length === 0) return null;
+      return {
+        account_id: payload.sub,
+        project_id: payload.project_id,
+        user_id: payload.sub,
+        scopes,
+      };
+    } catch (err) {
+      this.logger.debug(`OAuth token invalid: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   private async authenticateApiKey(token: string): Promise<McpPrincipal | null> {
@@ -109,4 +142,18 @@ export class McpAuthGuard {
       scopes: ["mcp:*"],
     };
   }
+}
+
+const KNOWN_MCP_SCOPES: ReadonlySet<McpScope> = new Set([
+  "mcp:read",
+  "mcp:write",
+  "mcp:ask",
+  "mcp:*",
+]);
+
+function parseScopes(scope: string | undefined): McpScope[] {
+  if (!scope) return [];
+  return scope
+    .split(/\s+/)
+    .filter((s): s is McpScope => KNOWN_MCP_SCOPES.has(s as McpScope));
 }

@@ -473,3 +473,75 @@ model IndexerDeadLetter {
   @@unique([source_id, tx_digest, event_seq])
   @@index([source_id, status])
 }
+
+// === MCP OAuth (K3b) ===
+//
+// Two tables enabling RFC 7591 Dynamic Client Registration + OAuth 2.1
+// authorization-code flow with PKCE + RFC 8707 Resource Indicators.
+//
+// Tokens themselves are JWTs (not DB-backed) — the verifier checks
+// signature + `aud` + `exp` offline. The DB only stores the
+// client registration metadata and the short-lived authorization
+// codes (which DO need a DB lookup because the spec mandates
+// single-use codes).
+//
+// See `docs/ai-features-plan.md` §6.4.2 and the 2026-05-12 K3b ADR
+// in `docs/decisions.md` for the architecture rationale.
+
+model OAuthClient {
+  // RFC 7591 anonymous Dynamic Client Registration. Returned to the
+  // MCP client at registration time; it carries the value in every
+  // subsequent /authorize and /token call.
+  id            String    @id @default(uuid())
+  client_id     String    @unique
+  // Free-form name supplied by the client (`Cursor`, `Claude Desktop`,
+  // etc.). Surfaces on the consent screen so the user knows what
+  // they're approving.
+  client_name   String?
+  // PKCE clients can have multiple redirect URIs. We validate the
+  // submitted redirect_uri at /authorize time against this set.
+  redirect_uris String[]
+  // Lifecycle. `last_used_at` updates on every token exchange;
+  // garbage-collection by age is a post-hackathon worker.
+  created_at    DateTime  @default(now())
+  last_used_at  DateTime?
+  // No client_secret column — MCP-spec public clients use PKCE,
+  // never a secret.
+
+  @@index([last_used_at])
+}
+
+model OAuthGrant {
+  // Authorization code, single-use. We row-insert at /authorize and
+  // row-update with `consumed_at` at /token (with a guard against
+  // double-spend). After consume the row stays for a short window
+  // (so a curious second /token attempt gets a "code already used"
+  // error rather than a 404) then is GC'd.
+  id             String    @id @default(uuid())
+  client_id      String // FK reference is logical only — the
+  // anonymous DCR client could be GC'd; we
+  // store the id for audit.
+  // Resolved at /authorize via the user's CP session. The /token
+  // exchange mints a JWT with `sub=account_id` so the MCP guard can
+  // resolve the principal symmetrically with the bearer path.
+  account_id     String
+  // Project the grant is scoped to. The dashboard's consent UI picks
+  // this (single-project today; multi-project consent is post-K3b).
+  project_id     String
+  scopes         String[] // e.g. ["mcp:read","mcp:write","mcp:ask"]
+  code           String    @unique
+  // PKCE S256: the SHA-256 hash of the verifier, sent at /authorize.
+  // We compare against `sha256(verifier)` at /token.
+  code_challenge String
+  // RFC 8707: the resource (MCP URL) this token is for. The /token
+  // response embeds this as the JWT `aud` claim; the MCP guard
+  // rejects tokens whose `aud` doesn't match the live request.
+  resource       String
+  redirect_uri   String
+  created_at     DateTime  @default(now())
+  consumed_at    DateTime?
+  expires_at     DateTime // 60s typical — short-lived by RFC 7636
+
+  @@index([client_id])
+  @@index([account_id])
+}

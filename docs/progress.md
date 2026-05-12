@@ -2161,3 +2161,112 @@ _Calendar weeks anchored in `docs/timeline.md`._
     manifest archive isn't built yet).
 
 ---
+
+
+## 2026-05-12 — [k3b] OAuth 2.1 + PKCE + DCR + RFC 9728 live on /mcp
+
+  Pluggable auth on `/mcp` now covers both branches the plan called
+  out. The K3a bearer path is untouched; OAuth tokens land alongside
+  it through the same `McpPrincipal` contract.
+
+  **What shipped:**
+
+  - Two new tables:
+    - `OAuthClient { client_id, client_name, redirect_uris[] }` —
+      one row per DCR-registered MCP client (Claude Desktop instance,
+      Cursor instance, etc).
+    - `OAuthGrant { code, code_challenge, scopes[], resource,
+      account_id, project_id, redirect_uri, expires_at,
+      consumed_at }` — short-lived authorization codes, single-use.
+      Double-spend revokes the issued token (denylist follow-up
+      tracked in decisions.md).
+  - `OAuthService` + `OAuthController` under
+    `apps/control-plane/src/oauth/`:
+    - `POST /oauth/register` — RFC 7591 DCR, anonymous, no
+      client_secret (public PKCE clients only).
+    - `GET /oauth/authorize` — validates `response_type=code`,
+      `client_id`, `redirect_uri`, `code_challenge`+`S256`,
+      `resource`, `scope`. Stashes the request under an opaque UUID
+      and 302s to `${DASHBOARD_ORIGIN}/oauth/consent?request_id=...`.
+    - `GET /oauth/authorize/state` — CP-session-gated; returns the
+      stashed request's display fields (client_name, scopes,
+      redirect_uri, resource) for the consent UI. Re-fetching here
+      means a tampered URL still hits validated state.
+    - `POST /oauth/authorize/decision` — CP-session-gated; mints the
+      auth code, marks the stash consumed, returns the redirect URL
+      the dashboard should bounce the user to.
+    - `POST /oauth/token` — PKCE S256 verifier check, audience match
+      against the stored `resource`, returns HS256 access JWT.
+      Accepts `application/x-www-form-urlencoded` (the OAuth 2.1
+      §4.1.3 default for Claude Desktop / Cursor).
+    - `GET /.well-known/oauth-protected-resource` (RFC 9728) and
+      `GET /.well-known/oauth-authorization-server` (RFC 8414).
+  - Pluggable auth guard:
+    `McpAuthGuard.authenticate(authorizationHeader, expectedAudience)`
+    now branches on token shape — `eyJ`-prefixed + 3 segments routes
+    to the OAuth verifier (`verifyAccessToken` checks signature,
+    `iss`, `aud === resource URL`, `exp`, `typ === "kraterion.mcp+jwt"`,
+    and returns parsed scopes). Anything else stays on the K3a
+    AKIA:secret path.
+  - MCP controller now derives `resource = ${baseUrl}/mcp` from the
+    request (honoring `x-forwarded-*`) and passes it as the audience.
+    The 401 response carries
+    `WWW-Authenticate: Bearer realm="kraterion-mcp",
+    resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`
+    so RFC 9728-aware clients discover the OAuth flow automatically.
+  - Dashboard `/oauth/consent` page under `(app)` (RequireAuth
+    applies). Fetches the stashed request via
+    `GET /oauth/authorize/state`, shows the client name, requested
+    scopes (with friendly copy), and the redirect URI. Approve/Deny
+    `POST`s to `/oauth/authorize/decision` and navigates to the
+    returned redirect URL — the MCP client receives `?code=...` and
+    completes the flow with `POST /oauth/token`.
+
+  **Smoke verification:**
+
+  - `GET /.well-known/oauth-protected-resource` → 200, lists
+    `authorization_servers`, `bearer_methods_supported`,
+    `scopes_supported`.
+  - `GET /.well-known/oauth-authorization-server` → 200, lists
+    `authorization_endpoint`, `token_endpoint`,
+    `registration_endpoint`, `code_challenge_methods_supported:
+    ["S256"]`, `token_endpoint_auth_methods_supported: ["none"]`.
+  - `POST /oauth/register {redirect_uris, client_name, scope}` → 201
+    with `client_id`.
+  - `GET /oauth/authorize` with valid params → 302 to dashboard
+    `${DASHBOARD_ORIGIN}/oauth/consent?request_id=...`.
+  - `GET /oauth/authorize` with bogus client_id → 400.
+  - `POST /oauth/token` with form-encoded body + bad code → 400
+    `{"error":{"code":"InvalidArgument","message":"Unknown
+    authorization code."}}` (parser path verified).
+  - `POST /mcp` with no Authorization → 401, header includes
+    `resource_metadata="…/.well-known/oauth-protected-resource"`.
+
+  **Bug fixed during bootstrap (logged for the runbook):** Nest's
+  FastifyAdapter already registers an `application/x-www-form-urlencoded`
+  parser internally. Adding our own raised
+  `FST_ERR_CTP_ALREADY_PRESENT` at boot. The default parser already
+  produces a plain object usable by our Zod validator — no custom
+  parser needed.
+
+  **Prisma footgun (logged):** when adding `OAuthClient` + `OAuthGrant`,
+  `prisma migrate dev` auto-generated `DROP INDEX` for the K1 GIN +
+  K2 HNSW indexes (it doesn't see hand-edited
+  `CREATE INDEX ... USING hnsw` from earlier migrations as part of
+  the live schema) and tried to drop the `content_tsv` GENERATED
+  column default. Fix: `prisma migrate resolve --rolled-back`, hand
+  trim the migration SQL down to the OAuth DDL only, `prisma migrate
+  deploy`. Both retrieval indexes preserved.
+
+  **Out of scope / follow-ups:**
+  - Multi-process CP needs Redis-backed authorize stash + JWT
+    denylist for revocation. One-day each, not hackathon blockers
+    (see `decisions.md` — "K3b: HS256 + in-memory authorize stash").
+  - Refresh tokens. Plan punts these post-hackathon; DCR + 15-min
+    access tokens cover the demo flows.
+  - End-to-end browser smoke (DCR → consent click → token → /mcp
+    with the issued JWT). The curl smoke covers every step except
+    the consent click; a manual run with Claude Desktop or Cursor
+    is the natural validation.
+
+---

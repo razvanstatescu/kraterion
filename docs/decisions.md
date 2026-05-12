@@ -2373,3 +2373,47 @@ auth-scheme-agnostic.
     it for the architectural cleanliness.
 
 ---
+
+## 2026-05-12 — K3b: HS256 + in-memory authorize stash (correction to K3b plan)
+
+**Status:** Decided + implemented.
+
+**Context:** The K3b plan (decision above, 2026-05-12) called for
+EdDSA-signed tokens and an `oauth_signer` sub-wallet pattern. While
+implementing, two of those choices turned out to be premature.
+
+**Decision 1: HS256, not EdDSA.** The CP is the only verifier of MCP
+access tokens today (the auth guard runs in the same process that
+signs). HS256 with the existing `JWT_SECRET` env var is the same key
+surface the dashboard session JWTs already use — one secret, one
+verifier. EdDSA is the right call once a separate gateway or worker
+needs to verify these tokens offline; swapping in a keypair is a
+one-line change in `OAuthService.signAccessToken()`.
+
+**Decision 2: in-memory authorize stash, not Redis (yet).** The
+authorize-request stash bridges the CP-side validation step
+(`GET /oauth/authorize`) and the dashboard-side consent step
+(`POST /oauth/authorize/decision`). The window is bounded (5 min TTL)
+and bouncing the CP between the two is recoverable — the user gets
+sent back to /authorize, not destroyed state. A `Map<request_id, ...>`
+in the `OAuthService` instance is enough for a single-replica
+hackathon deploy; production replaces it with `RedisModule.set(... PX
+... NX)` and that is one edit.
+
+**Decision 3: `typ: "kraterion.mcp+jwt"` claim.** Dashboard session
+JWTs and MCP access JWTs are both HS256 against the same secret. The
+`typ` claim is the discriminator the MCP guard checks — without it,
+a stolen dashboard JWT would unlock the MCP surface and vice versa.
+The auth guard fails closed on a missing or mismatched `typ`.
+
+**Consequences:**
+
+- No `oauth_signer` sub-wallet row. The K0 bootstrap script doesn't
+  need to provision it.
+- A multi-process CP deploy needs Redis for the authorize stash and
+  a JWT denylist for revocation. Both are one-day follow-ups, not
+  hackathon blockers.
+- The MCP guard cross-checks `typ` *before* `aud` and `exp`, so the
+  cheapest comparison runs first.
+
+---

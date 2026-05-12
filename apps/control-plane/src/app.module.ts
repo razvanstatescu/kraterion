@@ -10,6 +10,7 @@ import { FoldersModule } from "./folders/folders.module.js";
 import { HealthController } from "./health.controller.js";
 import { KnowledgeModule } from "./knowledge/knowledge.module.js";
 import { McpModule } from "./mcp/mcp.module.js";
+import { OAuthModule } from "./oauth/oauth.module.js";
 import { ObjectsModule } from "./objects/presign.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
@@ -30,6 +31,7 @@ import { SuiClientModule } from "./sui/sui-client.module.js";
     FoldersModule,
     ActivityModule,
     KnowledgeModule,
+    OAuthModule,
     McpModule,
   ],
   controllers: [HealthController],
