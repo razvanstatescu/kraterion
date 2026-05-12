@@ -21,6 +21,7 @@
     "@kraterion/seal-client": "workspace:*",
     "@kraterion/shared": "workspace:*",
     "@kraterion/walrus-client": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mysten/enoki": "^1.0.7",
     "aws4": "^1.13.2",
     "@mysten/sui": "^2.16.2",

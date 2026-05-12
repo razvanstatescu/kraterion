@@ -33,5 +33,8 @@ import { KnowledgeService } from "./knowledge.service.js";
   ],
   controllers: [KnowledgeController],
   providers: [KnowledgeService],
+  // Re-export so `McpModule` (K3a) can inject `KnowledgeService` into
+  // `McpToolsService` for the search/ask MCP tools.
+  exports: [KnowledgeService],
 })
 export class KnowledgeModule {}

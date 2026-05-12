@@ -2051,3 +2051,113 @@ _Calendar weeks anchored in `docs/timeline.md`._
     `apps/control-plane/src/activity/` aggregation).
 
 ---
+
+## 2026-05-12 — [k3a] MCP server live: bearer auth + 7 tools, hosted at /mcp
+
+  Any MCP-aware agent (Claude Desktop, Cursor, Cline, Vercel AI SDK
+  clients, custom Anthropic-SDK harness) can now connect to Kraterion
+  by POSTing a Kraterion API-key pair as a Bearer token. The seven
+  tools called out in `docs/ai-features-plan.md` §2.2 are live and
+  verified end-to-end.
+
+  **What landed:**
+
+  - **`@modelcontextprotocol/sdk@^1.29.0`** added as a CP dep. Uses
+    the `McpServer` + `StreamableHTTPServerTransport` high-level API.
+    No new runtime (no separate process; no `npx` package); the
+    transport is mounted as `@All("mcp")` on the existing Fastify
+    listener.
+
+  - **`apps/control-plane/src/mcp/`** (new module):
+    - `mcp.module.ts` — imports `BucketsModule`, `KnowledgeModule`,
+      `ObjectsModule`. Provides `McpAuthGuard`, `McpToolsService`,
+      and a local `KeyWrappingService`.
+    - `mcp.controller.ts` — `@All("mcp")` route. Authenticates,
+      builds a fresh `McpServer` per request, registers the seven
+      tools, hands `req.raw` + `req.body` to
+      `transport.handleRequest()`. **Stateless mode** (no
+      `sessionIdGenerator`) — POSTs are self-contained JSON-RPC.
+    - `mcp.tools.ts` — every tool calls existing in-process services
+      (`BucketsService`, `KnowledgeService`, `PresignService`,
+      `Prisma`). `read_object` / `write_object` route through the
+      gateway via CP-signed SigV4 envelopes server-to-server so
+      the agent never holds an S3 secret.
+    - `mcp.auth.guard.ts` — pluggable per §6.4.0. K3a branch parses
+      `Authorization: Bearer <AKIA>:<secret>`, looks up the
+      `ApiKey` row by AKIA (O(1) via unique index), KMS-unwraps the
+      secret, `timingSafeEqual` compares. Returns
+      `McpPrincipal{ account_id, project_id, api_key_id,
+      scopes:['mcp:*'] }` or null. The K3b OAuth-JWT branch slots
+      in here without touching tool code.
+    - `mcp.types.ts` — `McpPrincipal` + `McpScope` + `principalSatisfies`
+      helper. `mcp:*` short-circuits any scope check, so K3a tool
+      handlers never branch on scope.
+
+  - **Seven tools registered** (names match `docs/ai-features-plan.md`
+    §2.2 verbatim):
+    - `kraterion.list_buckets`
+    - `kraterion.list_objects(bucket, prefix?, limit?)`
+    - `kraterion.search(bucket, query, top_k?)` — calls
+      `KnowledgeService.search` (hybrid BM25+vector+RRF) + writes
+      a `KnowledgeQuery` audit row.
+    - `kraterion.ask(bucket, query, openai_api_key, model?, top_k?)`
+      — BYO-key per K2 decision. Same retrieval + LLM step as the
+      REST `/ask`.
+    - `kraterion.read_object(bucket, key)` — proxies through gateway
+      via `PresignService.signDownload`. 1 MiB cap. UTF-8 content
+      types decoded inline; binary returned as base64.
+    - `kraterion.write_object(bucket, key, content, content_type?)`
+      — proxies through gateway via `PresignService.signUpload`.
+      5 MiB cap. Returns ETag.
+    - `kraterion.get_manifest(bucket, key)` — current Knowledge
+      manifest. Walrus blob fields surface here; populated by K5.
+
+  - **401 + forward-compatible `WWW-Authenticate` header.** Missing or
+    invalid bearer returns
+    `WWW-Authenticate: Bearer realm="kraterion-mcp"`. K3b extends
+    with `resource_metadata="..."` (RFC 9728) without controller
+    changes.
+
+  - **Module exports tightened.** `KnowledgeModule` now exports
+    `KnowledgeService`; `ObjectsModule` exports `PresignService`.
+    `McpModule` consumes both. Same pattern other CP cross-module
+    deps already use.
+
+  **Verification:**
+
+  - `POST /mcp` no auth → `HTTP 401 + WWW-Authenticate: Bearer
+    realm="kraterion-mcp"` + JSON-RPC error body with a help message.
+  - Fresh minted API key (`AKIA…ORF5:JB5A…1VG`):
+    - MCP `initialize` → server announces `kraterion-mcp` v0.1.0
+      with `tools.listChanged: true`.
+    - MCP `tools/list` → all seven tools with their input schemas
+      and descriptions.
+    - MCP `tools/call` `kraterion.list_buckets` → returns
+      `test-bucket` (correctly project-scoped to the API key's project).
+    - MCP `tools/call` `kraterion.search bucket="test-bucket"
+      query="Seal envelope encryption" top_k=3` → 1 hit on
+      `k1-smoke.txt`, rrf=0.0328, vector_distance=0.633, bm25=0.1125,
+      latency 1.5s (cold; subsequent calls ~250ms).
+    - MCP `tools/call` `kraterion.get_manifest` → manifest with
+      `status=indexed, chunk_count=1, embedding_tokens=156`.
+    - `POST /v1/api-keys/<id>/revoke` then re-POST `/mcp` with the
+      same bearer → immediate `HTTP 401`. Revocation is the same
+      lever as everything else.
+
+  **Bug fixed during smoke (logged for the runbook):** the SDK's
+  `StreamableHTTPServerTransportOptions.sessionIdGenerator` is
+  declared optional but with `exactOptionalPropertyTypes: true` you
+  can't pass `undefined` literally. **Omit the field** to enable
+  stateless mode; passing `undefined` is a type error.
+
+  **Out of scope (deferred to K3b / K4 / K5):**
+  - OAuth 2.1 + PKCE + DCR + RFC 9728 (K3b). Same `/mcp` route, same
+    `McpPrincipal` contract; only the auth guard's
+    `authenticate(token)` gains the `eyJ`-prefixed JWT branch. K3a's
+    `WWW-Authenticate` stub will then carry `resource_metadata=...`.
+  - Dashboard "Connect an agent" panel with copy-paste snippets
+    (K4).
+  - `walrus_blob_id` in `get_manifest` output (K5 — the on-Walrus
+    manifest archive isn't built yet).
+
+---

@@ -8,5 +8,8 @@ import { PresignService } from "./presign.service.js";
   imports: [BucketsModule, ApiKeysModule],
   controllers: [PresignController],
   providers: [PresignService],
+  // Re-export so `McpModule` (K3a) can inject `PresignService` into
+  // `McpToolsService` for the read_object / write_object MCP tools.
+  exports: [PresignService],
 })
 export class ObjectsModule {}
