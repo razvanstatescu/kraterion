@@ -529,6 +529,7 @@ code, kbd, samp {
 }
 .ks-codeline {
   display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
   padding: 8px 10px;
   background: var(--stone-50);
   border: 1px solid var(--border);
@@ -536,7 +537,18 @@ code, kbd, samp {
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
+.ks-codeline > span { min-width: 0; }
+
+/* Inspector content overflow guardrails — without these the grid + flex
+ * containers inside `.ks-inspector` default to `min-width: auto` and
+ * grow with their content (long URLs, share links) past the 400px
+ * panel width. */
+.ks-inspector div { min-width: 0; }
+.ks-inspector .ks-field-helper { overflow-wrap: anywhere; word-break: break-word; }
 .ks-codeline.mono { font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace; }
 
 /* Code block */

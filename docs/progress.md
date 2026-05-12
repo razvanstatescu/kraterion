@@ -1687,3 +1687,58 @@ _Calendar weeks anchored in `docs/timeline.md`._
   `/settings`) prerender or stream as expected.
 
 ---
+
+## Week 1 (May 7–13) — direction (cont.)
+
+- `[docs]` 2026-05-12 — **AI workstream scoped.** After the Walrus
+  handbook tilted heavily toward AI agents and after a research pass
+  into MemWal's architecture, MCP TypeScript SDK 1.29, pgvector / HNSW
+  / halfvec, and 2026 chunking practice, drafted
+  `/docs/ai-features-plan.md` — a phased plan (K0…K6, 10–14 days total)
+  to layer "knowledge buckets" on top of the existing S3 surface
+  without changing any current shape. Highlights:
+  - **K0:** factor `packages/object-bytes` out of
+    `apps/gateway/src/s3/object-bytes.service.ts` so the worker can
+    decrypt objects through the same Seal+Walrus pipeline the gateway
+    uses; enable pgvector in dev compose; new `knowledge_indexer`
+    sub-wallet role.
+  - **K1:** BullMQ-backed embeddings module in `apps/worker`. Hook into
+    `ObjectCreatedHandler` (the only edit to an existing file): if the
+    parent bucket has a `KnowledgeBucketSettings` row, enqueue. Worker
+    chunks (recursive 400 tokens / 60 overlap), embeds via OpenAI
+    `text-embedding-3-small` at 1024 dims, writes a halfvec(1024)
+    chunk row, and a manifest row. Skips unsupported MIME types
+    silently.
+  - **K2:** new `apps/control-plane/src/knowledge/` module exposing
+    `POST /v1/buckets/:id/knowledge` (enable/disable),
+    `POST /v1/buckets/:id/search` (vector retrieval), and
+    `POST /v1/buckets/:id/ask` (RAG over the search results, BYO LLM
+    key). Honors the existing `api_access_granted` flag — revoking the
+    bucket kills search instantly, same lever as the gateway.
+  - **K3:** new `packages/mcp-server` shipping `npx @kraterion/mcp`.
+    MCP TypeScript SDK 1.29; stdio for local agents (Claude Desktop,
+    Cursor, Cline) and Streamable-HTTP for remote/hosted ones (the Nov
+    2025 spec replacement for SSE). Bearer-token auth using the
+    existing Kraterion API key secret. Seven tools wrapping the
+    control-plane REST + gateway S3 paths. OAuth 2.1 + PKCE noted as
+    a post-hackathon item.
+  - **K4:** one new Knowledge tab on the bucket detail page —
+    toggle, index status, live query box, and a "Connect an agent"
+    panel with copy-paste snippets for Claude Desktop / Cursor /
+    `curl`. Reuses every existing design-system primitive; no new
+    tokens, no emoji, sentence case.
+  - **K5:** archive each per-object embedding manifest (JSON: model id,
+    chunk hashes, chunking params, source blob id) as a Walrus
+    SharedBlob owned by the same on-chain bucket as the source. The
+    "verifiable retrieval" hook — the knowledge base is reproducible
+    from on-chain artifacts after a Postgres wipe.
+  - **K6:** demo rehearsal. Demo arc rewritten in §2.3 of the plan
+    around the upgraded surface; both plot twists
+    (cancel-subscription, revoke-API) survive intact and now operate
+    on the knowledge base, not just a file list.
+  - **Decisions:** appended a 2026-05-12 ADR to `decisions.md`
+    capturing the option set (MemWal-relayer fork rejected; complement
+    via Walrus-archived manifests instead) and the per-bucket model
+    choice. No code shipped yet — next session picks up at Phase K0.
+
+---

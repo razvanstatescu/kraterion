@@ -2044,3 +2044,174 @@ bug in the wild (per Mysten's own demo PRs).
   hook names are preserved). Bounded.
 
 ---
+
+## 2026-05-12 — Layer an AI/agent surface on top of S3 (knowledge buckets + MCP)
+
+**Status:** Accepted (Draft, see `/docs/ai-features-plan.md` for the
+full plan)
+
+**Context:** Walrus published the track problem statement and tilted hard
+toward AI agents — long-term verifiable memory, multi-agent workflows,
+artifact-driven systems, MemWal. Our pitch as-shipped ("S3 with
+SharedBlobs + Seal + revocation") is strong infra but reads off-axis from
+that brief. Two options surfaced: (a) reframe-only with a thin demo
+overlay, (b) build a real agent surface on top. After researching MemWal's
+architecture (relayer-centric, no storage-adapter interface — integration
+would mean forking the relayer, ~1–2 weeks plus drift risk), the cleanest
+path is (b): a *complementary* product surface, not a fork.
+
+**Decision:** Ship "knowledge buckets" as an opt-in flag on existing
+buckets. PUTs auto-embed via a new BullMQ queue inside `apps/worker`.
+`/v1/buckets/{id}/search` and `/ask` on the control plane. The MCP
+surface is **hosted on the control plane** as `POST /mcp` (Streamable
+HTTP transport per the MCP November 2025 spec), bearer-authed with
+existing Kraterion API key secrets — no `npx` package, no install step.
+Per-object embedding manifests get archived as Walrus SharedBlobs owned
+by the same on-chain bucket as the source — that's the "verifiable
+retrieval" line that differentiates from every other S3-on-Walrus
+submission and complements MemWal (which sits at the semantic-memory
+layer, not the corpus-over-files layer). pgvector with HNSW + halfvec
+stays in our existing Postgres; no new datastore. OpenAI
+`text-embedding-3-small` at 1024 dims by default; recursive chunking at
+400 tokens / 60 overlap. BYO LLM key for `/ask`.
+
+**Rejected:**
+
+- *Fork the MemWal relayer to route through Kraterion.* Strong story
+  ("MemWal-on-Kraterion-buckets") but ~1 week minimum, owning a fork of a
+  Mysten-maintained service for the demo window, and ongoing drift.
+  Kept as a future-roadmap bullet, not a hackathon line item.
+- *Build a separate vector database.* pgvector handles our scale (1k–10k
+  chunks per bucket) with one less service to operate.
+- *Per-object LLM proxying for `/ask`.* The caller (agent or dashboard
+  power user) brings the key. We don't want to manage a billing
+  relationship for inference inside the hackathon window.
+- *Add a new Move event for manifests up front.* Manifests are Walrus
+  blobs referenced from Postgres in v1; a `KnowledgeManifestPublished`
+  on-chain event is a stretch item (§6.7 of the plan), not the critical
+  path. Move package upgrades are the most expensive thing in the build,
+  and the manifest's existence is already verifiable from Walrus.
+- *Reusing the gateway for embedding.* The gateway's PUT path is hot
+  (sub-second budget per `apps/gateway/CLAUDE.md`). Embeddings depend on
+  third-party APIs and can take 4–10s per document. The worker app's
+  brief already isolates "long-running, network-heavy" work; embedding
+  fits there cleanly.
+- *Distributing the MCP server as a local `npx` package.* The MCP Nov
+  2025 spec made Streamable HTTP first-class and every major MCP client
+  (Claude Desktop, Cursor, Cline) now supports remote servers natively.
+  A local package would add an install step that hurts the demo,
+  duplicate auth + tool-dispatch logic that already lives in the
+  control plane, and carry a separate release cadence. Hosting `/mcp`
+  on the control plane is simpler (~1.5 days vs ~3), keeps auth on the
+  existing bearer/API-key path, and lets revocation use the same lever
+  as the rest of the surface. A thin `packages/mcp-cli` wrapper is a
+  post-hackathon stretch item if anyone ever wants keychain-stored
+  secrets or fully-offline operation.
+
+**Consequences:**
+
+- Demo arc keeps both plot twists (cancel-subscription, revoke-API) and
+  upgrades the surface they operate on from a file list to a knowledge
+  base. The narrative becomes louder, not weaker.
+- The `api_access_granted` flag on `Bucket` continues to be the single
+  revocation lever — it now also short-circuits search/ask, which is the
+  exact UX we want.
+- A small refactor in K0 factors the Seal+Walrus decrypt pipeline out of
+  `apps/gateway/src/s3/object-bytes.service.ts` into
+  `packages/object-bytes`, so the worker can share the read path. That
+  refactor pays off the moment any future service needs plaintext.
+- Net new code: ~4 new Prisma tables, one new control-plane module, one
+  new worker module, one new package (`mcp-server`), one new dashboard
+  tab. Zero changes to existing schema columns, S3 surface shape, or
+  Move modules.
+- Adds a runtime dependency on OpenAI's embeddings API. Mitigated by
+  exposing a `LocalEmbedder` interface and shipping a bge-small backup
+  via `@xenova/transformers` if the demo can't rely on the network.
+- Per-bucket embedding model is recorded in `KnowledgeBucketSettings` so
+  a future model change is opt-in per bucket; old chunks stay queryable
+  with their original model. Cross-bucket queries stay out of scope.
+
+---
+
+## 2026-05-12 — MCP server auth: dual model (bearer + OAuth 2.1), ship in two phases
+
+**Status:** Accepted (target: ship both for hackathon; OAuth is
+cuttable if K0–K2 or K4 slip — see `/docs/ai-features-plan.md` §6.4
+and §8)
+
+**Context:** The 2026 MCP spec mandates OAuth 2.1 + PKCE + DCR + RFC
+9728 Protected Resource Metadata + RFC 8707 Resource Indicators for
+*public remote* MCP servers. Bearer-token auth is still allowed for
+*private remote* MCP servers and is what every CI/scripted/unattended
+workflow actually wants. Comparable products ship both: Linear and
+Stripe accept OAuth and API key bearer; GitHub accepts OAuth and PAT;
+Notion is OAuth-only and as a result excludes scripted callers. The
+question is whether to ship one or both for the hackathon.
+
+**Decision:** Ship both, behind a pluggable auth guard on `/mcp`:
+
+- **K3a — bearer-token (required for hackathon, ~1.5 days).** Uses
+  existing Kraterion API key secrets as bearer tokens. Stub
+  `WWW-Authenticate: Bearer realm="kraterion-mcp"` on 401 leaves room
+  for K3b to extend the header with `resource_metadata="..."` without
+  any churn.
+- **K3b — OAuth 2.1 (target for hackathon, ~2–3 days, cuttable).**
+  Self-hosted Authorization Server inside the control plane.
+  `/oauth/authorize`, `/oauth/token`, `/oauth/register` (DCR, public
+  clients only — no `client_secret`), `/oauth/revoke`.
+  `/.well-known/oauth-protected-resource` (RFC 9728) and
+  `/.well-known/oauth-authorization-server` (RFC 8414). RFC 8707
+  `resource` parameter on token requests; `aud` validation on every
+  MCP request. Three scopes: `mcp:read`, `mcp:write`, `mcp:ask`.
+
+Token dispatch by shape: tokens starting with `eyJ` go through the
+JWT validator (OAuth path); everything else goes through the API-key
+HMAC-fingerprint lookup. Both paths resolve to the same
+`McpPrincipal { project_id, scopes }` so tool implementations are
+auth-scheme-agnostic.
+
+**Rejected:**
+
+- *Bearer only.* Closes the door on the Anthropic Connector
+  marketplace, Cursor's MCP catalog, and any agent that only
+  implements OAuth. Long-term wrong even if short-term cheap.
+- *OAuth only.* Breaks every script/CI/unattended-agent flow where an
+  interactive consent screen is a non-starter. Notion's mistake.
+- *Vendored OAuth (WorkOS AuthKit, Stytch, Clerk).* Each ships a
+  drop-in MCP-aware OAuth provider in 2026; ~half a day to integrate
+  vs ~2 days self-hosted. Rejected because adding a vendor on the
+  auth path is the hardest thing to walk back later, and the
+  self-hosted flow re-uses identity primitives we already have
+  (Account, zkLogin, sessions). Revisit only if K3b risks slipping
+  into K4.
+- *Refresh tokens in v1.* Add complexity for a marginal demo
+  improvement; DCR + 15-minute access tokens cover hackathon flows.
+  Post-hackathon.
+- *Fine-grained per-tool scopes.* Three scopes are enough for the
+  consent screen to mean something without making it unreadable.
+  More granularity is post-hackathon polish.
+
+**Consequences:**
+
+- Critical-path budget grows from ~11 days (K3a only) to ~13–14
+  days (K3a + K3b). Still inside the available window if K0–K2 and
+  K4 don't slip; the §6.4.2 "when to slip K3b" rule names the cutoff
+  explicitly.
+- Two new tables (`OAuthClient`, `OAuthGrant`) ship in K3b's
+  migration; no `OAuthToken` table because tokens are signed JWTs
+  validated offline. Revocation goes through a Redis denylist on the
+  JWT `jti`.
+- The pluggable auth guard means K3b is purely additive: if we ship
+  K3a and stop, every existing config keeps working forever. No
+  migration risk to the dev-flow auth path even if OAuth lands later.
+- Eligibility for the Anthropic Connector marketplace and Cursor MCP
+  catalog requires K3b. If those listings matter for the demo /
+  pitch deck, K3b must ship. If we're showing the agent flow from
+  pre-configured Claude Desktop / Cursor instances on the demo
+  machine, K3a is sufficient.
+- Adds a runtime EdDSA keypair the control plane must hold. Same
+  KMS-wrapped pattern as existing sub-wallet keys (`SubWallet.role
+  = "oauth_signer"`).
+
+---
+
