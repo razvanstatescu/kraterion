@@ -1345,11 +1345,23 @@ code, kbd, samp {
   .ks-card-row { flex-direction: column; align-items: flex-start; }
 }
 
-/* === OAuth consent screen (K3b) ========================================== */
+/* === OAuth consent screen (K3b) ==========================================
+   The card is centered on both axes inside the main content area —
+   `min-height` covers the viewport minus a generous topbar allowance
+   without measuring the shell, and flex handles the centering. */
 
-.ks-consent { max-width: 640px; padding-top: 48px; }
+.ks-consent {
+  max-width: none;
+  min-height: calc(100vh - 120px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+}
 
 .ks-consent-card {
+  width: 100%;
+  max-width: 640px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -1431,4 +1443,158 @@ code, kbd, samp {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* === Method toggle + flow grid (Connect-an-agent) ======================== */
+
+.ks-method-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.ks-method {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease);
+}
+.ks-method:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.ks-method:focus-visible { outline: 2px solid var(--krater); outline-offset: 1px; }
+.ks-method.is-active {
+  border-color: var(--ink);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+.ks-method-title {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-method-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ks-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.ks-flow-step {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+.ks-flow-step-n {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--stone-100);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-feature-settings: "tnum" 1;
+}
+.ks-flow-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ks-flow-step-title {
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-flow-step-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.ks-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ks-link:hover { color: var(--krater); }
+
+/* === Connected agents (Settings) ======================================== */
+
+.ks-empty-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ks-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ks-agent {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+.ks-agent-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ks-agent-name {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-agent-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.ks-agent-meta code {
+  font-size: 11px;
+  background: var(--stone-100);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.ks-agent-scopes { display: flex; flex-wrap: wrap; gap: 4px; }
+.ks-agent-times {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.ks-agent-times em {
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+  margin-right: 2px;
+}
+
+@media (max-width: 720px) {
+  .ks-method-toggle, .ks-flow-grid { grid-template-columns: 1fr; }
+  .ks-agent { flex-direction: column; align-items: flex-start; }
 }

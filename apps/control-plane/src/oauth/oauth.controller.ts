@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
+  Param,
   Post,
   Query,
   Req,
@@ -14,6 +16,7 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { requireUser } from "../auth/request-context.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import type { McpScope } from "../mcp/mcp.types.js";
 import { parseBody, parseQuery } from "../validation/zod-pipe.js";
 import { OAuthService } from "./oauth.service.js";
 import {
@@ -181,6 +184,116 @@ export class OAuthController {
   @HttpCode(200)
   async token(@Body(parseBody(tokenRequestSchema)) dto: TokenRequest) {
     return this.oauth.exchangeCode(dto);
+  }
+
+  // === Management API (signed-in dashboard only) ================
+  //
+  // These power the Settings → Connected agents card. Listing is
+  // O(grants for this account) which is bounded by the number of
+  // MCP clients the user has ever consented to (~tens).
+
+  /**
+   * Lists every OAuth client that has at least one grant belonging to
+   * the signed-in account, with the union of granted scopes, the most
+   * recent consent timestamp, and the client's `last_used_at` from the
+   * token endpoint. Used by the dashboard to render "Connected
+   * agents".
+   */
+  @Get("v1/oauth/clients")
+  @UseGuards(AuthGuard)
+  async listClients(@Req() req: FastifyRequest) {
+    const user = requireUser(req);
+    const grants = await this.prisma.oAuthGrant.findMany({
+      where: { account_id: user.accountId },
+      orderBy: { created_at: "desc" },
+      select: {
+        client_id: true,
+        scopes: true,
+        resource: true,
+        created_at: true,
+      },
+    });
+    if (grants.length === 0) return { clients: [] };
+
+    const clientIds = Array.from(new Set(grants.map((g) => g.client_id)));
+    const clients = await this.prisma.oAuthClient.findMany({
+      where: { client_id: { in: clientIds } },
+      select: {
+        client_id: true,
+        client_name: true,
+        created_at: true,
+        last_used_at: true,
+      },
+    });
+    const byClient = new Map(clients.map((c) => [c.client_id, c]));
+
+    const grouped = new Map<
+      string,
+      {
+        client_id: string;
+        client_name: string | null;
+        resource: string;
+        scopes: McpScope[];
+        last_consent_at: string;
+        last_used_at: string | null;
+        first_seen_at: string;
+        grant_count: number;
+      }
+    >();
+    for (const g of grants) {
+      const meta = byClient.get(g.client_id);
+      const entry = grouped.get(g.client_id);
+      const scopeSet = new Set<string>(entry?.scopes ?? []);
+      for (const s of g.scopes) scopeSet.add(s);
+      const scopes = Array.from(scopeSet) as McpScope[];
+      const created = g.created_at.toISOString();
+      if (!entry) {
+        grouped.set(g.client_id, {
+          client_id: g.client_id,
+          client_name: meta?.client_name ?? null,
+          resource: g.resource,
+          scopes,
+          last_consent_at: created,
+          last_used_at: meta?.last_used_at ? meta.last_used_at.toISOString() : null,
+          first_seen_at: meta?.created_at.toISOString() ?? created,
+          grant_count: 1,
+        });
+      } else {
+        entry.scopes = scopes;
+        entry.grant_count += 1;
+      }
+    }
+    return { clients: Array.from(grouped.values()) };
+  }
+
+  /**
+   * Disconnect a client from this account. Deletes the OAuthGrant rows
+   * for (account × client) so the next /authorize request goes through
+   * a fresh consent screen. Does NOT invalidate any access tokens
+   * already issued — those are bearer JWTs, valid until `exp` (15 min).
+   * A Redis denylist is the right durable revoke; tracked as a K3b
+   * follow-up in `docs/decisions.md`.
+   */
+  @Delete("v1/oauth/clients/:clientId/grants")
+  @UseGuards(AuthGuard)
+  @HttpCode(200)
+  async revokeClient(
+    @Req() req: FastifyRequest,
+    @Param("clientId") clientId: string,
+  ) {
+    const user = requireUser(req);
+    if (!clientId || clientId.length < 4) {
+      throw new ControlPlaneError("InvalidArgument", "Missing or malformed client_id.");
+    }
+    const res = await this.prisma.oAuthGrant.deleteMany({
+      where: { account_id: user.accountId, client_id: clientId },
+    });
+    return {
+      client_id: clientId,
+      grants_deleted: res.count,
+      // Be honest about what's still alive.
+      tokens_remain_valid_until_exp: true,
+    };
   }
 
   // === Helpers ==================================================

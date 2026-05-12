@@ -14,13 +14,13 @@ import type { McpPrincipal } from "./mcp.types.js";
  * MCP tool implementations — the seven tools the agent surface
  * exposes (per `docs/ai-features-plan.md` §2.2):
  *
- *   - `kraterion.list_buckets`
- *   - `kraterion.list_objects(bucket, prefix?)`
- *   - `kraterion.search(bucket, query, top_k?)`
- *   - `kraterion.ask(bucket, query, openai_api_key, model?, top_k?)`
- *   - `kraterion.read_object(bucket, key)`
- *   - `kraterion.write_object(bucket, key, content, content_type?)`
- *   - `kraterion.get_manifest(bucket, key)`
+ *   - `kraterion_list_buckets`
+ *   - `kraterion_list_objects(bucket, prefix?)`
+ *   - `kraterion_search(bucket, query, top_k?)`
+ *   - `kraterion_ask(bucket, query, openai_api_key, model?, top_k?)`
+ *   - `kraterion_read_object(bucket, key)`
+ *   - `kraterion_write_object(bucket, key, content, content_type?)`
+ *   - `kraterion_get_manifest(bucket, key)`
  *
  * Implementations are **in-process** — every tool calls the same
  * NestJS services the dashboard's REST endpoints call. That keeps the
@@ -88,7 +88,7 @@ export class McpToolsService {
 
   private registerListBuckets(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.list_buckets",
+      "kraterion_list_buckets",
       {
         description:
           "List the buckets in the authenticated Kraterion project, " +
@@ -110,7 +110,7 @@ export class McpToolsService {
 
   private registerListObjects(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.list_objects",
+      "kraterion_list_objects",
       {
         description:
           "List objects in a bucket, optionally filtered by a key prefix. " +
@@ -142,7 +142,7 @@ export class McpToolsService {
 
   private registerSearch(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.search",
+      "kraterion_search",
       {
         description:
           "Search a knowledge-enabled bucket using natural language. " +
@@ -181,7 +181,7 @@ export class McpToolsService {
 
   private registerAsk(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.ask",
+      "kraterion_ask",
       {
         description:
           "Answer a natural-language question grounded in a bucket's " +
@@ -252,7 +252,7 @@ export class McpToolsService {
 
   private registerReadObject(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.read_object",
+      "kraterion_read_object",
       {
         description:
           `Read a single object's content as UTF-8 text. Capped at ${READ_BYTES_CAP} ` +
@@ -275,7 +275,7 @@ export class McpToolsService {
           throw new ControlPlaneError(
             "InvalidArgument",
             `Object is ${object.size_bytes} bytes — read_object caps responses at ` +
-              `${READ_BYTES_CAP}. Use kraterion.search to retrieve relevant chunks instead.`,
+              `${READ_BYTES_CAP}. Use kraterion_search to retrieve relevant chunks instead.`,
           );
         }
 
@@ -326,7 +326,7 @@ export class McpToolsService {
 
   private registerWriteObject(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.write_object",
+      "kraterion_write_object",
       {
         description:
           `Upload a small UTF-8 text object to a bucket. Capped at ${WRITE_BYTES_CAP} ` +
@@ -391,7 +391,7 @@ export class McpToolsService {
 
   private registerGetManifest(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion.get_manifest",
+      "kraterion_get_manifest",
       {
         description:
           "Fetch the Knowledge indexing manifest for an object — chunk count, " +

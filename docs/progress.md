@@ -2362,3 +2362,76 @@ _Calendar weeks anchored in `docs/timeline.md`._
     user can validate when they bounce the worker.
 
 ---
+
+
+## 2026-05-12 — [k4+] OAuth surfaces: Settings → Connected agents + bucket OAuth method
+
+  Closes the loop on K3b end-to-end: now there's a place to inspect and
+  revoke OAuth clients, and the Knowledge tab's connect-an-agent panel
+  presents OAuth side-by-side with the API-key snippets.
+
+  **What shipped:**
+
+  - Backend management API on the OAuth controller:
+    - `GET /v1/oauth/clients` — lists every OAuth client that has at
+      least one grant belonging to the signed-in account. Returns the
+      union of granted scopes, the resource URL, the most recent
+      consent timestamp, and the client's last token-exchange time
+      (the `OAuthClient.last_used_at` field).
+    - `DELETE /v1/oauth/clients/:clientId/grants` — deletes
+      OAuthGrant rows for (account × client). The next /authorize from
+      this client walks through a fresh consent screen. **Returns
+      `tokens_remain_valid_until_exp: true`** — we don't have a JWT
+      denylist yet, so access tokens issued in the last 15 minutes
+      survive. The dashboard surfaces that honestly in the disconnect
+      confirmation.
+    - Both routes session-guarded; reuses `requireUser(req)` for
+      account scoping.
+  - Dashboard hooks:
+    `useOAuthClients`, `useDisconnectOAuthClient` in
+    `apps/dashboard/src/lib/queries.ts`.
+  - Settings → Connected agents card
+    (`components/oauth/ConnectedAgents.tsx`): hairline-bordered list
+    with per-row name + client_id (mono code chip) + resource URL +
+    scope pills + relative consent/last-used timestamps + a
+    Disconnect button. ConfirmModal warns about the 15-minute token
+    grace window. Empty state has a dashed-border row with the "no
+    OAuth connections yet" copy.
+  - Knowledge tab → Connect-an-agent: rewritten as a method-toggle
+    (API key | OAuth). API key tab keeps the three TabbedCode
+    snippets (Claude Desktop / Cursor / curl). OAuth tab drops the
+    snippets entirely — replaces them with a three-step flow grid
+    (`1 → 2 → 3` numbered tiles) and the MCP URL + RFC 9728
+    discovery URL in mono code blocks. Links to Settings →
+    Connected agents for management.
+
+  **Design-system compliance:**
+
+  - No new tokens; every class references `--ink`, `--cream`,
+    `--krater`, `--stone-*`, `--space-*`, `--radius-*`, `--ease`,
+    `--dur-*`.
+  - No shadows. Active method tile is signalled by an `--ink` border
+    upgrade (from `--border`), not by a fill or glow.
+  - Single Krater accent per surface: on the connect-an-agent card,
+    Krater is reserved for the focus outline and the link hover —
+    the active method tile uses Ink instead of Krater so it never
+    "touches" the Krater accent the live progress bar above could
+    have shown.
+  - Sentence case throughout. The only ALL-CAPS bits are the
+    11px micro-labels ("SNIPPETS", "MCP URL", "DISCOVERY URL",
+    "CONSENTED", "LAST USED") using `letter-spacing: 0.16em`.
+  - Lucide icons inside small Stone-100 squares for the numbered
+    flow steps. No emoji.
+
+  **Out of scope / follow-ups:**
+
+  - JWT denylist (Redis) for true revocation of in-flight access
+    tokens. Tracked in the K3b decision entry — one-day follow-up.
+  - Per-bucket grant scoping. Today an OAuth grant covers the whole
+    project (the bearer path's behavior). Per-bucket scopes are a
+    consent-screen refactor + a new claim in the JWT — post-hackathon.
+  - GC for stale OAuth clients (no grants, no recent
+    `last_used_at`). The `last_used_at` index is there for the future
+    worker; not wiring the worker today.
+
+---

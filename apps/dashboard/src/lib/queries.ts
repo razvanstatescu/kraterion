@@ -406,3 +406,43 @@ export function useKnowledgeSearch(bucketId: string | undefined) {
       }),
   });
 }
+
+// === OAuth (connected agents) =================================================
+
+export type McpScope = "mcp:read" | "mcp:write" | "mcp:ask" | "mcp:*";
+
+export interface OAuthClientJson {
+  client_id: string;
+  client_name: string | null;
+  resource: string;
+  scopes: McpScope[];
+  last_consent_at: string;
+  last_used_at: string | null;
+  first_seen_at: string;
+  grant_count: number;
+}
+
+export function useOAuthClients() {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "oauth", "clients"],
+    queryFn: () =>
+      cpFetch<{ clients: OAuthClientJson[] }>("/v1/oauth/clients"),
+    enabled: Boolean(session?.token),
+    staleTime: 10_000,
+  });
+}
+
+export function useDisconnectOAuthClient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (clientId: string) =>
+      cpFetch<{ client_id: string; grants_deleted: number }>(
+        `/v1/oauth/clients/${encodeURIComponent(clientId)}/grants`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "oauth", "clients"] });
+    },
+  });
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ConnectedAgents } from "@/components/oauth/ConnectedAgents";
 import { Topbar } from "@/components/shell/Topbar";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -96,6 +97,8 @@ export default function SettingsPage() {
                 <Field label="Member since" value={formatRelative(account.created_at)} />
               </div>
             </section>
+
+            <ConnectedAgents />
 
             <section className="ks-card ks-card-danger">
               <div className="ks-card-head">
