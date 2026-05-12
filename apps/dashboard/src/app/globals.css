@@ -1660,3 +1660,168 @@ code, kbd, samp {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* === Verify retrieval (K5 verifiability beat) ============================
+   Per-hit affordance that fetches the on-chain manifest from Walrus and
+   shows the recorded chunk hash next to the hash returned by /search.
+   The user sees the proof, not just a verdict.
+
+   Visual hierarchy:
+     - Trigger button sits in its own hairline-top row below each hit,
+       reading as a deeper check than the explorer links above it.
+     - Expansion panel uses semantic tokens (--success / --error /
+       --warning) — Krater is reserved for primary CTAs elsewhere, and
+       this surface intentionally stays out of the Krater accent budget.
+     - Hashes render in mono, monospace-tabular, so equal hashes line up
+       character-by-character. That alignment is the visual proof. */
+
+.ks-hit-verify {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ks-verify-trigger {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.ks-verify-trigger:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.ks-verify-trigger:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+}
+.ks-verify-trigger:disabled { cursor: progress; opacity: 0.7; }
+.ks-verify-trigger.is-loading {
+  /* Quiet pulse instead of a spinner — matches the rest of the system. */
+  animation: ks-verify-pulse var(--dur-slow) var(--ease) infinite alternate;
+}
+@keyframes ks-verify-pulse {
+  from { opacity: 0.6; }
+  to   { opacity: 1.0; }
+}
+.ks-verify-trigger.is-success {
+  color: var(--success);
+  border-color: var(--success);
+}
+.ks-verify-trigger.is-error {
+  color: var(--error);
+  border-color: var(--error);
+}
+.ks-verify-trigger.is-warning {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+.ks-verify-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  animation: ks-verify-reveal var(--dur-base) var(--ease);
+}
+.ks-verify-success { border-color: var(--success); }
+.ks-verify-error   { border-color: var(--error); }
+.ks-verify-warning { border-color: var(--warning); }
+@keyframes ks-verify-reveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ks-verify-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.ks-verify-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.ks-verify-hash {
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  /* Tabular numerals keep equal hashes aligned for visual diff. */
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-variant-numeric: tabular-nums slashed-zero;
+  background: var(--bg-elevated);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  word-break: break-all;
+  line-height: 1.4;
+}
+.ks-verify-hash.is-divergent { color: var(--error); }
+
+.ks-verify-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.ks-verify-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+.ks-verify-icon-success {
+  background: rgba(92, 122, 63, 0.12); /* --success @ 12% */
+  color: var(--success);
+}
+.ks-verify-icon-error {
+  background: rgba(181, 61, 46, 0.12); /* --error @ 12% */
+  color: var(--error);
+}
+.ks-verify-icon-warning {
+  background: rgba(194, 138, 60, 0.12); /* --warning @ 12% */
+  color: var(--warning);
+}
+.ks-verify-link {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--stone-300);
+}
+.ks-verify-link:hover { text-decoration-color: var(--text-primary); }
+
+@media (max-width: 640px) {
+  .ks-verify-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

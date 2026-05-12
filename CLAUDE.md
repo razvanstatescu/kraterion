@@ -127,6 +127,21 @@ Improvements to the design system go in `/design-system/` — not in app code.
 - Don't add unit tests for trivial getters/setters
 - Don't implement gated mode (custom Move policies) — that's post-hackathon
 
+## Cybersecurity
+- Use `pnpm` instead of `npm` or `yarn` for JavaScript dependency management
+  wherever practical.
+- `pnpm` is configured with `minimumReleaseAge: 1440` in `pnpm-workspace.yaml`
+  so newly published package versions cannot be installed until they are at
+  least 24 hours old. Do not lower this value, and do not bypass it with
+  `--ignore-scripts=false` workarounds or by editing the lockfile by hand.
+  Requires pnpm ≥ 10.16; older pnpm silently ignores the setting.
+- Never run `pnpm install`, `pnpm add`, `pnpm update`, `npm i`, `npx`, or
+  any other command that fetches packages without the user's explicit
+  go-ahead in that session. Supply chain worms (Shai-Hulud variants, the
+  2026 Axios / SAP / TanStack compromises) propagate during install.
+- If a task seems to require a new dependency, propose it and stop — do
+  not install.
+
 ## Network
 - Walrus testnet only for now
 - Sui testnet only for now

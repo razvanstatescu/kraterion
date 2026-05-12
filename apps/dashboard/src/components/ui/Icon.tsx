@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   Container as BucketIcon,
   ChartLine,
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -46,6 +47,7 @@ import {
 const REGISTRY = {
   bucket: BucketIcon,
   chart: ChartLine,
+  check: Check,
   chevron: ChevronRight,
   chevronDown: ChevronDown,
   copy: Copy,

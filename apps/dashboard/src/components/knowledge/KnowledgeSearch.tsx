@@ -13,6 +13,7 @@ import {
   type KnowledgeSearchHit,
   type KnowledgeSearchResponse,
 } from "@/lib/queries";
+import { VerifyChunk } from "./VerifyChunk";
 
 interface Props {
   bucketId: string;
@@ -192,6 +193,9 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
             </a>
           ) : null}
         </div>
+      </div>
+      <div className="ks-hit-verify">
+        <VerifyChunk hit={hit} />
       </div>
     </li>
   );

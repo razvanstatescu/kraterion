@@ -1,3 +1,7 @@
 packages:
   - apps/*
   - packages/*
+
+# Block freshly published versions for 24h to mitigate supply chain attacks
+# (Axios / SAP / TanStack worms, 2026). Requires pnpm ≥ 10.16.
+minimumReleaseAge: 1440
