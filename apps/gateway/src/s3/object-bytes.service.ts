@@ -20,11 +20,13 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import type { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
-import { Transaction } from "@mysten/sui/transactions";
-import { access } from "@kraterion/kraterion-move-sdk";
-import { KRATERION_PACKAGE_ID } from "@kraterion/shared";
 import { getOrCreateSessionKey, getSealClient } from "@kraterion/seal-client";
-import { getSuiClient, readBlobByBlobId } from "@kraterion/walrus-client";
+import { getSuiClient } from "@kraterion/walrus-client";
+import {
+  SealDecryptError,
+  WalrusReadError,
+  decryptObjectBytes,
+} from "@kraterion/object-bytes";
 import type { Prisma } from "@prisma/client";
 import { GatewayKeypairService } from "../auth/gateway-keypair.service.js";
 import { REDIS } from "../redis/redis.module.js";
@@ -96,47 +98,38 @@ export class ObjectBytesService {
       redis: this.redis,
     });
 
-    const sealTx = new Transaction();
-    sealTx.add(
-      access.sealApprove({
-        package: KRATERION_PACKAGE_ID,
-        arguments: {
-          id: Array.from(object.seal_identity),
-          bucket: bucket.kraterion_bucket_object_id,
-        },
-      }),
-    );
-    sealTx.setSender(this.gatewayKeypair.getAddress());
-    const txBytes = await sealTx.build({
-      client: getSuiClient(),
-      onlyTransactionKind: true,
-    });
-
-    let encrypted: Uint8Array;
-    try {
-      encrypted = await readBlobByBlobId(object.walrus_blob_id);
-    } catch (e) {
-      this.logger.warn(
-        `walrus aggregator failed (blob=${object.walrus_blob_id}): ${(e as Error).message}`,
-      );
-      throw new S3Error(
-        "ServiceUnavailable",
-        "The storage backend is temporarily unavailable. Please retry.",
-      );
-    }
-
+    // Delegate the PTB-build → Walrus read → Seal decrypt sequence to
+    // `@kraterion/object-bytes`. The worker uses the same call with its
+    // own keypair-derived SessionKey. Error mapping stays here because
+    // S3Error codes are framework-specific.
     let plaintext: Uint8Array;
     try {
-      plaintext = await getSealClient().decrypt({ data: encrypted, sessionKey, txBytes });
+      plaintext = await decryptObjectBytes({
+        bucketObjectId: bucket.kraterion_bucket_object_id,
+        sealIdentity: object.seal_identity,
+        walrusBlobId: object.walrus_blob_id,
+        sessionKey,
+        sealClient: getSealClient(),
+        suiClient: getSuiClient(),
+      });
     } catch (e) {
-      const msg = (e as Error).message;
-      this.logger.warn(
-        `seal.decrypt rejected (bucket=${bucket.name} key=${object.s3_key}): ${msg}`,
-      );
-      throw new S3Error(
-        "KeyAccessRevoked",
-        "The platform's access to decrypt this object has been revoked.",
-      );
+      if (e instanceof WalrusReadError) {
+        this.logger.warn(`walrus aggregator failed (blob=${e.blobId}): ${e.message}`);
+        throw new S3Error(
+          "ServiceUnavailable",
+          "The storage backend is temporarily unavailable. Please retry.",
+        );
+      }
+      if (e instanceof SealDecryptError) {
+        this.logger.warn(
+          `seal.decrypt rejected (bucket=${bucket.name} key=${object.s3_key}): ${e.message}`,
+        );
+        throw new S3Error(
+          "KeyAccessRevoked",
+          "The platform's access to decrypt this object has been revoked.",
+        );
+      }
+      throw e;
     }
 
     const expectedSize = Number(object.size_bytes);

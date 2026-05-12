@@ -1,7 +1,11 @@
 # Local dev dependencies. App services run on the host via `pnpm dev`.
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector's official image — Postgres 16 + the `vector` extension
+    # binaries baked in. `CREATE EXTENSION IF NOT EXISTS vector` runs in
+    # the K0 Knowledge migration; the image only ships the .so files.
+    # No `-alpine` tag is published at parity, so we use the Debian base.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: kraterion
       POSTGRES_PASSWORD: kraterion

@@ -36,6 +36,11 @@ import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
 const GATEWAY_FUND_SUI = 5n; // 5 SUI for gas
+// Knowledge-indexer sub-wallet needs SUI for K5 manifest writes
+// (`register_blob_for_bucket` + `wrap_in_shared_blob`). 1.5 SUI is
+// plenty for hackathon-scale embedding work; the K5 worker uses the
+// same gas pattern as the gateway.
+const KNOWLEDGE_INDEXER_FUND_SUI = 1500000000n; // 1.5 SUI in MIST
 const RESERVE_FUND_WAL_MIST = 2_000_000_000n; // 2 WAL
 const TEST_ACCOUNT_EMAIL = "demo@kraterion.dev";
 const TEST_ACCOUNT_ZKLOGIN_SUB = "demo-zklogin-sub-bootstrap";
@@ -116,6 +121,132 @@ async function ensureGatewaySubWallet(prisma: PrismaClient, wrapper: EnvKeyWrapp
 
   info(`gateway sub-wallet created: ${address}`);
   return { keypair, address, created: true };
+}
+
+/**
+ * Provision the AI worker's `knowledge_indexer` sub-wallet. Same shape
+ * as the gateway sub-wallet — Ed25519 keypair, seed AES-wrapped via
+ * `EnvKeyWrapper`, recorded in `SubWallet { role: "knowledge_indexer",
+ * account_id: null }` (shared across all knowledge-enabled buckets for
+ * v1; per-account is a post-hackathon iteration).
+ *
+ * The address is funded from the deployer for K5 manifest-blob writes.
+ * The on-chain `grant_api_access(bucket, this_address)` call happens
+ * later at Knowledge-enable time per bucket (K2 endpoint), not here.
+ */
+async function ensureKnowledgeIndexerSubWallet(
+  prisma: PrismaClient,
+  wrapper: EnvKeyWrapper,
+) {
+  const existing = await prisma.subWallet.findFirst({
+    where: { role: "knowledge_indexer", account_id: null },
+  });
+  if (existing) {
+    info(`knowledge-indexer sub-wallet exists: ${existing.sui_address}`);
+    return { address: existing.sui_address, created: false };
+  }
+
+  const keypair = Ed25519Keypair.generate();
+  const address = keypair.toSuiAddress();
+  const { secretKey: seedBytes } = decodeSuiPrivateKey(keypair.getSecretKey());
+  if (seedBytes.length !== 32) {
+    throw new Error(`Unexpected seed length: ${seedBytes.length} (expected 32)`);
+  }
+  const wrapped = wrapper.wrap(seedBytes);
+
+  await prisma.subWallet.create({
+    data: {
+      sui_address: address,
+      mnemonic_wrapped: wrapped,
+      role: "knowledge_indexer",
+      account_id: null,
+    },
+  });
+
+  // Sanity: re-derive from wrapped seed to catch round-trip bugs early.
+  const roundTrip = Ed25519Keypair.fromSecretKey(wrapper.unwrap(wrapped));
+  if (roundTrip.toSuiAddress() !== address) {
+    throw new Error("Wrapped seed round-trip produced a different address.");
+  }
+
+  info(`knowledge-indexer sub-wallet created: ${address}`);
+  return { address, created: true };
+}
+
+/**
+ * Idempotent `grant_api_access` against the bootstrap-created test
+ * bucket for the worker's knowledge_indexer sub-wallet. Skips when
+ * the address is already in the bucket's `api_decryption_addresses`
+ * list so re-runs are free.
+ *
+ * Production buckets get this grant via the K2 "enable Knowledge"
+ * endpoint at toggle-on time; the bootstrap is the test-only wiring.
+ */
+async function grantKnowledgeIndexerAccessOnTestBucket(
+  suiClient: ReturnType<typeof getSuiClient>,
+  deployer: Ed25519Keypair,
+  bucketObjectId: string,
+  knowledgeIndexerAddress: string,
+) {
+  const obj = await suiClient.getObject({
+    id: bucketObjectId,
+    options: { showContent: true },
+  });
+  const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)?.fields;
+  const granted = (fields?.["api_decryption_addresses"] as string[] | undefined) ?? [];
+  const norm = (a: string) => a.toLowerCase();
+  if (granted.map(norm).includes(norm(knowledgeIndexerAddress))) {
+    info(`knowledge-indexer already granted on test bucket; skipping`);
+    return;
+  }
+
+  const tx = new Transaction();
+  tx.add(
+    kraterion.grantApiAccess({
+      package: KRATERION_PACKAGE_ID,
+      arguments: {
+        bucket: bucketObjectId,
+        apiAddr: knowledgeIndexerAddress,
+      },
+    }),
+  );
+  const r = await suiClient.signAndExecuteTransaction({
+    transaction: tx,
+    signer: deployer,
+    options: { showEffects: true },
+  });
+  if (r.effects?.status?.status !== "success") {
+    throw new Error(
+      `kraterion.grant_api_access (knowledge_indexer) failed: ${JSON.stringify(r.effects?.status)}`,
+    );
+  }
+  info(`granted knowledge-indexer access on test bucket (tx ${r.digest})`);
+}
+
+async function fundKnowledgeIndexerWithSui(
+  suiClient: ReturnType<typeof getSuiClient>,
+  deployer: Ed25519Keypair,
+  address: string,
+) {
+  const balance = await suiClient.getBalance({ owner: address });
+  if (BigInt(balance.totalBalance) >= KNOWLEDGE_INDEXER_FUND_SUI) {
+    const sui = BigInt(balance.totalBalance) / MIST_PER_SUI;
+    info(`knowledge-indexer already has ~${sui} SUI; skipping`);
+    return;
+  }
+  const need = KNOWLEDGE_INDEXER_FUND_SUI - BigInt(balance.totalBalance);
+  const tx = new Transaction();
+  const [coin] = tx.splitCoins(tx.gas, [need]);
+  tx.transferObjects([coin], address);
+  const r = await suiClient.signAndExecuteTransaction({
+    transaction: tx,
+    signer: deployer,
+    options: { showEffects: true },
+  });
+  if (r.effects?.status?.status !== "success") {
+    throw new Error(`SUI funding tx failed: ${JSON.stringify(r.effects?.status)}`);
+  }
+  info(`funded knowledge-indexer with ${need} MIST SUI (tx ${r.digest})`);
 }
 
 async function fundGatewayWithSui(
@@ -358,6 +489,15 @@ async function main() {
   bold("▸ gateway SUI funding");
   await fundGatewayWithSui(suiClient, deployer, gatewayAddress);
 
+  bold("▸ knowledge-indexer sub-wallet");
+  const { address: knowledgeIndexerAddress } = await ensureKnowledgeIndexerSubWallet(
+    prisma,
+    wrapper,
+  );
+
+  bold("▸ knowledge-indexer SUI funding");
+  await fundKnowledgeIndexerWithSui(suiClient, deployer, knowledgeIndexerAddress);
+
   bold("▸ reserve authorization");
   await authorizeGatewayOnReserve(suiClient, deployer, gatewayAddress);
 
@@ -374,6 +514,14 @@ async function main() {
   bold("▸ test bucket");
   const bucket = await ensureTestBucket(suiClient, prisma, deployer, gatewayAddress, project.id);
 
+  bold("▸ knowledge-indexer access on test bucket");
+  await grantKnowledgeIndexerAccessOnTestBucket(
+    suiClient,
+    deployer,
+    bucket.kraterion_bucket_object_id,
+    knowledgeIndexerAddress,
+  );
+
   bold("");
   bold("✓ bootstrap complete");
   info("");
@@ -387,6 +535,7 @@ async function main() {
     info(`secret               (already set on a prior run; rotate if lost)`);
   }
   info(`gateway address      ${gatewayAddress}`);
+  info(`knowledge-indexer    ${knowledgeIndexerAddress}`);
   info(`bucket object id     ${bucket.kraterion_bucket_object_id}`);
   info("");
   info("next: pnpm -F @kraterion/gateway smoke");

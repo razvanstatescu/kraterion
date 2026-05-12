@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { EmbeddingsService } from "../../embeddings/embeddings.service.js";
 import { KraterionObjectCreatedSchema } from "../event-types.js";
 import { walrusBlobIdU256ToString } from "../walrus-blob-id.js";
 import type { EventHandler, ParsedEvent } from "./handler.interface.js";
@@ -42,6 +43,12 @@ export class ObjectCreatedHandler implements EventHandler {
   readonly typeSuffixes = ["::events::KraterionObjectCreated"] as const;
 
   private readonly logger = new Logger(ObjectCreatedHandler.name);
+
+  // K1 hook: after the S3Object row lands, ask the embeddings service
+  // to enqueue an indexing job. The service is the only edit to the
+  // existing handler graph — everything else in the embeddings layer
+  // is new code under `apps/worker/src/embeddings/`.
+  constructor(private readonly embeddings: EmbeddingsService) {}
 
   async handle(tx: Prisma.TransactionClient, event: ParsedEvent): Promise<void> {
     const parsed = KraterionObjectCreatedSchema.parse(event.payload);
@@ -106,7 +113,7 @@ export class ObjectCreatedHandler implements EventHandler {
       );
     }
 
-    await tx.s3Object.upsert({
+    const row = await tx.s3Object.upsert({
       where: { bucket_id_s3_key: { bucket_id: bucket.id, s3_key: s3Key } },
       create: {
         bucket_id: bucket.id,
@@ -136,11 +143,30 @@ export class ObjectCreatedHandler implements EventHandler {
         deleted_at: null, // un-soft-delete on overwrite (S3 spec)
         uploaded_at: new Date(),
       },
+      select: { id: true },
     });
 
     this.logger.log(
       `S3Object created: bucket=${parsed.bucket_id} key="${s3Key}" ` +
         `size=${parsed.size_bytes} shared=${sharedBlob.objectId.slice(0, 12)}… etag=${etagHex.slice(0, 8)}…`,
     );
+
+    // K1: enqueue an embed job if the parent bucket has Knowledge
+    // enabled. The enqueue is fire-and-forget — the processor reads
+    // the freshly-upserted row itself. We deliberately call this
+    // INSIDE the tx for two reasons:
+    //  1. If the tx rolls back, the bucket/object state we'd be
+    //     enqueueing for never existed; the worst case is one BullMQ
+    //     job that the processor immediately marks as failed (cheap).
+    //  2. Doing it post-commit would require a handler-interface
+    //     change (no `postCommit` hook today) — overkill for K1.
+    // The `maybeEnqueue` call only writes to Redis, so it does not
+    // join the Prisma transaction. A rare tx-rollback-after-enqueue
+    // outcome is documented and acceptable.
+    void this.embeddings.maybeEnqueue(row.id).catch((err) => {
+      this.logger.warn(
+        `embeddings.maybeEnqueue failed for s3_object=${row.id}: ${(err as Error).message}`,
+      );
+    });
   }
 }

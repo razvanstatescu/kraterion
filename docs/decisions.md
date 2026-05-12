@@ -2215,3 +2215,83 @@ auth-scheme-agnostic.
 
 ---
 
+
+## 2026-05-12 — K1 RAG-stack defaults (post-research correction round)
+
+  **Status:** Decided + implemented.
+
+  **Context:** the ai-features-plan was drafted on 2026-05-12 but with
+  some library / pattern choices we wanted to validate against the
+  current industry consensus before locking K1's code in. Did one
+  research pass (web search across MTEB leaderboards, PgVector best
+  practices, Node-PDF libraries, OpenAI batching, MCP transport
+  patterns) and updated the plan's defaults in three places.
+
+  **Decisions:**
+
+  - **Embedding model: `text-embedding-3-small` @ 1024 dimensions.**
+    Unchanged. No `text-embedding-4`. Qwen3 / Gemini Embedding 001
+    outscore 3-small by 5–8 MTEB points but the vendor swap isn't worth
+    it at 5–50 docs/bucket. Stays the right "cheap, fast, good-enough"
+    default.
+
+  - **Chunking: recursive 400 tokens / 60 overlap via `tiktoken`
+    (`cl100k_base`).** Unchanged. Late chunking + contextual retrieval
+    (Anthropic) deliver +5-15% recall but ~2× ingestion cost; the
+    absolute miss count on hackathon-scale corpora doesn't justify it.
+    `tiktoken` (WASM) preferred over `js-tiktoken` (pure JS) — 2–3×
+    faster batch tokenization, no edge-runtime constraint here.
+
+  - **PDF extraction: swap `pdf-parse` → `unpdf`.** Real correction
+    from the plan. `pdf-parse` is unmaintained, CJS-first, drags
+    `canvas` (native compile) which breaks in NestJS+ESM. `unpdf` is
+    UnJS, ESM-native, zero native deps, wraps `pdfjs-dist` cleanly,
+    works in serverless. `unpdf` API used: `getDocumentProxy(bytes)`
+    + `extractText(pdf, { mergePages: true })` — `unpdf` inserts
+    `\n\n\f\n\n` page boundaries which the chunker treats as a
+    standard paragraph break.
+
+  - **OpenAI batch size: 100 → 200.** Practical sync sweet spot per
+    research is 200–500 inputs/request (latency × 429-headroom). Bump
+    to 200 saves round-trips for typical PDFs. The async Batch API
+    (50% discount, ~1h SLA) is a documented TODO marker in the
+    embedder code but out of scope for K1.
+
+  - **`halfvec(1024)` over `vector(1024)`.** Unchanged. 50% storage
+    reduction, up to 67× HNSW build speedup, recall delta within
+    noise for normalized 1024-d embeddings. Prisma can't serialize
+    `halfvec` natively, so writes use `$executeRaw` with
+    `'[v1,v2,...]'::halfvec(1024)` casts; reads via `$queryRaw` with
+    the `<=>` operator.
+
+  - **Hybrid retrieval (BM25 + vector + RRF) scaffolding shipped in
+    K1 even though K1 doesn't ship retrieval.** Research consensus
+    (Superlinked, BSWen Feb 2026): vector-only recall@10 ≈ 78%,
+    hybrid ≈ 91% on realistic corpora with exact identifiers (code,
+    citation keys, error strings). Code corpora are exactly K1's
+    target. We add `KnowledgeChunk.content_tsv` as a `GENERATED ALWAYS
+    AS (to_tsvector('english', content)) STORED` column + GIN index in
+    the K1 migration so K2's retrieval can be hybrid from day one
+    without a backfill. Zero K1 code change — the column auto-populates
+    on every INSERT/UPDATE of `content`.
+
+  **Sources:**
+  - https://www.pkgpulse.com/blog/unpdf-vs-pdf-parse-vs-pdfjs-dist-pdf-parsing-extraction-nodejs-2026
+  - https://chudi.dev/blog/serverless-pdf-processing-unpdf-vs-pdfparse
+  - https://www.pkgpulse.com/guides/gpt-tokenizer-vs-js-tiktoken-vs-xenova-transformers-llm-2026
+  - https://neon.com/blog/dont-use-vector-use-halvec-instead-and-save-50-of-your-storage-cost
+  - https://aws.amazon.com/blogs/database/load-vector-embeddings-up-to-67x-faster-with-pgvector-and-amazon-aurora/
+  - https://superlinked.com/vectorhub/articles/optimizing-rag-with-hybrid-search-reranking
+  - https://docs.bswen.com/blog/2026-02-25-hybrid-search-vs-reranker/
+  - https://developers.openai.com/api/docs/guides/batch
+  - https://awesomeagents.ai/leaderboards/embedding-model-leaderboard-mteb-march-2026/
+
+  **Consequences:**
+  - One extra workspace dep (`unpdf`), one removed-from-future-plan dep
+    (`pdf-parse` never shipped).
+  - GIN index on `content_tsv` adds ~10% write cost on each chunk
+    insert. Acceptable; ingestion is bursty + offline.
+  - K2's retrieval can do hybrid scoring straight away. The migration
+    seam is closed at K1; the K2 query just adds the SQL fork.
+
+---

@@ -8,6 +8,7 @@ import { BucketsModule } from "./buckets/buckets.module.js";
 import { EnokiModule } from "./enoki/enoki.module.js";
 import { FoldersModule } from "./folders/folders.module.js";
 import { HealthController } from "./health.controller.js";
+import { KnowledgeModule } from "./knowledge/knowledge.module.js";
 import { ObjectsModule } from "./objects/presign.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
@@ -27,6 +28,7 @@ import { SuiClientModule } from "./sui/sui-client.module.js";
     ObjectsModule,
     FoldersModule,
     ActivityModule,
+    KnowledgeModule,
   ],
   controllers: [HealthController],
 })

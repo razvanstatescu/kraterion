@@ -1742,3 +1742,192 @@ _Calendar weeks anchored in `docs/timeline.md`._
     choice. No code shipped yet — next session picks up at Phase K0.
 
 ---
+
+## 2026-05-12 — [k0] AI features plumbing landed
+
+  - **`packages/object-bytes`** (new). Pure-function package wrapping the
+    Seal-approve PTB build + Walrus aggregator read + Seal decrypt
+    pipeline. Exports `decryptObjectBytes(args)` and
+    `buildSealApprovePtb(args)`. Typed errors (`WalrusReadError`,
+    `SealDecryptError`, `PtbBuildError`) let consumers map to their own
+    framework's error shape.
+  - **Gateway refactor.** `apps/gateway/src/s3/object-bytes.service.ts`
+    delegates the PTB→Walrus→decrypt sequence to the new package while
+    keeping HTTP-response shaping (`setReadHeaders`, size cap,
+    `Content-Type`, ETag) local. SessionKey/Redis ownership stays in
+    the service. Behavior is byte-equivalent — `pnpm typecheck` across
+    the workspace returns 17/17 green.
+  - **Postgres → pgvector.** `infra/compose/docker-compose.yml` swapped
+    `postgres:16-alpine` → `pgvector/pgvector:pg16`. Data volume
+    preserved across the bounce. Migration prepends
+    `CREATE EXTENSION IF NOT EXISTS vector;` so the `halfvec(1024)`
+    column type resolves on first apply.
+  - **Knowledge schema.** `prisma/migrations/20260512092144_add_knowledge_tables/`
+    adds `KnowledgeBucketSettings`, `KnowledgeManifest`, `KnowledgeChunk`
+    (`embedding halfvec(1024)` via `Unsupported(...)`), `KnowledgeQuery`.
+    All four indexes + foreign keys in place. HNSW index deferred to K2.
+    `KnowledgeManifest.deleted_at` shipped on day one per the §2.3
+    lifecycle table.
+  - **`knowledge_indexer` sub-wallet.**
+    `apps/gateway/scripts/bootstrap-gateway.ts` gained
+    `ensureKnowledgeIndexerSubWallet()` + `fundKnowledgeIndexerWithSui()`
+    (1.5 SUI for K5 manifest writes). Address
+    `0x394d875e6597643cf28e3d0d1da13ce4de3bd7b98572068afdc2e94139c09699`
+    is now provisioned on testnet, recorded in `SubWallet` with the
+    seed AES-wrapped by the same `KEY_WRAPPING_MASTER_KEY` the gateway
+    uses. Re-running bootstrap is idempotent.
+  - **Worker auth module.** `apps/worker/src/auth/` houses
+    `KnowledgeIndexerKeypairService` (mirrors the gateway pattern),
+    `KeyWrappingService`, and the underlying `EnvKeyWrapper`.
+    `AppModule` imports the new `AuthModule`. Worker boots and logs
+    `knowledge-indexer keypair loaded (0x394d…9699)`.
+  - **Verification:** `pnpm typecheck` workspace-wide clean. `CREATE
+    EXTENSION vector` confirmed in Postgres. All four Knowledge tables
+    present. Both sub-wallets visible in DB. CP + gateway + worker all
+    bounce cleanly with the refactored decrypt path. Dashboard
+    download path of an existing private file remains byte-equal —
+    the gateway still serves it via the same SessionKey, just via the
+    extracted package now.
+
+  **Out of scope (deferred to K1+):** the BullMQ embeddings queue, the
+  MIME extractors, the `ObjectCreatedHandler` hook that enqueues per
+  PUT, the `/v1/buckets/:id/{knowledge,search,ask}` endpoints, the
+  HNSW index, the MCP `/mcp` route, the dashboard Knowledge tab, the
+  on-Walrus manifest archival. Each is its own phase in
+  `docs/ai-features-plan.md`. K0's job was to remove the plumbing
+  excuses so K1 is straight-line.
+
+---
+
+## 2026-05-12 — [k1] embedding pipeline end-to-end
+
+  Knowledge-enabled bucket → auto-index on PUT. End-to-end verified
+  against testnet + a fresh upload through the gateway.
+
+  **What landed:**
+
+  - **`apps/worker/src/embeddings/`** — new Nest module:
+    - `embeddings.module.ts` — wires the BullMQ queue
+      (`kraterion-embeddings`), Redis connection (`maxRetriesPerRequest: null`
+      for the worker's blocking subscriber), default job opts (3 retries,
+      exp-backoff 2s, completed jobs gc 7d, failed gc 14d).
+    - `embeddings.service.ts` — `maybeEnqueue(s3_object_id)` is the
+      handler-callable path; `enqueueBucket(bucket_id)` paginates for
+      K2's backfill use case. Job id is
+      `manifest_<s3_object_id>_v<version>` for natural dedup.
+    - `embeddings.processor.ts` — BullMQ `WorkerHost`, concurrency 4.
+      Per-job: upsert manifest=`indexing` → decrypt via
+      `@kraterion/object-bytes` with `knowledge_indexer` SessionKey →
+      MIME dispatch → token-budgeted chunking → OpenAI embed → write
+      chunks + finalize manifest in one tx. `$executeRaw` insert for
+      `halfvec(1024)` (Prisma can't serialize it; `'[v1,v2,...]'::halfvec`
+      cast). `WalrusReadError` retries (BullMQ); `SealDecryptError`
+      doesn't (it means revocation or permanent ACL fail).
+    - `chunking/recursive.ts` — recursive separator-aware splitter via
+      `tiktoken` (`cl100k_base`). 400 tokens / 60 overlap by default
+      (per-bucket configurable). Deterministic — same input ⇒ same
+      chunk hash list, which is the K5 manifest's reproducibility hook.
+    - `embedders/openai.ts` — `text-embedding-3-small @ 1024 dims`,
+      batch size 200 (post-research bump from plan's 100), exponential
+      retry with full jitter via `p-retry`, 4xx (non-408/429) errors
+      `AbortError` to short-circuit. TODO marker for the async Batch
+      API (50% off, ~1h SLA) — out of K1 scope.
+    - `extractors/` — `text.ts` (UTF-8, fatal decode), `pdf.ts`
+      (`unpdf` — see ADR), and `index.ts` dispatch. Skip reasons
+      surface as typed enum values written into the manifest row.
+
+  - **Indexer hook.**
+    `apps/worker/src/indexer/handlers/object-created.handler.ts` — single
+    edit to an existing file: after the S3Object upsert returns the row
+    id, fire-and-forget `embeddings.maybeEnqueue(row.id)`. The enqueue
+    sits inside the Prisma transaction but writes to Redis (which doesn't
+    participate); a rare tx-rollback-after-enqueue leaks one job that
+    the processor immediately marks failed (cheap, documented in code).
+    `IndexerModule` now imports `EmbeddingsModule` for the service.
+
+  - **`apps/worker/src/redis/`** — module added, mirrors the gateway's.
+    Worker now has its own `ioredis` singleton for SessionKey caching.
+
+  - **`apps/control-plane/src/knowledge/`** — K1-stub `POST/GET
+    /v1/buckets/:id/knowledge`. Insert/delete `KnowledgeBucketSettings`
+    + (on disable) cascade-drop chunks. K2 will extend with `/search`
+    and `/ask`.
+
+  - **K1 migration** (`20260512130932_knowledge_chunk_tsvector`) —
+    added a `content_tsv tsvector GENERATED ALWAYS AS
+    (to_tsvector('english', content)) STORED` column + GIN index on
+    `KnowledgeChunk`. Auto-populates on every chunk insert; ready for
+    K2 hybrid BM25 + vector + RRF retrieval without a backfill. See
+    `docs/decisions.md` 2026-05-12 ADR for why hybrid is the default,
+    not stretch.
+
+  - **Bootstrap: knowledge_indexer grant on test bucket.**
+    `apps/gateway/scripts/bootstrap-gateway.ts` —
+    `grantKnowledgeIndexerAccessOnTestBucket` adds the
+    `knowledge_indexer` address to the test bucket's
+    `api_decryption_addresses` (idempotent). Production buckets get
+    this grant via the K2 enable-knowledge endpoint; bootstrap is the
+    test-bucket-only shortcut.
+
+  - **`apps/worker/src/main.ts`** — explicit `dotenv.config({ path:
+    "<repo-root>/.env" })`. Prior implicit `dotenv/config` only worked
+    when the shell already had the env set (which it sometimes did
+    from a prior session). New code paths now reliably reach the
+    worker — including the OPENAI_API_KEY moved from
+    `apps/dashboard/.env.local` (where it never reached the worker)
+    to the repo-root `.env`.
+
+  **Verification (end-to-end, against testnet):**
+
+  ```
+  # 1. Enable Knowledge on test-bucket via the CP stub
+  TOKEN=$(curl -s -X POST http://localhost:4001/v1/auth/dev-sign-in \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"demo@kraterion.dev"}' | jq -r .token)
+
+  curl -s -X POST http://localhost:4001/v1/buckets/<bucket-id>/knowledge \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"enabled":true}'
+  # → {"enabled":true,"settings":{"embedding_model":"text-embedding-3-small",...}}
+
+  # 2. PUT a text file through the existing gateway flow.
+  #    (Walrus testnet relay occasionally returns 503 — boto3 would
+  #    retry; here we retry manually. Once landed, the indexer's
+  #    KraterionObjectCreated handler enqueues the embed job.)
+  ```
+
+  Worker log after the PUT settled (~3s after upload):
+  ```
+  [EmbeddingsService] enqueued index job: s3_object=<uuid> version=1
+  [EmbeddingsProcessor] indexed s3_object=<uuid> v=1 chunks=1 tokens=156
+  ```
+
+  DB state:
+  ```
+  KnowledgeManifest: status=indexed, chunk_count=1, bytes_in=650,
+  bytes_indexed=650, embedding_tokens=156,
+  embedding_model=text-embedding-3-small
+  KnowledgeChunk: ordinal=0, token_count=156, content_tsv populated,
+  embedding populated (12785-char halfvec serialization = 1024 floats)
+  ```
+
+  pgvector cosine-similarity sanity:
+  `SELECT embedding <=> embedding FROM "KnowledgeChunk" LIMIT 1;`
+  returns `0` (perfect identity). halfvec write + read round-trip
+  works.
+
+  **Out of scope (deferred to K2+):**
+  - HNSW index over `embedding` (K2's migration).
+  - `/v1/buckets/:id/search` and `/ask` endpoints.
+  - Dashboard Knowledge tab (K4).
+  - On-Walrus manifest archival (K5).
+  - MCP server (K3).
+  - Backfill on enable (the K1 stub only writes the settings row; K2's
+    full enable endpoint will trigger `enqueueBucket(bucket_id)`).
+  - Re-PUT version-bump end-to-end test (the processor wiring is
+    deterministic — `openManifest` upserts on `(s3_object_id, version)`
+    and the service enqueues with `prev.version + 1` — but I didn't
+    re-PUT under live Walrus to spend a second relay slot).
+
+---

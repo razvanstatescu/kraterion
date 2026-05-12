@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { EmbeddingsModule } from "../embeddings/embeddings.module.js";
 import { CursorRepo } from "./cursor.repo.js";
 import { DeadLetterService } from "./dead-letter.service.js";
 import { DispatcherService } from "./dispatcher.service.js";
@@ -11,6 +12,9 @@ import { ApiAccessHandler } from "./handlers/api-access.handler.js";
 import { BucketVisibilityChangedHandler } from "./handlers/bucket-visibility.handler.js";
 
 @Module({
+  // K1: `ObjectCreatedHandler` depends on `EmbeddingsService` to enqueue
+  // index jobs for objects landing in knowledge-enabled buckets.
+  imports: [EmbeddingsModule],
   providers: [
     suiGrpcClientProvider,
     CursorRepo,

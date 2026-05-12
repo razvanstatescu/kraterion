@@ -115,9 +115,11 @@ model Bucket {
   // whole point.
   deleted_at DateTime?
 
-  project        Project        @relation(fields: [project_id], references: [id])
-  objects        S3Object[]
-  folder_markers FolderMarker[]
+  project           Project                  @relation(fields: [project_id], references: [id])
+  objects           S3Object[]
+  folder_markers    FolderMarker[]
+  knowledge         KnowledgeBucketSettings?
+  knowledge_queries KnowledgeQuery[]
 
   @@unique([project_id, name])
   // Idempotency key for the indexer: `(tx_digest, event_seq)` is unique
@@ -177,14 +179,16 @@ model S3Object {
   // event-derived row. This is the one column on `S3Object` that doesn't
   // flow from a Move event — the on-chain `KraterionObjectCreated` event
   // doesn't carry metadata because it isn't consensus-critical.
-  metadata    Json?
+  metadata Json?
 
   // === Bookkeeping ===
   uploaded_at DateTime  @default(now())
   deleted_at  DateTime?
 
-  bucket     Bucket              @relation(fields: [bucket_id], references: [id])
-  extensions S3ObjectExtension[]
+  bucket              Bucket              @relation(fields: [bucket_id], references: [id])
+  extensions          S3ObjectExtension[]
+  knowledge_manifests KnowledgeManifest[]
+  knowledge_chunks    KnowledgeChunk[]
 
   // Latest non-deleted version per (bucket, key). Soft-delete is via
   // deleted_at; we don't keep historical versions for hackathon.
@@ -271,18 +275,149 @@ model FolderMarker {
 // `(tx_digest, event_seq) UNIQUE`; if the insert conflicts, the
 // extension was already applied and the update is skipped.
 model S3ObjectExtension {
-  id            String   @id @default(uuid())
-  s3_object_id  String
-  tx_digest     Bytes
-  event_seq     Int
-  epochs_added  Int
-  funder        String
-  applied_at    DateTime @default(now())
+  id           String   @id @default(uuid())
+  s3_object_id String
+  tx_digest    Bytes
+  event_seq    Int
+  epochs_added Int
+  funder       String
+  applied_at   DateTime @default(now())
 
   s3_object S3Object @relation(fields: [s3_object_id], references: [id])
 
   @@unique([tx_digest, event_seq])
   @@index([s3_object_id])
+}
+
+// === Knowledge layer (additive; opt-in per bucket) ===
+//
+// See `docs/ai-features-plan.md` §4. Existence of `KnowledgeBucketSettings`
+// for a bucket means the worker auto-indexes every supported object PUT
+// into it. Toggling off deletes the settings row and all chunks; manifest
+// rows + on-Walrus manifest blobs persist as audit. Revoking on-chain
+// API access short-circuits search/ask without touching the index.
+
+model KnowledgeBucketSettings {
+  bucket_id            String   @id
+  embedding_model      String   @default("text-embedding-3-small")
+  embedding_dimensions Int      @default(1024)
+  // "recursive" for v1; "semantic" reserved as a stretch.
+  chunking_strategy    String   @default("recursive")
+  chunk_tokens         Int      @default(400)
+  chunk_overlap_tokens Int      @default(60)
+  // Caller-supplied for `/ask`; null = require BYO key per request.
+  default_llm_model    String?
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  bucket Bucket @relation(fields: [bucket_id], references: [id])
+}
+
+model KnowledgeManifest {
+  // One row per (s3_object_id, version). Re-indexing on overwrite or
+  // model change bumps `version` and writes a new manifest blob.
+  id                             String    @id @default(uuid())
+  s3_object_id                   String
+  // Denormalized so bucket-scoped queries don't have to join through
+  // S3Object. Same shape as KnowledgeChunk.bucket_id.
+  bucket_id                      String
+  version                        Int       @default(1)
+  // "queued" | "indexing" | "indexed" | "skipped" | "failed"
+  status                         String
+  // "unsupported_mime" | "too_large" | "empty" | etc. Populated when
+  // status = "skipped" so the dashboard can explain why.
+  skip_reason                    String?
+  embedding_model                String?
+  embedding_dimensions           Int?
+  chunk_count                    Int       @default(0)
+  // Walrus blob id of the manifest archive (a SharedBlob owned by the
+  // user's on-chain bucket). Null until K5 lands.
+  manifest_walrus_blob_id        String?
+  manifest_shared_blob_object_id String?
+  bytes_in                       BigInt    @default(0)
+  bytes_indexed                  BigInt    @default(0)
+  embedding_tokens               Int       @default(0)
+  error_detail                   String?
+  started_at                     DateTime?
+  finished_at                    DateTime?
+  // Soft-delete on DeleteObject / DeleteBucket / overwrite. Chunks are
+  // hard-deleted; the row stays so historical KnowledgeQuery citations
+  // resolve. The Walrus manifest blob persists regardless.
+  deleted_at                     DateTime?
+  created_at                     DateTime  @default(now())
+
+  s3_object S3Object         @relation(fields: [s3_object_id], references: [id])
+  chunks    KnowledgeChunk[]
+
+  @@unique([s3_object_id, version])
+  @@index([bucket_id, status])
+}
+
+model KnowledgeChunk {
+  // Live retrieval index. Replaced wholesale when a manifest version
+  // bumps (chunks cascade-delete; the manifest row stays for audit and
+  // its on-chain blob remains user-owned).
+  id           String                       @id @default(uuid())
+  bucket_id    String
+  s3_object_id String
+  manifest_id  String
+  ordinal      Int
+  // SHA-256 of the chunk plaintext. Manifest archives this list so the
+  // index can be rebuilt deterministically from on-chain artifacts.
+  content_hash Bytes
+  // Chunk plaintext, un-encrypted at rest. Justification in
+  // `docs/ai-features-plan.md` §4 — the bucket owner opted in, the
+  // gateway already decrypts at ingest, and search short-circuits on
+  // `api_access_granted` revocation.
+  content      String                       @db.Text
+  // pgvector halfvec; populated by `$executeRaw` because Prisma can't
+  // serialize halfvec natively. Reads use `$queryRaw` with `<=>`.
+  embedding    Unsupported("halfvec(1024)")
+  // Generated `tsvector` (Postgres `GENERATED ALWAYS AS (...) STORED`)
+  // for K2 hybrid BM25 retrieval. Populated automatically on every
+  // INSERT/UPDATE of `content`; never written manually. Modelled as
+  // Unsupported because Prisma can't represent generated columns
+  // natively. The K2 search query uses `content_tsv @@ plainto_tsquery(...)`
+  // and combines vector + BM25 ranks with Reciprocal Rank Fusion.
+  content_tsv  Unsupported("tsvector")?
+  token_count  Int
+  start_offset Int
+  end_offset   Int
+
+  manifest  KnowledgeManifest @relation(fields: [manifest_id], references: [id], onDelete: Cascade)
+  s3_object S3Object          @relation(fields: [s3_object_id], references: [id])
+
+  @@unique([manifest_id, ordinal])
+  @@index([bucket_id])
+}
+
+model KnowledgeQuery {
+  // Audit + activity feed source. One row per `/search` or `/ask` call.
+  id           String   @id @default(uuid())
+  bucket_id    String
+  // Denormalized for activity scoping (per-project history without a
+  // join through Bucket).
+  project_id   String
+  // Null when the query came via a session-authed dashboard caller
+  // rather than an API key.
+  api_key_id   String?
+  // "search" | "ask"
+  kind         String
+  query        String   @db.Text
+  top_k        Int
+  latency_ms   Int
+  chunk_count  Int
+  // Hashes of the chunks returned — supports "the agent's answer was
+  // backed by these citations" replay.
+  cited_hashes Bytes[]
+  llm_model    String?
+  llm_tokens   Int?
+  created_at   DateTime @default(now())
+
+  bucket Bucket @relation(fields: [bucket_id], references: [id])
+
+  @@index([bucket_id, created_at])
+  @@index([project_id, created_at])
 }
 
 // === Indexer bookkeeping ===

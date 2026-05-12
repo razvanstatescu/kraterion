@@ -1,5 +1,19 @@
 import "reflect-metadata";
-import "dotenv/config";
+// Resolve .env from the repo root so the worker reliably gets every
+// shared secret regardless of CWD. The default `dotenv/config` picks
+// `process.cwd()/.env`, which from `nest start --watch` is
+// `apps/worker/` — a directory that intentionally has no .env file
+// (we keep one .env at the repo root for the whole monorepo).
+//
+// We also fall back to OS-env values if `.env` doesn't exist (e.g. CI,
+// Docker, production), matching `override: false` semantics.
+import { config as dotenvConfig } from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenvConfig({ path: resolve(__dirname, "../../../.env") });
+
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
