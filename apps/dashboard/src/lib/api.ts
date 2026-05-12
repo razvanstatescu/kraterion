@@ -185,6 +185,30 @@ export interface S3ObjectJson {
   deleted_at: string | null;
 }
 
+export type ActivityEventKind =
+  | "bucket_created"
+  | "bucket_deleted"
+  | "object_uploaded"
+  | "object_deleted";
+
+export interface ActivityEventJson {
+  id: string;
+  kind: ActivityEventKind;
+  at: string;
+  tx_digest: string | null;
+  bucket: {
+    id: string;
+    name: string;
+    encryption_mode: "private" | "public-read";
+  };
+  object: {
+    id: string;
+    s3_key: string;
+    content_type: string | null;
+    size_bytes: string;
+  } | null;
+}
+
 export interface PrepareTxResponse {
   digest: string;
   bytes: string;

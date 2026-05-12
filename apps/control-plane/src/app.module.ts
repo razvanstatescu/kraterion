@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AccountsModule } from "./accounts/accounts.module.js";
+import { ActivityModule } from "./activity/activity.module.js";
 import { ApiKeysModule } from "./api-keys/api-keys.module.js";
 import { AuthCoreModule } from "./auth/auth-core.module.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -25,6 +26,7 @@ import { SuiClientModule } from "./sui/sui-client.module.js";
     BucketsModule,
     ObjectsModule,
     FoldersModule,
+    ActivityModule,
   ],
   controllers: [HealthController],
 })

@@ -14,6 +14,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteD
 import {
   cpFetch,
   type AccountJson,
+  type ActivityEventJson,
   type ApiKeyJson,
   type BucketJson,
   type FolderMarkerJson,
@@ -157,6 +158,29 @@ export function useObject(objectId: string | undefined) {
     queryKey: ["v1", "object", objectId ?? "none"],
     queryFn: () => cpFetch<ObjectResponse>(`/v1/objects/${objectId}`),
     enabled: Boolean(session?.token && objectId),
+    staleTime: 10_000,
+  });
+}
+
+// === Activity ================================================================
+
+interface ActivityResponse {
+  events: ActivityEventJson[];
+}
+
+/**
+ * Unified user-visible event stream — bucket creates/deletes plus
+ * object uploads/soft-deletes, sorted reverse-chronologically. Driven
+ * by the CP's `/v1/activity` endpoint so we get a single join across
+ * tables instead of fanning a per-bucket query out from the client.
+ */
+export function useActivity(opts: { limit?: number } = {}) {
+  const { session } = useCpSession();
+  const limit = opts.limit ?? 50;
+  return useQuery({
+    queryKey: ["v1", "activity", session?.accountId ?? "anon", limit],
+    queryFn: () => cpFetch<ActivityResponse>(`/v1/activity?limit=${limit}`),
+    enabled: Boolean(session?.token),
     staleTime: 10_000,
   });
 }

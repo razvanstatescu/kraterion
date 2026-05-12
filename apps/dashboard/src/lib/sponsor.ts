@@ -28,7 +28,7 @@
  * ("Preparing…" → "Sign with your wallet…" → "Submitting…" → "Settling…").
  */
 
-import { useSignTransaction, useSuiClient } from "@mysten/dapp-kit";
+import { useCurrentWallet, useSignTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -64,11 +64,24 @@ export interface SponsoredTxResult {
 
 export function useSponsoredTx() {
   const { mutateAsync: signTransaction } = useSignTransaction();
+  const { isConnected, currentWallet } = useCurrentWallet();
   const suiClient = useSuiClient();
   const queryClient = useQueryClient();
 
   return useCallback(
     async (args: RunSponsoredArgs): Promise<SponsoredTxResult> => {
+      // Guard against the race where a user clicks a sponsored action
+      // while dApp Kit is still mid-autoConnect (or after the Enoki
+      // session has silently expired). `RequireAuth` redirects in both
+      // cases, but kicking a friendlier error here protects pages that
+      // mount their own modals (CreateBucket, BucketKebab, etc.) — those
+      // can branch on the message and surface "session expired" copy
+      // instead of the raw `WalletNotConnectedError`.
+      if (!isConnected || !currentWallet) {
+        throw new Error(
+          "Your wallet session expired. Refresh the page and sign in again.",
+        );
+      }
       const chain = `sui:${env.network}` as const;
 
       args.onStatus?.("preparing");
@@ -110,7 +123,7 @@ export function useSponsoredTx() {
       args.onStatus?.("done");
       return { digest: exec.digest, expected: prepared.expected };
     },
-    [signTransaction, suiClient, queryClient],
+    [signTransaction, suiClient, queryClient, isConnected, currentWallet],
   );
 }
 

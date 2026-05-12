@@ -1,7 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Mark } from "@/components/ui/Mark";
 import { useToast } from "@/components/ui/Toast";
@@ -11,14 +12,21 @@ import { ControlPlaneError } from "@/lib/api";
 /**
  * Marketing-style single-column sign-in. The whole flow is one click —
  * Enoki opens the Google popup and returns the JWT directly to the SDK.
+ *
+ * `?reason=stale` indicates the dashboard detected an expired Enoki
+ * session (zkLogin sessions are ~1 day; CP JWT is 7 days). Show a
+ * one-line banner so the user knows they weren't kicked out maliciously.
  */
 export default function LoginPage() {
   const router = useRouter();
+  const params = useSearchParams();
   const { mounted, session } = useCpSession();
   const signIn = useGoogleSignIn();
   const { show } = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const stale = params?.get("reason") === "stale";
 
   // Already signed in → bounce to the app.
   useEffect(() => {
@@ -56,6 +64,16 @@ export default function LoginPage() {
           <h1 style={{ fontSize: 32, marginBottom: 8 }}>Kraterion</h1>
           <p className="lead">Object storage you actually own.</p>
         </div>
+
+        {stale ? (
+          <div style={{ maxWidth: 380, width: "100%" }}>
+            <Banner
+              tone="info"
+              title="Sign in to continue"
+              body="Your wallet session expired. Re-authenticate to keep working on-chain."
+            />
+          </div>
+        ) : null}
 
         <Button
           variant="cta"
