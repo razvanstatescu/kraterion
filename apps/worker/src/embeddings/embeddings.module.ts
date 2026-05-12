@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
+import { ProvidersModule } from "../providers/providers.module.js";
 import { RedisModule } from "../redis/redis.module.js";
 import { EmbeddingsProcessor } from "./embeddings.processor.js";
 import { EmbeddingsService, EMBEDDINGS_QUEUE } from "./embeddings.service.js";
@@ -26,6 +27,7 @@ import { EmbeddingsService, EMBEDDINGS_QUEUE } from "./embeddings.service.js";
     PrismaModule,
     RedisModule,
     AuthModule,
+    ProvidersModule,
     BullModule.forRootAsync({
       useFactory: () => ({
         connection: {

@@ -16,6 +16,9 @@ interface Props {
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  /** Disable the confirm button. Use with type-to-confirm flows where
+   *  the parent owns the gating state (the input value, a checkbox). */
+  confirmDisabled?: boolean;
 }
 
 export function ConfirmModal({
@@ -29,6 +32,7 @@ export function ConfirmModal({
   cancelLabel = "Cancel",
   danger = true,
   busy = false,
+  confirmDisabled = false,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -56,7 +60,12 @@ export function ConfirmModal({
         ) : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <Button variant="ghost" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={() => void onConfirm()} loading={busy}>
+          <Button
+            variant={danger ? "danger" : "primary"}
+            onClick={() => void onConfirm()}
+            loading={busy}
+            disabled={confirmDisabled || busy}
+          >
             {confirmLabel}
           </Button>
         </div>

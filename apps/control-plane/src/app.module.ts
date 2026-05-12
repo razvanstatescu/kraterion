@@ -14,6 +14,7 @@ import { OAuthModule } from "./oauth/oauth.module.js";
 import { ObjectsModule } from "./objects/presign.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
+import { ProvidersModule } from "./providers/providers.module.js";
 import { SuiClientModule } from "./sui/sui-client.module.js";
 
 @Module({
@@ -26,6 +27,7 @@ import { SuiClientModule } from "./sui/sui-client.module.js";
     AccountsModule,
     ProjectsModule,
     ApiKeysModule,
+    ProvidersModule,
     BucketsModule,
     ObjectsModule,
     FoldersModule,

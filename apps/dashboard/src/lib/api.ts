@@ -19,6 +19,7 @@ export type ControlPlaneErrorCode =
   | "Forbidden"
   | "NotFound"
   | "Conflict"
+  | "PreconditionFailed"
   | "RateLimited"
   | "InternalError";
 
@@ -62,7 +63,7 @@ function clearSession() {
 }
 
 interface ApiOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   /** Skip the Bearer header — sign-in endpoints don't need auth. */
   unauthenticated?: boolean;
@@ -144,6 +145,22 @@ export interface ApiKeyJson {
   last_used_at: string | null;
   created_at: string;
   revoked_at: string | null;
+}
+
+/**
+ * Project-scoped AI provider credential. Wire shape omits the wrapped
+ * ciphertext entirely — the dashboard only ever sees the masked
+ * `key_last_4` once it's been stored.
+ */
+export type ProviderName = "openai";
+export type ProviderCredentialStatus = "active" | "invalid" | "revoked";
+export interface ProviderCredentialJson {
+  provider: ProviderName;
+  key_last_4: string;
+  status: ProviderCredentialStatus;
+  last_validated: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BucketJson {

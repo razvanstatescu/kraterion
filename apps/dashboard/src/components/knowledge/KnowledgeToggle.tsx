@@ -1,19 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EMBEDDING_OPTIONS } from "@kraterion/shared";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
 import { suiscanTxUrl } from "@/lib/format";
 import {
   useKnowledgeBackfill,
+  useMe,
+  useProviderCredentials,
+  useReindexKnowledge,
   useToggleKnowledge,
   type KnowledgeStatus,
+  type ReindexKnowledgePayload,
+  type ToggleKnowledgePayload,
 } from "@/lib/queries";
 import { useSponsoredTx } from "@/lib/sponsor";
+import { ChangeChatModelDialog } from "./ChangeChatModelDialog";
+import { EnableKnowledgeModal } from "./EnableKnowledgeModal";
 
 interface Props {
   bucketId: string;
@@ -29,14 +40,32 @@ interface Props {
 export function KnowledgeToggle({ bucketId, status }: Props) {
   const toggle = useToggleKnowledge(bucketId);
   const backfill = useKnowledgeBackfill(bucketId);
+  const reindex = useReindexKnowledge(bucketId);
   const runSponsored = useSponsoredTx();
+  const router = useRouter();
   const { show } = useToast();
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [enableOpen, setEnableOpen] = useState(false);
+  const [reindexOpen, setReindexOpen] = useState(false);
+  const [chatModelOpen, setChatModelOpen] = useState(false);
   const [granting, setGranting] = useState(false);
+  const [credentialMissing, setCredentialMissing] = useState(false);
 
-  const onEnable = async () => {
+  // Surface the project's OpenAI credential state inline so the
+  // empty-state can swap the Enable CTA for an "Add OpenAI key"
+  // redirect (instead of letting the user click and bounce off a 409).
+  const { data: me } = useMe();
+  const projectId = me?.projects[0]?.id;
+  const { data: creds } = useProviderCredentials(projectId);
+  const hasActiveOpenAi = (creds?.credentials ?? []).some(
+    (c) => c.provider === "openai" && c.status === "active",
+  );
+
+  const onEnable = async (payload: ToggleKnowledgePayload) => {
+    setCredentialMissing(false);
     try {
-      const res = await toggle.mutateAsync(true);
+      const res = await toggle.mutateAsync(payload);
+      setEnableOpen(false);
       // First step done — settings row written, backfill enqueued.
       show({
         tone: "success",
@@ -119,6 +148,14 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
         }
       }
     } catch (err) {
+      if (
+        err instanceof ControlPlaneError &&
+        err.code === "PreconditionFailed" &&
+        err.details?.["provider"] === "openai"
+      ) {
+        setCredentialMissing(true);
+        return;
+      }
       show({
         tone: "error",
         title: "Couldn't enable Knowledge",
@@ -196,7 +233,130 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
     }
   };
 
+  // The shared modal hands back a `ToggleKnowledgePayload` whose `enabled`
+  // is always `true`. Strip that field and forward only the settings to
+  // the re-index endpoint.
+  const onReindex = async (payload: ToggleKnowledgePayload) => {
+    const reindexPayload: ReindexKnowledgePayload = {
+      ...(payload.embedding_model !== undefined
+        ? { embedding_model: payload.embedding_model }
+        : {}),
+      ...(payload.embedding_dimensions !== undefined
+        ? { embedding_dimensions: payload.embedding_dimensions }
+        : {}),
+      ...(payload.default_llm_model !== undefined
+        ? { default_llm_model: payload.default_llm_model }
+        : {}),
+      ...(payload.chunk_tokens !== undefined
+        ? { chunk_tokens: payload.chunk_tokens }
+        : {}),
+      ...(payload.chunk_overlap_tokens !== undefined
+        ? { chunk_overlap_tokens: payload.chunk_overlap_tokens }
+        : {}),
+    };
+    try {
+      const res = await reindex.mutateAsync(reindexPayload);
+      setReindexOpen(false);
+      show({
+        tone: "success",
+        title: "Re-index started",
+        body: `Dropped ${res.chunks_deleted.toLocaleString()} chunk${res.chunks_deleted === 1 ? "" : "s"} and queued ${res.queued_objects.toLocaleString()} object${res.queued_objects === 1 ? "" : "s"}. Search returns empty for this bucket until the worker drains.`,
+      });
+    } catch (err) {
+      show({
+        tone: "error",
+        title: "Couldn't re-index",
+        body:
+          err instanceof ControlPlaneError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Try again.",
+      });
+    }
+  };
+
+  // Lightweight settings write: only the chat model changes. Goes
+  // through the existing toggle endpoint (which now refuses embedding
+  // edits on enabled buckets server-side), so existing chunks stay
+  // intact.
+  const onChangeChatModel = async (modelId: string) => {
+    try {
+      await toggle.mutateAsync({ enabled: true, default_llm_model: modelId });
+      setChatModelOpen(false);
+      show({
+        tone: "success",
+        title: "Chat model updated",
+        body: (
+          <>
+            <code>/ask</code> now defaults to <code>{modelId}</code> on
+            this bucket.
+          </>
+        ),
+      });
+    } catch (err) {
+      show({
+        tone: "error",
+        title: "Couldn't update the chat model",
+        body:
+          err instanceof ControlPlaneError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Try again.",
+      });
+    }
+  };
+
   if (!status.enabled) {
+    // No project-scoped OpenAI key → don't even offer the Enable CTA.
+    // The toggle would 409 the moment it's pressed; redirect the user
+    // straight to where they can fix it, and keep an info banner up
+    // so the reason is visible without an extra click.
+    if (creds && !hasActiveOpenAi) {
+      return (
+        <div className="ks-card">
+          <div className="ks-card-head">
+            <div className="ks-card-title">Knowledge is off</div>
+            <div className="ks-card-sub">
+              Turn on Knowledge to index this bucket. Every object gets
+              chunked, embedded, and made searchable through the dashboard,
+              the API, and the MCP server. Plaintext stays on Walrus —
+              only chunk vectors land in our database.
+            </div>
+          </div>
+          <div
+            className="ks-card-body"
+            style={{ display: "flex", flexDirection: "column", gap: 12 }}
+          >
+            <Banner
+              tone="info"
+              icon="info"
+              title="An OpenAI key is required to enable Knowledge"
+              body={
+                <>
+                  Knowledge uses your project&apos;s OpenAI key for
+                  embedding objects and answering questions. Add one to
+                  unlock indexing and search across every bucket in this
+                  project.{" "}
+                  <Link href="/keys?tab=providers">Manage providers</Link>.
+                </>
+              }
+            />
+            <div>
+              <Button
+                variant="cta"
+                icon="key"
+                onClick={() => router.push("/keys?tab=providers")}
+              >
+                Add OpenAI key
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="ks-card">
         <div className="ks-card-head">
@@ -208,19 +368,57 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             only chunk vectors land in our database.
           </div>
         </div>
-        <div className="ks-card-body">
-          <Button
-            variant="cta"
-            icon="plus"
-            onClick={onEnable}
-            loading={toggle.isPending || granting}
-          >
-            {granting ? "Granting indexer access…" : "Enable Knowledge"}
-          </Button>
+        <div className="ks-card-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {credentialMissing ? (
+            <Banner
+              tone="warning"
+              title="Configure an OpenAI key first"
+              body={
+                <>
+                  Knowledge uses your project&apos;s OpenAI key for
+                  embedding and answering questions.{" "}
+                  <Link href="/keys?tab=providers">Manage providers</Link>.
+                </>
+              }
+            />
+          ) : null}
+          <div>
+            <Button
+              variant="cta"
+              icon="plus"
+              onClick={() => setEnableOpen(true)}
+              loading={toggle.isPending || granting}
+            >
+              {granting ? "Granting indexer access…" : "Enable Knowledge"}
+            </Button>
+          </div>
         </div>
+
+        <EnableKnowledgeModal
+          open={enableOpen}
+          status={status}
+          busy={toggle.isPending}
+          onCancel={() => (toggle.isPending ? undefined : setEnableOpen(false))}
+          onConfirm={onEnable}
+        />
       </div>
     );
   }
+
+  // Resolve display labels via the shared catalog so "1024" reads as
+  // its full model+dim string and unknown values still render literally.
+  const embeddingLabel = (() => {
+    if (!status.settings) return null;
+    const m = status.settings.embedding_model;
+    const d = status.settings.embedding_dimensions;
+    const option = EMBEDDING_OPTIONS.find(
+      (o) => o.model === m && o.dimensions === d,
+    );
+    return option?.label ?? `${m} @ ${d}d`;
+  })();
+  const chatModelLabel =
+    status.settings?.default_llm_model ?? "Not set (uses platform default)";
+  const mutating = toggle.isPending || reindex.isPending;
 
   return (
     <>
@@ -228,17 +426,54 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
         <div className="ks-card-head">
           <div className="ks-card-title">Knowledge is on</div>
           <div className="ks-card-sub">
-            New uploads are indexed automatically. Settings use the
-            defaults the plan calls out — text-embedding-3-small at 1024
-            dimensions, 400-token chunks, 60-token overlap.
+            New uploads are indexed automatically. Search and ask are
+            powered by the models below.
           </div>
         </div>
-        <div className="ks-card-body">
+
+        <div className="ks-card-body" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          <ModelRow
+            icon="chart"
+            label="Embedding model"
+            value={embeddingLabel ?? "—"}
+            helper="Used to index every object in this bucket. Changing it requires re-indexing — chunks are dropped and rebuilt."
+            actionLabel="Change embedding model"
+            destructive
+            onAction={() => setReindexOpen(true)}
+            disabled={mutating}
+          />
+          <ModelRow
+            icon="text"
+            label="Default chat model"
+            value={chatModelLabel}
+            valueMono={Boolean(status.settings?.default_llm_model)}
+            helper={
+              <>
+                Default model for <code>/ask</code> on this bucket.
+                Callers can override per request. Switching is free.
+              </>
+            }
+            actionLabel="Change chat model"
+            onAction={() => setChatModelOpen(true)}
+            disabled={mutating}
+            last
+          />
+        </div>
+
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
           <Button
-            variant="secondary"
+            variant="ghost"
             icon="shieldOff"
             onClick={() => setConfirmDisable(true)}
             loading={toggle.isPending}
+            disabled={reindex.isPending}
+            style={{ color: "var(--error)" }}
           >
             Disable Knowledge
           </Button>
@@ -261,6 +496,123 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
         onConfirm={onDisable}
         onCancel={() => setConfirmDisable(false)}
       />
+
+      <EnableKnowledgeModal
+        open={reindexOpen}
+        mode="reindex"
+        status={status}
+        busy={reindex.isPending}
+        onCancel={() => (reindex.isPending ? undefined : setReindexOpen(false))}
+        onConfirm={onReindex}
+      />
+
+      <ChangeChatModelDialog
+        open={chatModelOpen}
+        busy={toggle.isPending}
+        current={status.settings?.default_llm_model ?? null}
+        onCancel={() => (toggle.isPending ? undefined : setChatModelOpen(false))}
+        onConfirm={onChangeChatModel}
+      />
     </>
+  );
+}
+
+interface ModelRowProps {
+  icon: Parameters<typeof Icon>[0]["name"];
+  label: string;
+  value: string;
+  valueMono?: boolean;
+  helper: React.ReactNode;
+  actionLabel: string;
+  /** When true, the helper is styled as a warning to flag that the
+   *  action is destructive (re-index drops chunks). */
+  destructive?: boolean;
+  onAction: () => void;
+  disabled?: boolean;
+  /** Skip the hairline divider — use on the final row in a stack so
+   *  the card doesn't end with a separator above unrelated content. */
+  last?: boolean;
+}
+
+function ModelRow({
+  icon,
+  label,
+  value,
+  valueMono = true,
+  helper,
+  actionLabel,
+  destructive = false,
+  onAction,
+  disabled,
+  last = false,
+}: ModelRowProps) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "20px minmax(0, 1fr) auto",
+        columnGap: 12,
+        alignItems: "start",
+        padding: "16px 0",
+        ...(last ? {} : { borderBottom: "1px solid var(--border)" }),
+      }}
+    >
+      <Icon
+        name={icon}
+        size={16}
+        style={{ color: "var(--text-secondary)", marginTop: 2 }}
+      />
+      <div style={{ minWidth: 0 }}>
+        <div
+          className="micro"
+          style={{ color: "var(--text-tertiary)", marginBottom: 4 }}
+        >
+          {label}
+        </div>
+        <div
+          className={valueMono ? "mono" : undefined}
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {value}
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: destructive ? "var(--warning)" : "var(--text-tertiary)",
+            marginTop: 6,
+            lineHeight: 1.5,
+          }}
+        >
+          {destructive ? (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Icon name="alert" size={14} />
+              {helper}
+            </span>
+          ) : (
+            helper
+          )}
+        </div>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={onAction}
+        disabled={disabled}
+      >
+        {actionLabel}
+      </Button>
+    </div>
   );
 }

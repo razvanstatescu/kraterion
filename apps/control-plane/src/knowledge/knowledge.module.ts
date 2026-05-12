@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { BucketsModule } from "../buckets/buckets.module.js";
+import { ProvidersModule } from "../providers/providers.module.js";
 import { EMBEDDINGS_QUEUE_NAME } from "./embeddings-queue.constants.js";
 import { KnowledgeController } from "./knowledge.controller.js";
 import { KnowledgeService } from "./knowledge.service.js";
@@ -16,6 +17,7 @@ import { KnowledgeService } from "./knowledge.service.js";
 @Module({
   imports: [
     BucketsModule,
+    ProvidersModule,
     BullModule.forRootAsync({
       useFactory: () => ({
         connection: {

@@ -848,3 +848,19 @@ Apply to both `bucket` and every entry in `key[]` before constructing the gatewa
 **Observed:** 2026-05-11, dashboard public-link redirect with file `opengraph-image (2).png`.
 
 **Notes:** This is one of those Next.js App Router behaviors that quietly differs from Pages Router and from Next 13/14. Worth a quick sanity test on any other dynamic route that builds URLs from `params` — if it touches `encodeURIComponent`, it's at risk of double-encoding.
+
+---
+
+## Migrating from `OPENAI_API_KEY` env var to per-project credentials
+
+**Background:** P0 (2026-05-13) removed the process-wide `OPENAI_API_KEY` env var. Worker ingestion, CP `/search`, CP `/ask`, and the MCP `kraterion_ask` tool all now read the key from `ProviderCredential` via `ProviderCredentialService.useDecrypted(projectId, "openai", fn)`. No env-var fallback.
+
+**Steps for an existing developer:**
+
+1. Apply migrations: `npx prisma migrate deploy` (one new migration: `20260512235959_add_provider_credentials`).
+2. Boot the control plane + dashboard. Sign in, go to `/keys`, click the **AI providers** tab.
+3. Click **Add OpenAI key**, paste the value that used to live in `OPENAI_API_KEY`. The CP pings `/v1/models` and rejects invalid keys before persisting.
+4. The variable can be removed from `.env` — nothing reads it any more. Worker, CP, and MCP all fetch the key fresh per call via the new service.
+
+**If indexing fails with `error_detail = "openai_credential_missing"`:** the project has no active OpenAI credential. Configure it on `/keys?tab=providers`, then re-enable Knowledge (or call `POST /v1/buckets/:id/knowledge/backfill`) on each affected bucket.
+

@@ -19,6 +19,8 @@ import {
   type BucketJson,
   type FolderMarkerJson,
   type ProjectJson,
+  type ProviderCredentialJson,
+  type ProviderName,
   type S3ObjectJson,
 } from "./api";
 import { useCpSession } from "./auth";
@@ -322,10 +324,79 @@ export function useRevokeApiKey(projectId: string | undefined) {
   });
 }
 
+// === Provider credentials ====================================================
+
+interface ProviderCredentialsResponse {
+  credentials: ProviderCredentialJson[];
+}
+
+interface UpsertCredentialResponse {
+  credential: ProviderCredentialJson;
+}
+
+export function useProviderCredentials(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "credentials", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<ProviderCredentialsResponse>(`/v1/projects/${projectId}/credentials`),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 30_000,
+  });
+}
+
+export function useUpsertCredential(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { provider: ProviderName; api_key: string }) =>
+      cpFetch<UpsertCredentialResponse>(
+        `/v1/projects/${projectId}/credentials/${args.provider}`,
+        { method: "PUT", body: { api_key: args.api_key } },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "credentials", projectId ?? "none"],
+      });
+    },
+  });
+}
+
+interface RemoveCredentialResponse {
+  disabled_buckets: number;
+}
+
+export function useRemoveCredential(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { provider: ProviderName; cascade?: boolean }) => {
+      const qs = args.cascade ? "?cascade=true" : "";
+      return cpFetch<RemoveCredentialResponse>(
+        `/v1/projects/${projectId}/credentials/${args.provider}${qs}`,
+        { method: "DELETE" },
+      );
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "credentials", projectId ?? "none"],
+      });
+      // Cascade-disable also wipes KnowledgeBucketSettings + chunks for
+      // every bucket in the project. Invalidate everything that reads
+      // Knowledge state so the bucket pages re-render in their "off"
+      // state immediately.
+      if (data.disabled_buckets > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge"] });
+      }
+    },
+  });
+}
+
 // === Knowledge ===============================================================
 
 export interface KnowledgeSummary {
   total_objects: number;
+  /** Stringified BigInt — sum of `S3Object.size_bytes` for the bucket.
+   *  Powers the enable-Knowledge modal's indexing-cost preview. */
+  total_bytes: string;
   indexed: number;
   pending: number;
   failed: number;
@@ -335,6 +406,9 @@ export interface KnowledgeSummary {
 export interface KnowledgeSettings {
   embedding_model: string;
   embedding_dimensions: number;
+  /** Bucket-wide default chat model for /ask. Per-request `model`
+   *  overrides this; null means "use the global default". */
+  default_llm_model: string | null;
   chunk_tokens: number;
   chunk_overlap_tokens: number;
   updated_at: string;
@@ -383,14 +457,34 @@ export interface ToggleKnowledgeResponse {
   needs_indexer_revoke?: boolean;
 }
 
+/**
+ * Enable / disable Knowledge on a bucket. The enable payload now
+ * carries the user's picks from the multi-step modal — embedding
+ * model + dimensions and the bucket's default chat model. Omitting a
+ * field defers to the CP's defaults (text-embedding-3-small @ 1024d,
+ * no default chat model).
+ */
+export interface ToggleKnowledgePayload {
+  enabled: boolean;
+  embedding_model?: string;
+  embedding_dimensions?: number;
+  /** Pass `null` to clear the bucket default; omit to leave unchanged. */
+  default_llm_model?: string | null;
+  chunk_tokens?: number;
+  chunk_overlap_tokens?: number;
+}
+
 export function useToggleKnowledge(bucketId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (enabled: boolean) =>
-      cpFetch<ToggleKnowledgeResponse>(
+    mutationFn: async (payload: ToggleKnowledgePayload | boolean) => {
+      const body: ToggleKnowledgePayload =
+        typeof payload === "boolean" ? { enabled: payload } : payload;
+      return cpFetch<ToggleKnowledgeResponse>(
         `/v1/buckets/${bucketId}/knowledge`,
-        { method: "POST", body: { enabled } },
-      ),
+        { method: "POST", body },
+      );
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
       void queryClient.invalidateQueries({ queryKey: ["v1", "bucket", bucketId ?? "none"] });
@@ -412,6 +506,39 @@ export function useKnowledgeBackfill(bucketId: string | undefined) {
       cpFetch<{ queued_objects: number }>(
         `/v1/buckets/${bucketId}/knowledge/backfill`,
         { method: "POST" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
+    },
+  });
+}
+
+/**
+ * Destructive re-index. Drops every live chunk for the bucket and
+ * re-enqueues every object with the supplied settings. Search returns
+ * empty until the worker drains the new pass.
+ */
+export interface ReindexKnowledgePayload {
+  embedding_model?: string;
+  embedding_dimensions?: number;
+  default_llm_model?: string | null;
+  chunk_tokens?: number;
+  chunk_overlap_tokens?: number;
+}
+
+export interface ReindexKnowledgeResponse {
+  chunks_deleted: number;
+  queued_objects: number;
+  settings: { embedding_model: string; embedding_dimensions: number };
+}
+
+export function useReindexKnowledge(bucketId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ReindexKnowledgePayload) =>
+      cpFetch<ReindexKnowledgeResponse>(
+        `/v1/buckets/${bucketId}/knowledge/reindex`,
+        { method: "POST", body: payload },
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });

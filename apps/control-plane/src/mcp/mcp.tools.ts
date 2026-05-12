@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { DEFAULT_CHAT_MODEL_ID } from "@kraterion/shared";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { serializeBucket, serializeObject } from "../buckets/serialize.js";
@@ -8,6 +9,7 @@ import { answerWithLLM } from "../knowledge/ask.js";
 import { KnowledgeService } from "../knowledge/knowledge.service.js";
 import { PresignService } from "../objects/presign.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { ProviderCredentialService } from "../providers/provider-credential.service.js";
 import type { McpPrincipal } from "./mcp.types.js";
 
 /**
@@ -51,6 +53,7 @@ export class McpToolsService {
     private readonly buckets: BucketsService,
     private readonly knowledge: KnowledgeService,
     private readonly presign: PresignService,
+    private readonly credentials: ProviderCredentialService,
   ) {}
 
   /** Resolve `(account_id, bucket_name)` to a `Bucket` row. */
@@ -185,16 +188,12 @@ export class McpToolsService {
       {
         description:
           "Answer a natural-language question grounded in a bucket's " +
-          "knowledge index. The caller MUST supply their own OpenAI " +
-          "API key (`openai_api_key`) — Kraterion does not proxy LLM " +
-          "calls. Returns the answer plus the chunk hashes that backed it.",
+          "knowledge index. Uses the OpenAI API key the project owner " +
+          "configured on /keys — the agent does not supply one. Returns " +
+          "the answer plus the chunk hashes that backed it.",
         inputSchema: {
           bucket: z.string().min(1),
           query: z.string().min(1).max(4096),
-          openai_api_key: z
-            .string()
-            .min(20)
-            .describe("Caller-supplied OpenAI API key. Required."),
           model: z
             .string()
             .optional()
@@ -202,7 +201,7 @@ export class McpToolsService {
           top_k: z.number().int().min(1).max(32).optional(),
         },
       },
-      async ({ bucket: bucketName, query, openai_api_key, model, top_k }) => {
+      async ({ bucket: bucketName, query, model, top_k }) => {
         const bucket = await this.findBucketByName(principal.account_id, bucketName);
         const retrieved = await this.knowledge.search({
           accountId: principal.account_id,
@@ -211,12 +210,25 @@ export class McpToolsService {
           ...(top_k !== undefined ? { topK: top_k } : {}),
           efSearch: 96,
         });
-        const answered = await answerWithLLM({
-          query,
-          hits: retrieved.hits,
-          openaiApiKey: openai_api_key,
-          ...(model ? { model } : {}),
+        // Same model-resolution chain as the REST /ask: per-call
+        // override > bucket default_llm_model > global default.
+        const settings = await this.prisma.knowledgeBucketSettings.findUnique({
+          where: { bucket_id: bucket.id },
+          select: { default_llm_model: true },
         });
+        const chosenModel =
+          model ?? settings?.default_llm_model ?? DEFAULT_CHAT_MODEL_ID;
+        const answered = await this.credentials.useDecrypted(
+          principal.project_id,
+          "openai",
+          (apiKey) =>
+            answerWithLLM({
+              query,
+              hits: retrieved.hits,
+              apiKey,
+              model: chosenModel,
+            }),
+        );
         await this.knowledge.recordQuery({
           bucketId: bucket.id,
           projectId: principal.project_id,

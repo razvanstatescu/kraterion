@@ -19,6 +19,12 @@ import { ControlPlaneError } from "../errors/control-plane-error.js";
  */
 export const parseQuery = <T>(schema: ZodSchema<T>) => parseBody(schema);
 
+/**
+ * Alias of `parseBody` for `@Param()` arguments. Identical implementation;
+ * the separate name documents intent at the call site.
+ */
+export const parseParam = <T>(schema: ZodSchema<T>) => parseBody(schema);
+
 export function parseBody<T>(schema: ZodSchema<T>): PipeTransform<unknown, T> {
   return {
     transform(value: unknown): T {

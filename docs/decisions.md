@@ -2417,3 +2417,149 @@ The auth guard fails closed on a missing or mismatched `typ`.
   cheapest comparison runs first.
 
 ---
+
+## 2026-05-13 — Project-scoped OpenAI credentials replace the global env var (P0)
+
+**Status:** Accepted, shipped.
+
+**Context:** Until now every OpenAI call (worker ingestion, CP `/search`
+query embedding, CP `/ask`, MCP `kraterion_ask`) read `OPENAI_API_KEY`
+from process env or accepted a per-request `openai_api_key` body field.
+That blocks every "AI feature that runs without a human in the request"
+arc the AI platform proposal needs: scheduled jobs, agents, embedded
+widgets, background re-indexing — none of them have a caller to paste
+a key.
+
+**Decision:** Add a project-scoped `ProviderCredential` table KMS-wrapped
+via the existing `EnvKeyWrapper` (same envelope as `ApiKey.secret_wrapped`
+and `SubWallet.mnemonic_wrapped`). Surface `ProviderCredentialService` with a
+single read path — `useDecrypted(projectId, provider, fn)` — that unwraps
+in-memory for the duration of `fn` only. Wire every existing OpenAI
+callsite through it; drop the env var and the per-request `openai_api_key`
+field on `/ask` and `kraterion_ask`.
+
+**Decision 1: validate-before-persist.** `PUT
+/v1/projects/:id/credentials/openai` pings OpenAI's `/v1/models` (Bearer
+auth, 5s timeout) before writing. 401 → 400 to the caller; 200 → write
+with `status='active'`; any other status / network error → write
+`status='active'` anyway (transient failures should not poison the
+stored row, the next `useDecrypted` will surface the real problem). The
+alternative — persist then validate async — leaves an invalid key live
+through the first indexing batch, which is the worst possible time to
+discover it.
+
+**Decision 2: gate enable-Knowledge at the controller, not the worker.**
+The POST `/v1/buckets/:id/knowledge { enabled: true }` handler checks
+`ProviderCredentialService.list` before any DB write; missing OpenAI
+credential → `409 PreconditionFailed` with `details.provider = 'openai'`.
+The dashboard's KnowledgeToggle branches on that code and surfaces a
+"Configure an OpenAI key first → Manage providers" banner linking to
+`/keys?tab=providers`. The alternative — let enable succeed, fail at
+embed time — leaves a confusing zombie "Knowledge enabled, zero
+chunks" state.
+
+**Decision 3: `PreconditionFailed` maps to HTTP 409, not 412.** The
+dashboard's existing `cpFetch` already treats 409 as recoverable
+user-fixable state (existing `Conflict` code uses 409 for things like
+"project name taken"). Adding 412 would mean a new branch in every
+fetch helper; reusing 409 with a distinct `code` field lets the
+dashboard branch cleanly without touching transport code.
+
+**Decision 4: per-app worker copy of the service, not a shared package.**
+`apps/control-plane` and `apps/worker` each get their own
+`ProviderCredentialService`. They share the wrapped ciphertext via the
+`ProviderCredential` table and the master key via `KEY_WRAPPING_MASTER_KEY`
+env — that's the contract. Extracting a third package for ~30 LOC of
+DI plumbing would cost more than it saves. The worker version omits
+`list/upsert/remove` (worker is read-only) and throws `MissingProviderCredentialError`
+instead of `ControlPlaneError` so the embeddings processor can finalize
+the manifest with a typed reason without dragging Nest's HTTP layer
+into the worker.
+
+**Consequences:**
+- One credential per (project, provider) — `@@unique([project_id, provider])`
+  encodes the proposal's "project, one provider key" rule and leaves P1
+  (Anthropic, Cohere) a no-migration extension.
+- The `embeddings-client` package drops its env-based singleton; every
+  `embedQuery / embedAll / embedBatch` call takes `apiKey` per request.
+  Callers without per-project context (none today) would need to manage
+  their own key plumbing.
+- Indexing jobs that hit a missing/invalid credential finalize the
+  manifest with `status='failed'` + `error_detail='openai_credential_missing'`
+  and the worker keeps draining other buckets. No retry storm.
+- Removing the OpenAI credential on `/keys` does not delete existing
+  chunks — they stay queryable until search runs and fails on the next
+  `useDecrypted`. The remove modal copy makes that explicit.
+
+---
+
+## 2026-05-13 — Embedding-model picker only exposes 1024d; re-index is destructive (P0 step 2/3/4)
+
+**Status:** Accepted, shipped.
+
+**Context:** P0 step 2 of the AI platform proposal asks the dashboard's
+enable-Knowledge modal to offer three OpenAI embedding options (1024d,
+1536d, 3072d) and warn that the choice is locked once indexing starts.
+Step 3 adds a default chat model picker; step 4 adds an indexing-cost
+estimate. Step "re-indexing flow" asks for a destructive change-settings
+flow with a confirmation that spells out the consequences.
+
+**Decision 1: Show 1536d / 3072d as "Coming soon" rather than enable them.**
+The `KnowledgeChunk.embedding` column is `Unsupported("halfvec(1024)")` —
+pgvector requires a fixed dimension per column. Storing 1536d or 3072d
+vectors needs a column-level schema change (or a per-dim shadow table
+keyed by `(chunk_id, model)`). Surfacing the options as disabled keeps
+the proposal's intent ("here are the embedding tradeoffs") visible
+while honestly representing what the storage layer supports today. Both
+the backend (catalog `.disabled` flag) and the dashboard reject
+selection of the 1536d/3072d rows. When we add the schema, flipping the
+`disabled` bit in `packages/shared/src/models.ts` is the only change
+needed in the catalog.
+
+**Decision 2: Destructive re-index, not transactional swap.** The
+proposal's preferred behavior is to keep serving old chunks until the
+new pass completes, then atomically swap. That would need a
+`pending_embedding_*` shadow on `KnowledgeBucketSettings`, per-manifest
+embedding-spec tagging, a routing rule that filters chunks by current
+spec, and a swap step. ~1.5 days of schema + query work for a behavior
+that mostly matters when re-indexing a bucket that's actively serving
+production traffic. Destructive re-index — drop chunks, swap settings,
+re-enqueue every object — is one transaction plus the existing backfill
+loop, the confirmation modal warns the user that search returns empty
+for the bucket until the worker drains, and matches the behavior of
+disable + re-enable (which already works this way). Pencilled as
+post-hackathon: see `docs/ai-platform-proposal.md` §"Re-indexing flow"
+for the transactional version's shape.
+
+**Decision 3: Schema column kept as `default_llm_model`, not
+`default_chat_model`.** The K1 schema already had `default_llm_model` and
+no code read it. The proposal calls the field "default chat model";
+renaming the column would have been a no-value migration. The wire field,
+hook field, and UI label all use `default_llm_model` to stay consistent.
+
+**Decision 4: Model catalog lives in `packages/shared/src/models.ts`.**
+Both backend (validation) and frontend (pickers + cost preview) read
+the same list. Adding a model is a one-line edit; adding a provider is
+a new entry plus a `provider` switch in the validation ping. The
+catalog also exposes the pricing constants used for the indexing-cost
+estimate (`BYTES_PER_TOKEN_ESTIMATE` = 4, list prices as of 2026-05-13).
+Pricing accuracy is rough by design — the UI labels every cost figure
+as "estimate".
+
+**Consequences:**
+- Switching the chat model on a Knowledge-enabled bucket is free
+  (per-request override, no re-index needed). Switching chunking
+  parameters or the embedding model requires re-index. The dashboard
+  treats both via the same modal in "reindex" mode.
+- The manifest archive's verifiability promise — given chunk hashes,
+  the on-chain manifest proves how they were derived — only holds for
+  the bucket's *current* embedding spec. After a destructive re-index,
+  the old manifests still exist on chain but their chunk hashes no
+  longer correspond to live chunks. The new manifests are written when
+  each object re-indexes. The dashboard confirmation copy spells this
+  out before the user confirms.
+- The 5-second OpenAI `/v1/models` validation ping on credential
+  upsert costs $0 against OpenAI's bill (the endpoint is free); the
+  same is true for the per-request ping that any future provider
+  abstraction (P1) would need to add.
+

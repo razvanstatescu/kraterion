@@ -15,6 +15,10 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { REDIS } from "../redis/redis.module.js";
 import { KnowledgeIndexerKeypairService } from "../auth/knowledge-indexer-keypair.service.js";
+import {
+  MissingProviderCredentialError,
+  ProviderCredentialService,
+} from "../providers/provider-credential.service.js";
 import { chunkText, disposeEncoder } from "./chunking/recursive.js";
 import { DEFAULT_BATCH_SIZE, embedAll } from "./embedders/openai.js";
 import { dispatchExtractor } from "./extractors/index.js";
@@ -58,6 +62,7 @@ export class EmbeddingsProcessor extends WorkerHost implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly keypair: KnowledgeIndexerKeypairService,
+    private readonly credentials: ProviderCredentialService,
     @Inject(REDIS) private readonly redis: Redis,
   ) {
     super();
@@ -166,14 +171,34 @@ export class EmbeddingsProcessor extends WorkerHost implements OnModuleDestroy {
       }
 
       // === Embed ===
-      const embedded = await embedAll(
-        chunks.map((c) => c.content),
-        {
-          model: settings.embedding_model,
-          dimensions: settings.embedding_dimensions,
-          batchSize: DEFAULT_BATCH_SIZE,
-        },
-      );
+      // Project-scoped OpenAI key loaded via ProviderCredentialService;
+      // plaintext is held only for the duration of `useDecrypted`'s
+      // closure. If the row is missing or marked invalid we finalize
+      // the manifest with a typed error and return — the worker stays
+      // up to drain other buckets that do have credentials configured.
+      let embedded;
+      try {
+        embedded = await this.credentials.useDecrypted(
+          object.bucket.project_id,
+          "openai",
+          (apiKey) =>
+            embedAll(chunks.map((c) => c.content), {
+              apiKey,
+              model: settings.embedding_model,
+              dimensions: settings.embedding_dimensions,
+              batchSize: DEFAULT_BATCH_SIZE,
+            }),
+        );
+      } catch (err) {
+        if (err instanceof MissingProviderCredentialError) {
+          await this.finalize(manifest.id, {
+            status: "failed",
+            error_detail: `openai_credential_${err.reason}`,
+          });
+          return { chunk_count: 0, status: "failed" };
+        }
+        throw err;
+      }
       if (embedded.vectors.length !== chunks.length) {
         throw new Error(
           `Embedder returned ${embedded.vectors.length} vectors for ${chunks.length} chunks`,

@@ -4,6 +4,7 @@ import { embedQuery } from "@kraterion/embeddings-client";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { ProviderCredentialService } from "../providers/provider-credential.service.js";
 
 /**
  * K2 retrieval API.
@@ -89,6 +90,7 @@ export class KnowledgeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly buckets: BucketsService,
+    private readonly credentials: ProviderCredentialService,
   ) {}
 
   /**
@@ -140,11 +142,19 @@ export class KnowledgeService {
     const efSearch = args.efSearch ?? 64;
 
     // Embed the query using the SAME model + dims the bucket was indexed
-    // with. The retrieval is meaningless if the spaces don't match.
-    const embedded = await embedQuery(args.query, {
-      model: settings.embedding_model,
-      dimensions: settings.embedding_dimensions,
-    });
+    // with. The retrieval is meaningless if the spaces don't match. The
+    // OpenAI key is loaded from the project's ProviderCredential row —
+    // missing-credential surfaces as 409 PreconditionFailed.
+    const embedded = await this.credentials.useDecrypted(
+      bucket.project_id,
+      "openai",
+      (apiKey) =>
+        embedQuery(args.query, {
+          apiKey,
+          model: settings.embedding_model,
+          dimensions: settings.embedding_dimensions,
+        }),
+    );
     const halfvecLiteral = `[${embedded.vector.join(",")}]`;
 
     // One transaction so `SET LOCAL hnsw.ef_search` only affects this

@@ -45,9 +45,10 @@ model Project {
   default_region String   @default("eu-central-1")
   created_at     DateTime @default(now())
 
-  account  Account  @relation(fields: [account_id], references: [id])
-  buckets  Bucket[]
-  api_keys ApiKey[]
+  account              Account              @relation(fields: [account_id], references: [id])
+  buckets              Bucket[]
+  api_keys             ApiKey[]
+  provider_credentials ProviderCredential[]
 
   @@index([account_id])
 }
@@ -544,4 +545,45 @@ model OAuthGrant {
 
   @@index([client_id])
   @@index([account_id])
+}
+
+/// Stored third-party API credentials, scoped to a Project. Keyed by
+/// `(project_id, provider)` — one credential per provider per project.
+///
+/// AI features (worker embeddings, /ask, /search query embedding,
+/// MCP kraterion_ask) read the project's OpenAI credential via the
+/// `useDecrypted` accessor; the plaintext key is held in memory only
+/// during the closure that needs it. Replaces the process-wide
+/// `OPENAI_API_KEY` env var.
+///
+/// Schema is provider-tagged so additional providers (Anthropic,
+/// Cohere) can be added later without migration — they'd insert
+/// rows with `provider = 'anthropic'` etc.
+model ProviderCredential {
+  id             String    @id @default(uuid())
+  project_id     String
+  // Free-form lowercase identifier. Only 'openai' at launch; future
+  // values like 'anthropic', 'cohere' don't require a schema change.
+  provider       String
+  // KMS-wrapped via EnvKeyWrapper. Format matches ApiKey.secret_wrapped:
+  // [12 byte nonce | ciphertext | 16 byte auth tag]. Never logged,
+  // never returned to the dashboard wire.
+  encrypted_key  Bytes
+  // Last 4 chars of the plaintext key. Displayed as "sk-…ABCD" in the
+  // dashboard so users can confirm which key is stored without ever
+  // exposing the full secret again.
+  key_last_4     String
+  // 'active' | 'invalid' | 'revoked'. Validation pings provider's
+  // /models endpoint on upsert and any time `useDecrypted` succeeds
+  // (background refresh). Transient network failures don't flip the
+  // status — only an explicit 401.
+  status         String    @default("active")
+  last_validated DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  project Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, provider])
+  @@index([project_id])
 }

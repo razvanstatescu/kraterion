@@ -5,16 +5,15 @@ import type { ChunkHit } from "./knowledge.service.js";
  * Prompt-stuffed `ask` helper.
  *
  * The CP-side `/ask` runs `search` first, then prompt-stuffs the top
- * chunks into an OpenAI Chat Completions call using a **caller-supplied
- * API key**. The platform never pays for the LLM step; users bring
- * their own key.
+ * chunks into an OpenAI Chat Completions call. The API key is loaded
+ * from the project-scoped `ProviderCredential` row via
+ * `ProviderCredentialService.useDecrypted` — the controller does the
+ * decryption, this function just consumes the plaintext within the
+ * closure.
  *
- * Why a fresh OpenAI client per request: keeps the BYO-key contract
- * clean. The shared `@kraterion/embeddings-client` is server-paid
- * (KRATERION's key, server-side ingestion); ask LLM calls are
- * user-paid. Mixing them in one client would risk leaking the wrong
- * key. Per-request construction is cheap (no connection pool to set up
- * for sync chat completion).
+ * Why a fresh OpenAI client per request: per-project key means we can't
+ * share a singleton. Per-request construction is cheap (no connection
+ * pool to set up for a sync chat completion).
  *
  * Citation contract: the system prompt instructs the model to inline
  * citations as `[chunk N]` where N is the chunk's position in the
@@ -28,8 +27,8 @@ import type { ChunkHit } from "./knowledge.service.js";
 export interface AskRequest {
   query: string;
   hits: ChunkHit[];
-  /** Caller-supplied OpenAI API key. Required — we never proxy keys. */
-  openaiApiKey: string;
+  /** Decrypted OpenAI API key, scoped to the calling project. */
+  apiKey: string;
   /** Defaults to `gpt-4o-mini`. */
   model?: string;
   /** Optional max output tokens. Defaults to 600. */
@@ -60,9 +59,6 @@ Rules:
 - Keep the answer concise unless asked otherwise.`;
 
 export async function answerWithLLM(req: AskRequest): Promise<AskResult> {
-  if (!req.openaiApiKey) {
-    throw new Error("openai_api_key is required for /ask — bring your own.");
-  }
   if (req.hits.length === 0) {
     return {
       answer: "The supplied chunks don't cover this question.",
@@ -74,7 +70,7 @@ export async function answerWithLLM(req: AskRequest): Promise<AskResult> {
   }
 
   const model = req.model ?? DEFAULT_MODEL;
-  const client = new OpenAI({ apiKey: req.openaiApiKey, maxRetries: 0 });
+  const client = new OpenAI({ apiKey: req.apiKey, maxRetries: 0 });
 
   const context = req.hits
     .map((h, i) => `[chunk ${i + 1} | source: ${h.s3_key} #${h.ordinal}]\n${h.content}`)

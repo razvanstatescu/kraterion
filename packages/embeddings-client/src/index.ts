@@ -14,14 +14,13 @@
  *   - `text-embedding-3-small`-shaped call (configurable model + dims).
  *   - Batch + retry semantics (200/batch sync, exponential w/ jitter,
  *     4xx-no-retry policy).
- *   - The OpenAI client singleton.
  *
  * What this package does NOT own:
  *   - Chunking (caller's concern).
  *   - Persisting embeddings (caller's concern; pgvector/halfvec, etc).
- *   - The OPENAI_API_KEY env var lookup — `getClient()` lazily reads
- *     `process.env.OPENAI_API_KEY` and throws if missing. Both apps
- *     load that var from their own dotenv-bootstrapped env.
+ *   - Where the API key comes from. Callers pass `apiKey` per request.
+ *     The control plane and worker both pull it from the project-scoped
+ *     `ProviderCredential` table via `ProviderCredentialService.useDecrypted`.
  */
 
 import OpenAI from "openai";
@@ -29,6 +28,8 @@ import pRetry, { AbortError } from "p-retry";
 
 export interface EmbeddingRequest {
   inputs: readonly string[];
+  /** Project-scoped OpenAI API key. Required. */
+  apiKey: string;
   /** Defaults to `text-embedding-3-small`. */
   model?: string;
   /** Defaults to 1024 (Matryoshka-truncated). */
@@ -57,28 +58,17 @@ const RETRY_MAX = 5;
 const RETRY_INITIAL_MS = 500;
 const RETRY_MAX_MS = 30_000;
 
-let _client: OpenAI | null = null;
-
-function getClient(): OpenAI {
-  if (_client) return _client;
-  const apiKey = process.env["OPENAI_API_KEY"];
-  if (!apiKey) {
-    throw new Error(
-      "OPENAI_API_KEY env var is not set. Add it to the repo-root `.env` " +
-        "and ensure your service loads dotenv with an explicit root path.",
-    );
-  }
-  _client = new OpenAI({
+function buildClient(apiKey: string): OpenAI {
+  return new OpenAI({
     apiKey,
     // We layer p-retry on top for explicit 4xx classification + logging
     // hooks, so the SDK's internal retry is set to 0.
     maxRetries: 0,
   });
-  return _client;
 }
 
 export async function embedBatch(req: EmbeddingRequest): Promise<EmbeddingResult> {
-  const client = getClient();
+  const client = buildClient(req.apiKey);
   const model = req.model ?? DEFAULT_MODEL;
   const dimensions = req.dimensions ?? DEFAULT_DIMENSIONS;
 
@@ -131,7 +121,13 @@ export async function embedBatch(req: EmbeddingRequest): Promise<EmbeddingResult
  */
 export async function embedAll(
   inputs: readonly string[],
-  opts: { model?: string; dimensions?: number; batchSize?: number; signal?: AbortSignal } = {},
+  opts: {
+    apiKey: string;
+    model?: string;
+    dimensions?: number;
+    batchSize?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<EmbeddingResult> {
   const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   if (inputs.length === 0) {
@@ -152,6 +148,7 @@ export async function embedAll(
   for (let i = 0; i < inputs.length; i += batchSize) {
     const batchOpts: EmbeddingRequest = {
       inputs: inputs.slice(i, i + batchSize),
+      apiKey: opts.apiKey,
     };
     if (opts.model) batchOpts.model = opts.model;
     if (opts.dimensions) batchOpts.dimensions = opts.dimensions;
@@ -177,7 +174,7 @@ export async function embedAll(
  */
 export async function embedQuery(
   query: string,
-  opts: { model?: string; dimensions?: number; signal?: AbortSignal } = {},
+  opts: { apiKey: string; model?: string; dimensions?: number; signal?: AbortSignal },
 ): Promise<{ vector: number[]; model: string; dimensions: number; prompt_tokens: number }> {
   const res = await embedBatch({ inputs: [query], ...opts });
   return {

@@ -4,6 +4,7 @@ import { BucketsModule } from "../buckets/buckets.module.js";
 import { KnowledgeModule } from "../knowledge/knowledge.module.js";
 import { ObjectsModule } from "../objects/presign.module.js";
 import { OAuthModule } from "../oauth/oauth.module.js";
+import { ProvidersModule } from "../providers/providers.module.js";
 import { McpAuthGuard } from "./mcp.auth.guard.js";
 import { McpController } from "./mcp.controller.js";
 import { McpToolsService } from "./mcp.tools.js";
@@ -28,7 +29,7 @@ import { McpToolsService } from "./mcp.tools.js";
  * guard with the OAuth JWT branch.
  */
 @Module({
-  imports: [BucketsModule, KnowledgeModule, ObjectsModule, OAuthModule],
+  imports: [BucketsModule, KnowledgeModule, ObjectsModule, OAuthModule, ProvidersModule],
   providers: [KeyWrappingService, McpAuthGuard, McpToolsService],
   controllers: [McpController],
 })

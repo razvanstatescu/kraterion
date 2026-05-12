@@ -2858,3 +2858,162 @@ _Calendar weeks anchored in `docs/timeline.md`._
     promises (post-hackathon).
 
 ---
+
+## 2026-05-13 — [ai-platform] P0: project-scoped OpenAI credentials
+
+Replaced the process-wide `OPENAI_API_KEY` env var with a KMS-wrapped,
+project-scoped `ProviderCredential` row. `ProviderCredentialService.useDecrypted`
+is now the only path to an OpenAI key inside the platform.
+
+- **Schema:** new `ProviderCredential` (`project_id`, `provider`, `encrypted_key`,
+  `key_last_4`, `status`, `last_validated`) with `@@unique([project_id, provider])`.
+  KMS-wrapped via `EnvKeyWrapper` (same AES-256-GCM envelope as `ApiKey.secret_wrapped`).
+  Migration: `20260512235959_add_provider_credentials`.
+- **CP:** new `ProvidersModule` exposes
+  `GET /v1/projects/:id/credentials`,
+  `PUT /v1/projects/:id/credentials/:provider`,
+  `DELETE /v1/projects/:id/credentials/:provider`. `upsert` pings OpenAI's
+  `/v1/models` before persisting; 401 → 400 to caller, 200 → write, transient → write.
+- **Wire-up:** worker `EmbeddingsProcessor`, CP `/search`, CP `/ask`, and MCP
+  `kraterion_ask` all now load the key via `useDecrypted(project_id, 'openai', fn)`.
+  Dropped the `openai_api_key` body field on `/ask` and the MCP tool's input schema.
+- **Embeddings-client:** dropped the env-based singleton. `embedQuery / embedAll / embedBatch`
+  all take `apiKey` per call now.
+- **Enable-Knowledge gate:** `POST /v1/buckets/:id/knowledge { enabled: true }`
+  pre-checks for an active OpenAI credential and returns `409 PreconditionFailed`
+  with `details.provider='openai'` when missing. Added `PreconditionFailed` to the
+  CP's closed error-code union (maps to HTTP 409, distinct `code` value for client
+  branching).
+- **Dashboard:** `/keys` is now tabbed ("Access keys" + "AI providers"). The AI
+  providers tab shows the OpenAI credential card (status pill, masked
+  `sk-…ABCD`, Replace / Remove actions). Reused `.ks-subtabs` from the
+  bucket page for the tab strip. `KnowledgeToggle` catches the 409 and
+  surfaces a warning banner with a "Manage providers" link to
+  `/keys?tab=providers`.
+- **Docs:** added migration note to runbook.md (how to move an existing
+  dev's key out of `.env`); decisions.md entry covering the four
+  non-obvious calls (validate-before-persist, gate at the controller,
+  409 mapping, per-app worker copy).
+
+Verified `tsc --noEmit` clean on control-plane, worker, dashboard, and
+embeddings-client. End-to-end smoke pending Postgres + Redis bounce.
+
+**Not done this round (proposal P0 step 2 / step 3, deferred):**
+- Embedding-model picker in the enable-knowledge modal.
+- Default chat model picker.
+- Indexing-cost estimate at enable time.
+- Re-indexing flow on embedding-model change.
+- Multi-provider abstraction (P1).
+
+---
+
+## 2026-05-13 — [ai-platform] P0 follow-up: cascade-disable + Knowledge tab gating
+
+Follow-up to P0's project-scoped OpenAI credentials, addressing the
+"stuck-state" gaps users hit between credential changes and Knowledge
+state.
+
+- **Cascade-disable on credential remove.** `DELETE /v1/projects/:id/credentials/openai`
+  now 409s with `details.reason='active_knowledge_bases'` +
+  `details.buckets_with_knowledge=N` when the project still has
+  Knowledge-enabled buckets. The dashboard surfaces a type-to-confirm
+  modal (`Type "remove" to confirm`), then retries with
+  `?cascade=true`. Cascade mode wipes `KnowledgeChunk` +
+  `KnowledgeBucketSettings` for every bucket in the project, in the
+  same transaction as the credential delete. Manifests stay on chain
+  for audit.
+- **Bucket Knowledge tab gating.** `KnowledgeToggle` now fetches
+  the project's credentials. If no active OpenAI credential exists,
+  the off-state replaces the "Enable Knowledge" CTA with an
+  "Add OpenAI key" button that routes to `/keys?tab=providers`,
+  and surfaces a persistent info banner explaining why. The user
+  no longer has to click Enable just to discover the 409.
+- **Wire changes.** `useRemoveCredential` now takes
+  `{ provider, cascade? }` and returns `{ disabled_buckets }`.
+  Cascade mode also invalidates the `['v1', 'knowledge']` query
+  family so every bucket page re-renders in its off state without
+  a refresh.
+- **ConfirmModal.** New optional `confirmDisabled` prop so callers
+  can gate the confirm button on parent-owned state (the type-to-confirm
+  input value).
+
+All four packages `tsc --noEmit` clean.
+
+---
+
+## 2026-05-13 — [ai-platform] P0 step 2/3/4: pickers, cost estimate, re-index
+
+Closes the remaining P0 work items from the proposal — model pickers in
+the enable-Knowledge flow, indexing-cost preview, default chat model
+storage, and a destructive re-index path.
+
+- **Shared model catalog** (`packages/shared/src/models.ts`) — single
+  source of truth for embedding options (3 surfaced; 1024d enabled,
+  1536d/3072d shown as "Coming soon" pending a halfvec schema change)
+  and chat models (gpt-4o-mini default + gpt-4o, gpt-4-turbo, o3-mini,
+  o1). Pricing constants live alongside, used by both the backend
+  cost-preview wiring and the dashboard.
+- **CP enable schema** accepts `default_llm_model`; validates the
+  embedding (model, dims) pair against the catalog and rejects
+  disabled options. `GET /knowledge` now returns `total_bytes` (sum
+  of non-deleted object `size_bytes`) so the modal can compute the
+  cost preview without a second round-trip.
+- **/ask + MCP kraterion_ask** resolve model as: per-request override
+  > bucket `default_llm_model` > `DEFAULT_CHAT_MODEL_ID` ("gpt-4o-mini").
+- **POST /v1/buckets/:id/knowledge/reindex** — destructive re-index.
+  Validates new settings, drops all live chunks in one transaction
+  with the settings update, then re-enqueues every non-deleted object
+  via the existing `backfillBucket` helper. Manifests stay on chain
+  for audit; a fresh manifest version is written per object as the
+  worker drains.
+- **Dashboard `EnableKnowledgeModal`** is a 3-step flow (embedding →
+  chat model → confirm) with the proposal's "model is locked once
+  indexing starts" warning at step 1 and a cost preview line at step 3.
+  Same component handles `mode="reindex"` — pre-fills pickers from
+  current settings, swaps copy + button labels, adds a destructive
+  banner to the confirm step.
+- **Dashboard `KnowledgeToggle`** on-state now reflects actual settings
+  (model / dims / default chat model) in the subtitle and exposes
+  "Re-index" alongside "Disable Knowledge". Search returns empty for
+  the bucket between chunk wipe and first new manifest landing —
+  spelled out in the confirmation copy.
+
+All four packages `tsc --noEmit` clean (control-plane, worker, dashboard,
+shared).
+
+**Deferred to post-hackathon:**
+- Transactional swap re-index (queries serve old chunks during re-index,
+  atomic swap at end). Needs `pending_embedding_*` shadow columns +
+  per-manifest spec tagging + spec-filtered chunk queries. See
+  decisions.md 2026-05-13.
+- Multi-dim embeddings (1536d, 3072d). Needs either a column-level
+  schema change or a `(chunk, model)`-keyed shadow table.
+
+
+## 2026-05-13 — [ai-platform] Split chat-model edit from re-index in the Knowledge tab
+
+UX follow-up. The single "Re-index" button used the destructive flow
+for any model change — including chat-model edits, which never need a
+re-index (the chat model is per-request; chunks aren't touched).
+
+- **CP guard.** `POST /v1/buckets/:id/knowledge { enabled: true, ... }`
+  now rejects embedding/dimension/chunking changes on an already-enabled
+  bucket with `409 PreconditionFailed` and `details.reason='embedding_locked'`.
+  Force-routes those edits through the `/reindex` endpoint so chunks can't
+  silently drift out of sync with their indexed model. Chat-model edits
+  still go through this endpoint and complete in one settings write.
+- **New `ChangeChatModelDialog`** — single-step picker, "Current" pill
+  on the currently-saved row, no warnings. Save is disabled when the
+  selection matches the current setting.
+- **Restructured `KnowledgeToggle` on-state.** Replaces the inline
+  subtitle + side-by-side buttons with two `ModelRow` rows: one per
+  model, each with its own value, helper, and Change button. The
+  embedding row's helper is warning-toned and carries an alert icon
+  spelling out "Changing it requires re-indexing — chunks are dropped
+  and rebuilt." The chat row's helper is neutral and notes that
+  switching is free and per-request overridable. Disable Knowledge
+  moved to a footer ghost button (destructive, but no longer
+  competing visually with the change actions).
+
+All four packages `tsc --noEmit` clean.
+
