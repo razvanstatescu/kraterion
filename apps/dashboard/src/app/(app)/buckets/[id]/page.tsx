@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { BucketSettingsDrawer } from "@/components/buckets/BucketSettingsDrawer";
+import { BucketTabs } from "@/components/buckets/BucketTabs";
 import { FileBrowser } from "@/components/buckets/FileBrowser";
 import { Uploader } from "@/components/buckets/Uploader";
 import { Topbar } from "@/components/shell/Topbar";
@@ -110,6 +111,8 @@ export default function BucketDetailPage() {
             </p>
           </div>
         </div>
+
+        <BucketTabs bucketId={b.id} active="files" />
 
         {!b.api_access_granted ? (
           <div style={{ marginBottom: 16 }}>

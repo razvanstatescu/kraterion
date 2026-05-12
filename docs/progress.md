@@ -2270,3 +2270,95 @@ _Calendar weeks anchored in `docs/timeline.md`._
     is the natural validation.
 
 ---
+
+
+## 2026-05-12 — [k4] Knowledge tab on the dashboard
+
+  The Knowledge surface that turns Kraterion's storage console into an
+  agent control panel. Tab nav, toggle, live status, live query, and
+  the connect-an-agent panel — all per `docs/ai-features-plan.md` §6.5,
+  all on the existing design tokens.
+
+  **What shipped:**
+
+  - Backend extension: `GET /v1/buckets/:bucketId/knowledge` now
+    returns a `summary` block — counts grouped by manifest status
+    (`indexed`, `pending`, `failed`, `skipped`) plus the bucket's
+    `total_objects`. One round-trip drives the entire status panel.
+  - React Query hooks under `apps/dashboard/src/lib/queries.ts`:
+    `useKnowledgeStatus`, `useToggleKnowledge`, `useKnowledgeSearch`.
+    Matching wire types (`KnowledgeStatus`, `KnowledgeSearchResponse`)
+    mirror the CP serializer outputs.
+  - New route
+    `apps/dashboard/src/app/(app)/buckets/[id]/knowledge/page.tsx` —
+    same shell as the bucket detail page, scoped to the
+    Knowledge-tab content. Polling stays cheap because the hook's
+    `staleTime` is 5 s and queries auto-invalidate after the toggle
+    mutation.
+  - New components under `apps/dashboard/src/components/knowledge/`:
+    - `KnowledgeToggle` — enable / disable card with a destructive
+      ConfirmModal on disable. Toast on success.
+    - `KnowledgeStatus` — indexed-of-total dl grid, hairline progress
+      bar (Krater fill, stone-100 track — design-system safe, no
+      shadow), settings strip with model + dimensions + chunking
+      knobs.
+    - `KnowledgeSearch` — query input + button → hit list. RRF, BM25,
+      and vector-distance scores rendered as tertiary text under each
+      hit so power users can inspect the ranker. Hidden until the
+      bucket has at least one indexed object.
+    - `ConnectAgentPanel` — three TabbedCode snippets: Claude Desktop
+      `claude_desktop_config.json`, Cursor `.cursor/mcp.json`, and a
+      `curl` JSON-RPC `tools/list`. AKIA is pre-filled from the
+      active key; secret stays a placeholder. "Generate a new key"
+      button opens the existing CreateApiKeyDialog so the user can
+      mint + reveal-once inline.
+  - New sub-tab nav: `components/buckets/BucketTabs.tsx`. A hairline
+    strip at the top of every bucket detail page with `Files` and
+    `Knowledge`. The active tab carries a Krater underline (only one
+    Krater accent on screen — design-system rule: "never two Krater
+    elements touching").
+  - The bucket detail page (`(app)/buckets/[id]/page.tsx`) now renders
+    `<BucketTabs active="files" />` between the page head and the
+    file browser. Settings stays as a drawer (it's a side-task, not
+    a peer view).
+  - Consent page polish: rewrote `app/(app)/oauth/consent/page.tsx`
+    to use the design-system primitives end-to-end. No more inline
+    `border: 1px solid var(--border-subtle)` shapes; the screen now
+    uses the same hairline-card pattern as the rest of the console,
+    Krater accent only on the primary CTA, sentence-case headings,
+    and Lucide icons (1.5 px stroke) inside small Stone-100 squares
+    next to each scope row. Banner + Button primitives replace
+    everything that was previously raw `<div>`s.
+
+  **Design-system compliance:**
+
+  - Every new class in `globals.css` references only `--ink`,
+    `--cream`, `--krater`, `--stone-*`, `--space-*`, `--radius-*`,
+    `--ease`, `--dur-*`. No hardcoded hex.
+  - No shadows, no gradients, no blur. Elevation is exclusively
+    hairline borders + `--bg-elevated` contrast.
+  - Sentence case everywhere. The only ALL-CAPS strings are the
+    8–11 px micro-labels ("INDEXED", "PERMISSIONS", "RETURNS TO")
+    using `letter-spacing: 0.16em`.
+  - Krater accent count per screen: bucket header (active tab
+    underline) — one. Consent screen (Authorize button + scope
+    icons) — one CTA + scope icon backgrounds stay Stone-100 so they
+    don't touch the CTA. Knowledge status (progress bar fill) — one.
+  - No emoji anywhere. Lucide icons throughout.
+
+  **Out of scope / follow-ups (intentional):**
+
+  - Settings UI for model / dimensions / chunk size. Spec K4 §6
+    deferred to post-hackathon — the defaults are the right call.
+  - Walruscan deep-links on citation rows (K5 wires up the
+    manifest's `walrus_blob_id`; today the manifest isn't on Walrus
+    yet).
+  - Activity-feed rendering of `KnowledgeQuery` rows. The Activity
+    page already polls the same shape; rendering just needs a
+    `kind === "search" | "ask"` case in its renderer, deferred
+    until we have query traffic worth showing.
+  - Manual end-to-end smoke (toggle on, watch backfill drain, run a
+    query) needs a running worker against the user's local stack —
+    user can validate when they bounce the worker.
+
+---

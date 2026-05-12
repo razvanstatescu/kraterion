@@ -321,3 +321,88 @@ export function useRevokeApiKey(projectId: string | undefined) {
     },
   });
 }
+
+// === Knowledge ===============================================================
+
+export interface KnowledgeSummary {
+  total_objects: number;
+  indexed: number;
+  pending: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface KnowledgeSettings {
+  embedding_model: string;
+  embedding_dimensions: number;
+  chunk_tokens: number;
+  chunk_overlap_tokens: number;
+  updated_at: string;
+}
+
+export interface KnowledgeStatus {
+  enabled: boolean;
+  settings: KnowledgeSettings | null;
+  summary: KnowledgeSummary;
+}
+
+export function useKnowledgeStatus(bucketId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "knowledge", bucketId ?? "none"],
+    queryFn: () => cpFetch<KnowledgeStatus>(`/v1/buckets/${bucketId}/knowledge`),
+    enabled: Boolean(session?.token && bucketId),
+    staleTime: 5_000,
+    // Auto-refresh while the indexer is draining — caller flips this on.
+    refetchInterval: false as const,
+  });
+}
+
+export function useToggleKnowledge(bucketId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) =>
+      cpFetch<{ enabled: boolean; backfilled_objects?: number; chunks_deleted?: number }>(
+        `/v1/buckets/${bucketId}/knowledge`,
+        { method: "POST", body: { enabled } },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "knowledge", bucketId ?? "none"] });
+    },
+  });
+}
+
+/**
+ * Search hit shape mirrors `KnowledgeService.search()` — see
+ * `apps/control-plane/src/knowledge/knowledge.service.ts`. Score legs
+ * stay separate so power users can inspect why something ranked.
+ */
+export interface KnowledgeSearchHit {
+  chunk_id: string;
+  s3_object_id: string;
+  s3_key: string;
+  ordinal: number;
+  content: string;
+  content_hash: string;
+  rrf_score: number;
+  bm25_score: number | null;
+  vector_distance: number | null;
+}
+
+export interface KnowledgeSearchResponse {
+  hits: KnowledgeSearchHit[];
+  query_tokens: number;
+  embedding_model: string;
+  embedding_dimensions: number;
+  latency_ms: number;
+}
+
+export function useKnowledgeSearch(bucketId: string | undefined) {
+  return useMutation({
+    mutationFn: async ({ query, topK }: { query: string; topK?: number }) =>
+      cpFetch<KnowledgeSearchResponse>(`/v1/buckets/${bucketId}/knowledge/search`, {
+        method: "POST",
+        body: { query, ...(topK !== undefined ? { top_k: topK } : {}) },
+      }),
+  });
+}

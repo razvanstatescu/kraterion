@@ -82,6 +82,33 @@ export class KnowledgeController {
     const row = await this.prisma.knowledgeBucketSettings.findUnique({
       where: { bucket_id: bucketId },
     });
+    // Aggregate manifest counts grouped by status, plus the total
+    // non-deleted-object count, so the dashboard's status panel can
+    // render "indexed N of M" without a second round-trip. Cheap —
+    // both are indexed counts.
+    const [statusCounts, totalObjects] = await Promise.all([
+      this.prisma.knowledgeManifest.groupBy({
+        by: ["status"],
+        where: { bucket_id: bucketId, deleted_at: null },
+        _count: { _all: true },
+      }),
+      this.prisma.s3Object.count({
+        where: { bucket_id: bucketId, deleted_at: null },
+      }),
+    ]);
+    const summary = {
+      total_objects: totalObjects,
+      indexed: 0,
+      pending: 0,
+      failed: 0,
+      skipped: 0,
+    };
+    for (const row of statusCounts) {
+      const key = row.status as keyof typeof summary;
+      if (key in summary && key !== "total_objects") {
+        summary[key] = row._count._all;
+      }
+    }
     return {
       enabled: !!row,
       settings: row
@@ -93,6 +120,7 @@ export class KnowledgeController {
             updated_at: row.updated_at.toISOString(),
           }
         : null,
+      summary,
     };
   }
 

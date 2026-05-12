@@ -2,10 +2,11 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import { Topbar } from "@/components/shell/Topbar";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError, cpFetch } from "@/lib/api";
 
@@ -18,8 +19,8 @@ import { ControlPlaneError, cpFetch } from "@/lib/api";
  * We re-fetch the stashed request via authenticated
  * `GET /oauth/authorize/state` so a tampered URL still hits validated
  * state. On approve/deny we `POST /oauth/authorize/decision` and let
- * the browser navigate to the returned `redirect_uri` (which carries
- * the auth code back to the MCP client).
+ * the browser navigate to the returned `redirect_uri` — the MCP
+ * client picks the code out of that URL and completes the flow.
  */
 interface AuthorizeState {
   client_id: string;
@@ -29,18 +30,21 @@ interface AuthorizeState {
   resource: string;
 }
 
-const SCOPE_COPY: Record<string, { title: string; body: string }> = {
+const SCOPE_COPY: Record<string, { title: string; body: string; icon: "search" | "upload" | "info" }> = {
   "mcp:read": {
     title: "Read buckets and objects",
     body: "List your buckets, list and fetch objects, and read returned content.",
+    icon: "search",
   },
   "mcp:write": {
     title: "Write objects",
     body: "Create new objects in buckets it can already read.",
+    icon: "upload",
   },
   "mcp:ask": {
     title: "Run Knowledge searches",
     body: "Query the hybrid search and ask endpoints on Knowledge-enabled buckets.",
+    icon: "info",
   },
 };
 
@@ -104,85 +108,86 @@ export default function ConsentPage() {
 
   return (
     <>
-      <Topbar crumbs={[{ label: "Authorize" }]} />
-      <main className="ks-page" style={{ maxWidth: 640 }}>
+      <Topbar
+        crumbs={[{ label: "Authorize" }]}
+        actions={<SignOutButton />}
+      />
+      <main className="ks-screen ks-consent">
         {loadError ? (
           <Banner tone="error" title="Can't show this request" body={loadError} />
         ) : !state ? (
-          <Card>
-            <div style={{ padding: 24, color: "var(--text-secondary)" }}>
-              Loading authorization request…
-            </div>
-          </Card>
+          <div className="muted small">Loading authorization request…</div>
         ) : (
-          <Card>
-            <div style={{ padding: 24, display: "grid", gap: 20 }}>
-              <header style={{ display: "grid", gap: 8 }}>
-                <Pill tone="info">MCP authorization</Pill>
-                <h1 style={{ margin: 0, fontSize: 24, fontWeight: 500 }}>
-                  Grant access to your Kraterion data?
-                </h1>
-                <p style={{ margin: 0, color: "var(--text-secondary)" }}>
-                  <strong style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-                    {state.client_name ?? "An MCP client"}
-                  </strong>{" "}
-                  is requesting access to your buckets through the Kraterion MCP server.
-                </p>
-              </header>
+          <div className="ks-consent-card">
+            <header className="ks-consent-head">
+              <Pill tone="info">MCP authorization</Pill>
+              <h1 className="ks-consent-title">
+                Grant access to your Kraterion data?
+              </h1>
+              <p className="ks-consent-lead">
+                <span className="ks-consent-client">
+                  {state.client_name ?? "An MCP client"}
+                </span>
+                {" "}is requesting access to your buckets through the Kraterion
+                MCP server.
+              </p>
+            </header>
 
-              <section style={{ display: "grid", gap: 12 }}>
-                <h2 style={{ margin: 0, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", fontWeight: 500 }}>
-                  Permissions
-                </h2>
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
-                  {state.scopes.map((s) => {
-                    const copy = SCOPE_COPY[s];
-                    return (
-                      <li
-                        key={s}
-                        style={{
-                          padding: 16,
-                          border: "1px solid var(--border-subtle)",
-                          borderRadius: "var(--radius-md)",
-                          display: "grid",
-                          gap: 4,
-                        }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 500 }}>
+            <section className="ks-consent-section">
+              <div className="ks-section-label">Permissions</div>
+              <ul className="ks-scope-list">
+                {state.scopes.map((s) => {
+                  const copy = SCOPE_COPY[s];
+                  return (
+                    <li key={s} className="ks-scope">
+                      <span className="ks-scope-icon" aria-hidden="true">
+                        <Icon name={copy?.icon ?? "info"} size={16} />
+                      </span>
+                      <span className="ks-scope-text">
+                        <span className="ks-scope-title">
                           {copy?.title ?? s}
-                        </div>
-                        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                        </span>
+                        <span className="ks-scope-body">
                           {copy?.body ?? "Custom scope."}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
 
-              <section style={{ display: "grid", gap: 6 }}>
-                <h2 style={{ margin: 0, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)", fontWeight: 500 }}>
-                  Returns to
-                </h2>
-                <code style={{ fontSize: 12, color: "var(--text-secondary)", wordBreak: "break-all" }}>
-                  {state.redirect_uri}
-                </code>
-              </section>
+            <section className="ks-consent-section">
+              <div className="ks-section-label">Returns to</div>
+              <code className="ks-consent-redirect">{state.redirect_uri}</code>
+            </section>
 
-              {postError ? (
-                <Banner tone="error" title="Couldn't authorize" body={postError} />
-              ) : null}
+            {postError ? (
+              <Banner
+                tone="error"
+                title="Couldn't authorize"
+                body={postError}
+              />
+            ) : null}
 
-              <footer style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                <Button variant="ghost" onClick={() => decide(false)} disabled={busy}>
-                  Deny
-                </Button>
-                <Button onClick={() => decide(true)} disabled={busy}>
-                  {busy ? "Authorizing…" : "Authorize"}
-                </Button>
-              </footer>
-            </div>
-          </Card>
+            <footer className="ks-consent-actions">
+              <Button
+                variant="ghost"
+                onClick={() => decide(false)}
+                disabled={busy}
+              >
+                Deny
+              </Button>
+              <Button
+                variant="cta"
+                onClick={() => decide(true)}
+                disabled={busy}
+                loading={busy}
+              >
+                Authorize
+              </Button>
+            </footer>
+          </div>
         )}
       </main>
     </>
