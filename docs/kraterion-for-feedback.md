@@ -58,6 +58,16 @@ Three things happen in the demo that **cannot happen on AWS S3, GCS, R2, or any 
 2. **Revoke API access → the platform literally cannot read the data.** One Move call flips a flag. The gateway's next decryption attempt fails. Search and `/ask` start returning 403. Re-grant restores access without re-indexing. This is not "we promise not to look" — **we couldn't look if we wanted to.**
 3. **Every agent retrieval comes with on-chain provenance.** Each cited chunk links to its Walrus manifest blob — proof of which model embedded it, which boundaries were used, which source it came from. Verifiable RAG, owned by the user, gated by the same revocation lever.
 
+## Real-world problems this maps to
+
+Not a pitch — just the markets this shape of product addresses, for context:
+
+- **Enterprise AI agent oversharing.** Microsoft reports ~16% of business-critical content overshared, ~802K at-risk files per org. A Kraterion bucket is a single scoped corpus; one Move call cuts every agent at once.
+- **EU AI Act compliance (Aug 2026 deadline).** Articles 10 + 12 require provenance + tamper-evident retrieval logs. On-chain audit + Walrus manifests deliver both as a side-effect.
+- **Verifiable RAG in regulated industries** (healthcare / legal / finance). No standardized retrieval audit exists today; per-retrieval manifests on Walrus are a structural answer.
+- **Cloud sovereignty & exit-plan pressure.** ~$80B sovereign-cloud IaaS spend in 2026. User already owns the SharedBlobs — migration is a non-question.
+- **Authorized AI access to licensed content.** Publishers / creators need revocable, auditable AI access — not yes/no opt-outs. Same revocation lever handles it.
+
 ## Why this is the right project for the Walrus track
 
 The 2025 Walrus track brief asked for **deep integration with programmable storage** and explicitly called out **agents, verifiable memory, and artifact-driven workflows**. Kraterion isn't a project that puts files on Walrus — it's a project where Walrus + Sui + Seal *are* the product, on the surface agents and humans already use:

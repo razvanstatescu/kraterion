@@ -2295,3 +2295,81 @@ auth-scheme-agnostic.
     seam is closed at K1; the K2 query just adds the SQL fork.
 
 ---
+
+## 2026-05-12 — K2 retrieval: hybrid BM25 + vector + RRF as the default
+
+  **Status:** Decided + implemented.
+
+  **Context:** with K1's `KnowledgeChunk.content_tsv` generated column
+  in place, K2's `/search` could either ship vector-only (simpler) or
+  hybrid (one more SQL leg + RRF fuse). The 2026 RAG research consensus
+  cited in K1's ADR points to hybrid as the default, not the stretch
+  goal. K2 implementation phase needed the call locked.
+
+  **Decision: hybrid BM25 + vector + Reciprocal Rank Fusion (k=60)
+  as the default `/search` and `/ask` retrieval architecture.**
+
+  - Per-leg candidate count: **50**. Higher than top_k (so the fuse
+    has material to work with) but bounded to keep the SQL fast.
+    Marginal recall gains past 50 are negligible for hackathon-scale
+    corpora.
+  - RRF constant **k = 60**. Cormack et al. canonical; insensitive
+    to small perturbations.
+  - BM25 leg uses `plainto_tsquery('english', ?)` — the "AND of
+    words" parser. Forces the BM25 leg to be conservative; the
+    vector leg picks up the loose-semantic matches. Empty BM25
+    candidates (uncommon english stems) is harmless.
+  - `ef_search` per-query: **64** for `/search`, **96** for `/ask`.
+    Wider window for `/ask` because the LLM step benefits from
+    slightly higher recall before it picks citations.
+
+  **Why now, not as K2 stretch:** the K1 migration already added the
+  `content_tsv` column + GIN index, so the BM25 leg costs only one SQL
+  CTE. The infrastructure was free; the lift is +10 lines of SQL in
+  the fused query. Shipping as default beats shipping vector-only and
+  re-doing the SQL later.
+
+  **Consequences:**
+  - K3's MCP tools (when they land) inherit hybrid retrieval for free
+    via the same service.
+  - The K4 dashboard query box reads the same RRF-fused hits the API
+    does — no per-surface ranking divergence.
+  - If we ever swap embedding models, the BM25 leg keeps working as
+    a recall floor during the re-indexing window.
+
+---
+
+## 2026-05-12 — `/ask` brings its own LLM key
+
+  **Status:** Decided + implemented.
+
+  **Context:** K2's `/ask` runs a prompt-stuffed Chat Completions
+  call. Either Kraterion pays (via a server-side platform key) or the
+  caller brings their own. The plan §6.3 specifies BYO.
+
+  **Decision: caller supplies `openai_api_key` (or future
+  `anthropic_api_key`) in the request body; CP never proxies LLM
+  calls or holds caller LLM credits.**
+
+  - The CP constructs a per-request `OpenAI(apiKey: dto.openai_api_key)`
+    client. No connection pooling between callers.
+  - The shared `@kraterion/embeddings-client` is server-paid (our key,
+    server-side ingestion) — never used for `/ask`. The two clients
+    are deliberately separated so we can't mix keys.
+
+  **Why BYO is right for our scope:**
+  - Avoids a billing/proxying ledger we don't have time to build.
+  - Sidesteps Anthropic-key-vs-OpenAI-key model-routing entirely —
+    the user picks; we run.
+  - Keeps the Kraterion platform's OpenAI bill bounded to ingestion
+    (one embedding per chunk, no LLM tokens).
+  - Matches what every "BYO key MCP server" pattern does in 2026.
+
+  **Tradeoffs:**
+  - Dashboard `/ask` is harder to ship in K4 — the user needs to
+    paste a key. We'll cache it in `sessionStorage` after first paste;
+    that's the dashboard-side ergonomic fix.
+  - Demo recording needs a "paste your OpenAI key once" step. Worth
+    it for the architectural cleanliness.
+
+---

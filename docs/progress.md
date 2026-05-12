@@ -1931,3 +1931,123 @@ _Calendar weeks anchored in `docs/timeline.md`._
     re-PUT under live Walrus to spend a second relay slot).
 
 ---
+
+## 2026-05-12 — [k2] retrieval API: hybrid BM25 + vector + RRF, plus /ask
+
+  Knowledge-enabled buckets are now agent-queryable. Verified end-to-end
+  against the K1 corpus: `/search` returns RRF-fused hits in ~240ms,
+  `/ask` adds a BYO-key LLM step + chunk-cited answers in ~2s.
+
+  **What landed:**
+
+  - **HNSW index** (`prisma/migrations/20260512134312_knowledge_chunk_hnsw/`):
+    `USING hnsw (embedding halfvec_cosine_ops) WITH (m=16,
+    ef_construction=200)`. Tuned for cosine over halfvec(1024); per-
+    query `ef_search` is set inside the retrieval transaction (64 for
+    `/search`, 96 for `/ask`). On the 1-chunk K1 corpus the planner
+    picks Seq Scan over the index — correct cost-based choice; the
+    index will kick in once the table grows to ~100+ rows.
+
+  - **`packages/embeddings-client`** — shared OpenAI embedder. The
+    worker (K1 ingestion) and CP (K2 query embedding) now use the
+    same code, so chunk embeddings and query embeddings can never
+    drift apart on model/dimensions. Worker's
+    `apps/worker/src/embeddings/embedders/openai.ts` is now a thin
+    re-export.
+
+  - **`apps/control-plane/src/knowledge/`** (extended from the K1 stub):
+    - `knowledge.service.ts` — hybrid retrieval. One `$transaction`:
+      `SET LOCAL hnsw.ef_search = N`, then a CTE that materializes the
+      vector top-50 + BM25 top-50, joins on candidates, and emits
+      `rrf_score = sum(1 / (60 + rank))`. ORDER BY rrf_score DESC,
+      LIMIT top_k. Bucket-scoped, 403s with `Forbidden` when
+      `api_access_granted=false` (same revocation lever as everything
+      else). Refuses when `KnowledgeBucketSettings` is missing (409).
+    - `knowledge.controller.ts` — adds `/search` and `/ask` POSTs;
+      extends `POST /` (enable) with backfill enqueue via BullMQ. The
+      backfill is producer-only — the processor stays on the worker.
+    - `ask.ts` — BYO-key OpenAI Chat Completions wrapper. System
+      prompt instructs the model to inline `[chunk N]` citations;
+      `resolveCitations` maps cited indices back to `ChunkHit`s and
+      surfaces the resolution table. Per-request OpenAI client (BYO
+      key contract); no proxying.
+
+  - **BullMQ producer in CP** — `KnowledgeModule` registers the
+    `kraterion-embeddings` queue with `maxRetriesPerRequest: null`
+    (BullMQ's connection-shape requirement). The `embeddings-queue.
+    constants.ts` file mirrors the worker's queue name + job-data
+    shape; small intentional duplication, flagged as a follow-up
+    `packages/embeddings-queue` extraction.
+
+  - **`KnowledgeQuery` audit row** — every `/search` and `/ask` writes
+    one row with the query, top-k, latency, returned chunk hashes,
+    and (for `/ask`) the LLM model + prompt+completion token total.
+    The hash list is the K5 verifiability hook: "the agent said X
+    backed by [chunk_hash_a, chunk_hash_b]" → those hashes are in
+    the on-chain manifest's chunks list.
+
+  **Verification (against the K1-indexed `test-bucket`):**
+
+  - `POST /v1/buckets/<id>/knowledge/search` body
+    `{"query":"Seal envelope encryption","top_k":3}` →
+    ```
+    hits=[{ s3_key=k1-smoke.txt, ordinal=0,
+            vector_distance=0.6326, bm25_score=0.1125,
+            rrf_score=0.03278 }]
+    embedding_model=text-embedding-3-small, dimensions=1024,
+    query_tokens=4, latency_ms=237
+    ```
+    Both legs hit (vector + BM25), RRF fused, correct chunk surfaced.
+
+  - `POST /v1/buckets/<id>/knowledge/ask` body
+    `{"query":"What chunking strategy does K1 use, and what model is
+    each chunk embedded with?","top_k":3,"openai_api_key":"sk-..."}`
+    →
+    ```
+    answer="K1 uses a chunking strategy that involves a recursive
+            token chunker with parameters 400/60 and cl100k_base.
+            Each chunk is embedded with OpenAI's
+            text-embedding-3-small model at 1024 dimensions...
+            [chunk 1]"
+    citations=[{chunk_hash=3eb7f2cb..., s3_key=k1-smoke.txt,
+                ordinal=0}]
+    retrieval.latency_ms=1980
+    llm.model=gpt-4o-mini-2024-07-18, prompt_tokens=333,
+    completion_tokens=67
+    ```
+    LLM cited correctly, citation index resolved back to the source
+    chunk hash, audit row written.
+
+  - **Revocation short-circuit:** manual `UPDATE Bucket SET
+    api_access_granted=false` → next `/search` returns
+    `HTTP 403 Forbidden` with the canonical `KeyAccessRevoked`-style
+    message. Flipping back to `true` restores search immediately.
+
+  - **HNSW index visible in `pg_indexes`:**
+    ```
+    USING hnsw (embedding halfvec_cosine_ops)
+    WITH (m='16', ef_construction='200')
+    ```
+
+  **Bug fix during smoke (documented for the runbook):** Prisma's
+  `$executeRaw` refuses parameter binding for `SET LOCAL hnsw.ef_search
+  = $1` — Postgres treats `SET` as a config command, not a value
+  expression, so `$N` is a syntax error. Use `$executeRawUnsafe` with
+  a manually-validated integer instead.
+
+  **Out of scope (deferred to K3+):**
+  - MCP `/mcp` route + dual auth (K3 — bearer for hackathon, OAuth
+    2.1 + DCR + RFC 9728 for marketplace).
+  - Dashboard Knowledge tab (K4).
+  - On-Walrus manifest archival + verifiable retrieval link in the
+    citations (K5).
+  - On-chain `grant_api_access(bucket, knowledge_indexer_address)`
+    PTB at enable time. The CP stub now backfills via BullMQ; the
+    on-chain step needs the user's signature, so it'll be wired
+    through the existing `prepare-*` / sponsor flow in K4 (alongside
+    the Knowledge toggle UI).
+  - Activity-feed surfacing of `KnowledgeQuery` rows (K4 — the page
+    is in place, just needs a new event kind in the
+    `apps/control-plane/src/activity/` aggregation).
+
+---
