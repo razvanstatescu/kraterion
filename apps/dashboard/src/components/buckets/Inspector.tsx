@@ -190,29 +190,20 @@ export function Inspector({ object, bucket }: Props) {
         <Detail label="Share link">
           <ShareLink objectId={object.id} apiAccessGranted={apiAccessGranted} />
         </Detail>
+
+        {object.metadata ? (
+          <Detail label="Metadata">
+            <MetadataList metadata={object.metadata} />
+          </Detail>
+        ) : null}
       </div>
 
-      <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-        <div className="micro" style={{ marginBottom: 12 }}>On-chain</div>
-        <OnchainRef
-          label="Walrus blob"
-          value={object.walrus_blob_id}
-          href={walruscanUrl(object.walrus_blob_id)}
-        />
-        <OnchainRef
-          label="Sui object"
-          value={object.shared_blob_object_id}
-          href={suiscanObjectUrl(object.shared_blob_object_id, network)}
-        />
-        <OnchainRef
-          label="Storage until"
-          value={`Epoch ${object.storage_end_epoch}`}
-        />
-        <OnchainRef
-          label="Seal identity"
-          value={object.seal_identity_b64}
-        />
-      </div>
+      <OnchainDisclosure
+        walrusBlobId={object.walrus_blob_id}
+        sharedBlobObjectId={object.shared_blob_object_id}
+        sealIdentityB64={object.seal_identity_b64}
+        network={network}
+      />
 
       <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
         <Button
@@ -275,6 +266,103 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
     <div>
       <div className="micro" style={{ marginBottom: 6 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+/**
+ * Custom `x-amz-meta-*` headers captured at PutObject time. Rendered as
+ * a compact key/value list. The CP filters to string-valued entries
+ * only, so we can trust the shape.
+ */
+function MetadataList({ metadata }: { metadata: Record<string, string> }) {
+  return (
+    <ul
+      style={{
+        listStyle: "none",
+        margin: 0,
+        padding: 0,
+        display: "grid",
+        gap: 4,
+        fontSize: 12,
+      }}
+    >
+      {Object.entries(metadata).map(([k, v]) => (
+        <li
+          key={k}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            gap: 8,
+            color: "var(--text-secondary)",
+          }}
+        >
+          <span style={{ color: "var(--text-tertiary)" }}>{k}</span>
+          <span style={{ color: "var(--text-primary)", wordBreak: "break-word" }}>{v}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * "On-chain" Tier 2 disclosure on the Inspector.
+ *
+ * Collapsed by default so web2 users see clean file metadata without
+ * hex noise. Web3 users click to reveal the Walrus + Sui references
+ * (proof of ownership + provenance) plus the Seal identity that gates
+ * decryption.
+ *
+ * Deliberately omits anything resembling chain economics — no storage
+ * expiry, no funding pool. Kraterion pays Walrus rent and bills the
+ * user out-of-band; those numbers belong in a future billing surface,
+ * not here.
+ */
+function OnchainDisclosure({
+  walrusBlobId,
+  sharedBlobObjectId,
+  sealIdentityB64,
+  network,
+}: {
+  walrusBlobId: string;
+  sharedBlobObjectId: string;
+  sealIdentityB64: string;
+  network: "testnet" | "mainnet" | "devnet";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ks-inspector-onchain">
+      <button
+        type="button"
+        className="ks-inspector-onchain-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <Icon name="chevron" size={14} style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 200ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+        <span>On-chain details</span>
+        <span className="ks-inspector-onchain-hint">
+          {open ? "Hide" : "Walrus blob, Sui object, Seal identity"}
+        </span>
+      </button>
+      {open ? (
+        <div className="ks-inspector-onchain-body">
+          <OnchainRef
+            label="Walrus blob"
+            value={walrusBlobId}
+            href={walruscanUrl(walrusBlobId)}
+          />
+          <OnchainRef
+            label="Sui object"
+            value={sharedBlobObjectId}
+            href={suiscanObjectUrl(sharedBlobObjectId, network)}
+          />
+          <OnchainRef label="Seal identity" value={sealIdentityB64} />
+          <p className="ks-inspector-onchain-caption">
+            48-byte IBE identity Seal uses to gate decryption — bucket
+            object id (32 bytes) followed by object uuid (16 bytes).
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

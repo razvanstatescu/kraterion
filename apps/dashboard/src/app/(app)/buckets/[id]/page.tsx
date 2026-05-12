@@ -6,6 +6,7 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
 import { BucketSettingsDrawer } from "@/components/buckets/BucketSettingsDrawer";
 import { BucketTabs } from "@/components/buckets/BucketTabs";
 import { FileBrowser } from "@/components/buckets/FileBrowser";
+import { OwnershipCard } from "@/components/buckets/OwnershipCard";
 import { Uploader } from "@/components/buckets/Uploader";
 import { Topbar } from "@/components/shell/Topbar";
 import { Banner } from "@/components/ui/Banner";
@@ -13,7 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError } from "@/lib/api";
-import { formatWal } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 import { useBucket } from "@/lib/queries";
 
 export default function BucketDetailPage() {
@@ -106,11 +107,28 @@ export default function BucketDetailPage() {
               <Pill tone={b.api_access_granted ? "success" : "error"} dot>
                 {b.api_access_granted ? "API access granted" : "API access revoked"}
               </Pill>
-              <span style={{ color: "var(--text-tertiary)" }}>·</span>
-              <span>Funding {formatWal(b.funding_pool_wal)}</span>
+              {b.object_count !== undefined ? (
+                <>
+                  <span style={{ color: "var(--text-tertiary)" }}>·</span>
+                  <span
+                    style={{
+                      fontFeatureSettings: '"tnum" 1',
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {b.object_count.toLocaleString()} object
+                    {b.object_count === 1 ? "" : "s"}
+                    {b.size_bytes_total !== undefined
+                      ? ` · ${formatBytes(b.size_bytes_total)}`
+                      : ""}
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
         </div>
+
+        <OwnershipCard bucket={b} />
 
         <BucketTabs bucketId={b.id} active="files" />
 

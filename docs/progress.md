@@ -2753,3 +2753,108 @@ _Calendar weeks anchored in `docs/timeline.md`._
     that would use it doesn't exist yet.
 
 ---
+
+
+## 2026-05-12 — [ui-audit-1] Two-tier UX + chain-economics removed from dashboard
+
+  Pre-demo clarity pass. Two driving rules:
+  1. **No chain economics in the UI.** Kraterion bills out-of-band
+     (web2 monthly invoice); WAL balances, blob expiry, gas, epochs
+     never surface. Implementation detail, not user concept.
+  2. **Two-tier disclosure model.** Tier 1 (web2-friendly, S3 mental
+     model) is the default; Tier 2 (verifiability + ownership —
+     Walrus blob, Sui object, Seal identity, owner address) lives
+     behind expanders or its own card.
+
+  **What shipped:**
+
+  - **Funding column / line removed** from `BucketsList` and the
+    bucket detail header. `funding_pool_wal` stays on the wire for
+    backward compat but is marked `@deprecated` in `BucketJson`.
+  - **Object stats added** to bucket list + detail. CP computes
+    `object_count` + `size_bytes_total` per bucket via a single
+    grouped query (`s3Object.groupBy({ by: bucket_id, where: in
+    [ids], deleted_at: null, _count: _all, _sum: size_bytes })`) —
+    same N+1-avoidance pattern as the existing `knowledge_enabled`
+    join. List shows them as new columns; detail header shows
+    `N objects · X MB` after the API-access pill.
+  - **Inspector restructured.** "On-chain details" is now a Tier-2
+    click-to-expand disclosure (collapsed by default). "Storage
+    until: Epoch N" removed entirely — Kraterion pays Walrus rent
+    on the user's behalf. Seal identity gets a one-line caption.
+    Custom `x-amz-meta-*` headers stored as `S3Object.metadata`
+    now surface in the "File details" tier when non-null.
+  - **Knowledge status panel compacted.** Embedding model /
+    dimensions / chunk-tokens / chunk-overlap moved into a
+    `<details>` block titled "Indexing details"; counts +
+    progress bar stay headline.
+  - **Activity feed filters.** Three-axis client-side filter:
+    kind pills (All / Buckets / Files / Knowledge), bucket
+    dropdown (populated from loaded events), time range (24h /
+    7d / 30d / all). Filter pills follow the single-Krater rule —
+    active state is `--ink` border, not Krater fill (Krater stays
+    for primary CTAs).
+  - **Ownership card** on bucket detail (Tier 2). Surfaces the
+    user-owned-data story with three rows:
+    - Owner Sui address with `(you)` Krater badge when it matches
+      the session, Suiscan link.
+    - On-chain bucket object id, Suiscan link.
+    - Live `api_decryption_addresses` rendered as pills (shows
+      the gateway + Knowledge indexer when granted; empty state
+      copy when revoke-all has fired). Pills link to Suiscan;
+      ⌥-click copies the address.
+
+    Backend: `GET /v1/buckets/:id` now does a single Sui RPC to
+    read `KraterionBucket.owner` + `api_decryption_addresses` off
+    the shared object. RPC failure → fields omitted; the
+    Ownership card hides itself gracefully.
+  - **Agents elevated to top-level nav.** New route
+    `apps/dashboard/src/app/(app)/agents/page.tsx` hosting the
+    existing `<ConnectedAgents />` component. Sidebar gains a new
+    "AI" group between Storage and Account; Settings keeps a
+    small pointer card pointing at /agents for discoverability.
+
+  **New helpers / styles:**
+  - `suiscanAddressUrl()` in `apps/dashboard/src/lib/format.ts`.
+  - `.ks-disclosure` generic Tier-2 collapse pattern in
+    `globals.css` (used by Knowledge status; reusable elsewhere).
+  - `.ks-inspector-onchain*` for the inspector disclosure.
+  - `.ks-activity-filters` + `.ks-filter-pill` +
+    `.ks-activity-bucket-select` for the activity filter strip.
+  - `.ks-ownership*` + `.ks-access-pill` + `.ks-you-badge` for
+    the Ownership card.
+
+  All new classes use design-system tokens only — no hardcoded
+  hex, no shadows. Single Krater accent per surface preserved:
+  bucket detail uses Krater on the active tab underline +
+  Upload CTA + `you` badge (only one of those is ever in the
+  same visual cluster). Activity page uses Krater on focus
+  outlines only. Inspector disclosure uses Krater only on
+  hover/focus of the toggle.
+
+  **Smoke verified:**
+  - `tsc --noEmit` green on control-plane, dashboard, worker,
+    gateway.
+  - CP boot log shows bucket routes mapped; `GET /v1/buckets`
+    returns the new `object_count` + `size_bytes_total`
+    fields.
+  - Dashboard renders at :3001/.
+
+  **Hard rule going forward:** no UI surface displays WAL,
+  SUI, gas, epochs, renewal runway, or any other on-chain
+  economic value. Verifiability surfaces (Walrus blob id,
+  SharedBlob object, Sui address, Seal identity, tx digests,
+  manifest hashes) stay — they're proof, not cost.
+
+  **Follow-ups deferred to next round:**
+  - Per-bucket usage chart (Usage page is account-wide).
+  - Multi-project switcher (irrelevant until users have >1
+    project).
+  - API key usage analytics (volume per key — needs UsageEvent
+    surfacing).
+  - Global cross-bucket search.
+  - "Re-verify all citations" bulk button on Knowledge search.
+  - Billing surface for the monthly invoice the platform
+    promises (post-hackathon).
+
+---

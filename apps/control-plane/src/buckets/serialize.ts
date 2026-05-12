@@ -14,6 +14,12 @@ export interface BucketJson {
   encryption_mode: "private" | "public-read";
   kraterion_bucket_object_id: string;
   api_access_granted: boolean;
+  /**
+   * @deprecated Kraterion bills users for storage out-of-band (web2
+   * monthly invoice); chain-economic accounting like the WAL funding
+   * pool does not surface in the dashboard. Kept on the wire only to
+   * keep older clients deserializing; new UI must not display this.
+   */
   funding_pool_wal: string;
   created_at: string;
   deleted_at: string | null;
@@ -23,12 +29,39 @@ export interface BucketJson {
    * can badge enabled buckets without an N+1 follow-up.
    */
   knowledge_enabled?: boolean;
+  /**
+   * Non-deleted object count in this bucket. Computed via a single
+   * grouped query on `S3Object` per request (list path) or a direct
+   * count (get path). Drives the "N objects · X MB" stats line.
+   */
+  object_count?: number;
+  /**
+   * Sum of `size_bytes` over non-deleted objects in the bucket. BigInt
+   * stringified — JSON.stringify(BigInt) throws.
+   */
+  size_bytes_total?: string;
+  /**
+   * On-chain bucket-owner address (`KraterionBucket.owner`). Populated
+   * on the get path only; the list path skips the per-row Sui RPC.
+   * Used by the dashboard's Ownership card.
+   */
+  owner_address?: string;
+  /**
+   * The bucket's `api_decryption_addresses` vector read from chain.
+   * Populated on the get path only. Order matches on-chain order.
+   */
+  api_decryption_addresses?: string[];
 }
 
-export function serializeBucket(
-  b: Bucket,
-  opts?: { knowledgeEnabled?: boolean },
-): BucketJson {
+export interface SerializeBucketOpts {
+  knowledgeEnabled?: boolean;
+  objectCount?: number;
+  sizeBytesTotal?: bigint;
+  ownerAddress?: string;
+  apiDecryptionAddresses?: string[];
+}
+
+export function serializeBucket(b: Bucket, opts?: SerializeBucketOpts): BucketJson {
   return {
     id: b.id,
     project_id: b.project_id,
@@ -42,6 +75,14 @@ export function serializeBucket(
     deleted_at: b.deleted_at ? b.deleted_at.toISOString() : null,
     ...(opts?.knowledgeEnabled !== undefined
       ? { knowledge_enabled: opts.knowledgeEnabled }
+      : {}),
+    ...(opts?.objectCount !== undefined ? { object_count: opts.objectCount } : {}),
+    ...(opts?.sizeBytesTotal !== undefined
+      ? { size_bytes_total: opts.sizeBytesTotal.toString() }
+      : {}),
+    ...(opts?.ownerAddress !== undefined ? { owner_address: opts.ownerAddress } : {}),
+    ...(opts?.apiDecryptionAddresses !== undefined
+      ? { api_decryption_addresses: opts.apiDecryptionAddresses }
       : {}),
   };
 }

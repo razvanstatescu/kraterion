@@ -1825,3 +1825,303 @@ code, kbd, samp {
     gap: 4px;
   }
 }
+
+/* === Inspector "On-chain details" disclosure ============================
+   Tier 2 disclosure that hides verifiability references (Walrus blob,
+   SharedBlob, Seal identity) behind a click. Web2 default is clean;
+   click expands the hex-y proof for web3 power users. */
+
+.ks-inspector-onchain {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.ks-inspector-onchain-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 500;
+  transition: color var(--dur-base) var(--ease);
+}
+.ks-inspector-onchain-toggle:hover { color: var(--krater); }
+.ks-inspector-onchain-toggle:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.ks-inspector-onchain-hint {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+.ks-inspector-onchain-body {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+  animation: ks-inspector-onchain-reveal var(--dur-base) var(--ease);
+}
+@keyframes ks-inspector-onchain-reveal {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ks-inspector-onchain-caption {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.55;
+}
+
+/* === Generic disclosure (Tier 2 surface pattern) ========================
+   Reused anywhere a Tier 2 detail row collapses behind a click. Uses
+   a chevron-replacement (›) so we don't fight the native <details>
+   marker across browsers. */
+
+.ks-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: color var(--dur-base) var(--ease);
+}
+.ks-disclosure summary::-webkit-details-marker { display: none; }
+.ks-disclosure summary::before {
+  content: "›";
+  display: inline-block;
+  width: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  transition: transform var(--dur-base) var(--ease);
+}
+.ks-disclosure[open] summary::before { transform: rotate(90deg); }
+.ks-disclosure summary:hover { color: var(--krater); }
+.ks-disclosure summary:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.ks-disclosure-compact summary { padding: 2px 0; }
+
+/* === Activity filter strip ===============================================
+   Three filter groups + bucket dropdown + count. Pills follow the
+   single-Krater rule: active state is signalled by an `--ink` border,
+   not a Krater fill, because Krater is reserved for the page's primary
+   accent (none on this page today). */
+
+.ks-activity-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.ks-activity-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ks-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.ks-filter-pill:hover:not(.is-active) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.ks-filter-pill:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+}
+.ks-filter-pill.is-active {
+  border-color: var(--ink);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.ks-activity-bucket-select {
+  height: 28px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-repeat: no-repeat;
+}
+.ks-activity-bucket-select:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+  border-color: var(--border-strong);
+}
+
+.ks-activity-count {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .ks-activity-count { margin-left: 0; }
+}
+
+/* === Ownership card (Tier 2 on bucket detail) ===========================
+   Hairline-bordered, warm-stone background so it reads as
+   meta-information layered on top of the page's primary content. No
+   Krater accent — the page's accent budget belongs to the Files tab
+   underline + Upload CTA. */
+
+.ks-ownership {
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.ks-ownership-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.ks-ownership-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.ks-ownership-grid {
+  display: grid;
+  gap: 8px;
+}
+.ks-ownership-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.ks-ownership-key {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.ks-ownership-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  color: var(--text-primary);
+}
+.ks-ownership-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1px;
+  transition: border-color var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.ks-ownership-link:hover {
+  color: var(--krater);
+  border-bottom-color: var(--krater);
+}
+.ks-you-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--krater);
+  color: var(--cream);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ks-ownership-grants {
+  align-items: flex-start;
+}
+.ks-access-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  text-decoration: none;
+  transition: border-color var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.ks-access-pill:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.ks-access-pill-copied {
+  margin-left: 4px;
+  color: var(--success);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .ks-ownership-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

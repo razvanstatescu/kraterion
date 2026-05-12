@@ -154,11 +154,24 @@ export interface BucketJson {
   encryption_mode: "private" | "public-read";
   kraterion_bucket_object_id: string;
   api_access_granted: boolean;
+  /**
+   * @deprecated Kraterion bills out-of-band; chain economics like WAL
+   * funding pools no longer surface in the dashboard. Kept on the wire
+   * for backward compatibility with older clients.
+   */
   funding_pool_wal: string;
   created_at: string;
   deleted_at: string | null;
   /** CP join with KnowledgeBucketSettings; absent on older CP builds. */
   knowledge_enabled?: boolean;
+  /** Non-deleted object count in this bucket. List + detail responses. */
+  object_count?: number;
+  /** Sum of `size_bytes` across non-deleted objects (BigInt as string). */
+  size_bytes_total?: string;
+  /** On-chain `KraterionBucket.owner`. Detail response only. */
+  owner_address?: string;
+  /** On-chain `api_decryption_addresses` vector. Detail response only. */
+  api_decryption_addresses?: string[];
 }
 
 export interface FolderMarkerJson {

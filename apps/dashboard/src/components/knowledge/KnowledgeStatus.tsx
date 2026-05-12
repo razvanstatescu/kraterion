@@ -85,19 +85,23 @@ export function KnowledgeStatus({ status }: Props) {
         ) : null}
 
         {status.settings ? (
-          <div className="ks-meta-row">
-            <span>
-              <em>Model</em> {status.settings.embedding_model}
-            </span>
-            <span className="ks-meta-sep">·</span>
-            <span>
-              <em>Dimensions</em> {status.settings.embedding_dimensions}
-            </span>
-            <span className="ks-meta-sep">·</span>
-            <span>
-              <em>Chunk</em> {status.settings.chunk_tokens} tokens, {status.settings.chunk_overlap_tokens} overlap
-            </span>
-          </div>
+          <details className="ks-disclosure ks-disclosure-compact">
+            <summary>Indexing details</summary>
+            <div className="ks-meta-row" style={{ marginTop: 8 }}>
+              <span>
+                <em>Model</em> {status.settings.embedding_model}
+              </span>
+              <span className="ks-meta-sep">·</span>
+              <span>
+                <em>Dimensions</em> {status.settings.embedding_dimensions}
+              </span>
+              <span className="ks-meta-sep">·</span>
+              <span>
+                <em>Chunk</em> {status.settings.chunk_tokens} tokens,{" "}
+                {status.settings.chunk_overlap_tokens} overlap
+              </span>
+            </div>
+          </details>
         ) : null}
       </div>
     </div>

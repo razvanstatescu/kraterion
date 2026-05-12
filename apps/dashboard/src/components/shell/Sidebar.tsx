@@ -26,6 +26,12 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "AI",
+    items: [
+      { href: "/agents",  label: "Agents", icon: "lock" },
+    ],
+  },
+  {
     label: "Account",
     items: [
       { href: "/activity", label: "Activity", icon: "info" },

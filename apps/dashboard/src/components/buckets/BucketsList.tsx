@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError } from "@/lib/api";
-import { formatRelative, formatWal } from "@/lib/format";
+import { formatBytes, formatRelative } from "@/lib/format";
 import { useBuckets } from "@/lib/queries";
 
 /**
@@ -38,12 +38,14 @@ export function BucketsList() {
           <div style={{ flex: "2 1 0" }}>Name</div>
           <div style={{ flex: "1 1 0" }}>Visibility</div>
           <div style={{ flex: "1 1 0" }}>API access</div>
-          <div style={{ flex: "1 1 0" }}>Funding</div>
+          <div style={{ flex: "1 1 0" }}>Objects</div>
+          <div style={{ flex: "1 1 0" }}>Storage</div>
           <div style={{ flex: "1 1 0" }}>Created</div>
         </div>
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="ks-trow" style={{ cursor: "default" }}>
             <div style={{ flex: "2 1 0" }} className="muted">Loading…</div>
+            <div style={{ flex: "1 1 0" }} />
             <div style={{ flex: "1 1 0" }} />
             <div style={{ flex: "1 1 0" }} />
             <div style={{ flex: "1 1 0" }} />
@@ -82,7 +84,8 @@ export function BucketsList() {
           <div style={{ flex: "2 1 0" }}>Name</div>
           <div style={{ flex: "1 1 0" }}>Visibility</div>
           <div style={{ flex: "1 1 0" }}>API access</div>
-          <div style={{ flex: "1 1 0" }}>Funding</div>
+          <div style={{ flex: "1 1 0" }}>Objects</div>
+          <div style={{ flex: "1 1 0" }}>Storage</div>
           <div style={{ flex: "1 1 0" }}>Created</div>
         </div>
         {filtered.length === 0 ? (
@@ -118,8 +121,27 @@ export function BucketsList() {
                   {b.api_access_granted ? "Granted" : "Revoked"}
                 </Pill>
               </div>
-              <div style={{ flex: "1 1 0", color: "var(--text-secondary)" }}>
-                {formatWal(b.funding_pool_wal)}
+              <div
+                style={{
+                  flex: "1 1 0",
+                  color: "var(--text-secondary)",
+                  fontFeatureSettings: '"tnum" 1',
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {b.object_count !== undefined ? b.object_count.toLocaleString() : "—"}
+              </div>
+              <div
+                style={{
+                  flex: "1 1 0",
+                  color: "var(--text-secondary)",
+                  fontFeatureSettings: '"tnum" 1',
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {b.size_bytes_total !== undefined
+                  ? formatBytes(b.size_bytes_total)
+                  : "—"}
               </div>
               <div style={{ flex: "1 1 0", color: "var(--text-secondary)" }}>
                 {formatRelative(b.created_at)}

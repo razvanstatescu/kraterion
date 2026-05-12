@@ -80,6 +80,11 @@ export function suiscanObjectUrl(objectId: string, network: "testnet" | "mainnet
   return `https://suiscan.xyz/${network}/object/${objectId}`;
 }
 
+/** Suiscan link by Sui address. */
+export function suiscanAddressUrl(address: string, network: "testnet" | "mainnet" | "devnet" = "testnet"): string {
+  return `https://suiscan.xyz/${network}/account/${address}`;
+}
+
 /** Walruscan link for a blob id. */
 export function walruscanUrl(blobId: string): string {
   return `https://walruscan.com/testnet/blob/${blobId}`;

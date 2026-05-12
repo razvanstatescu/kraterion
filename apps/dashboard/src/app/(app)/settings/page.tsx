@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { ConnectedAgents } from "@/components/oauth/ConnectedAgents";
 import { Topbar } from "@/components/shell/Topbar";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -98,7 +98,29 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            <ConnectedAgents />
+            <section className="ks-card">
+              <div className="ks-card-head">
+                <div>
+                  <div className="ks-card-title">Connected agents</div>
+                  <div className="ks-card-sub">
+                    MCP clients (Claude Desktop, Cursor, etc.) you&apos;ve
+                    authorized live in their own section now.
+                  </div>
+                </div>
+              </div>
+              <div
+                className="ks-card-body"
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}
+              >
+                <div className="muted" style={{ fontSize: 13 }}>
+                  Review, audit, or disconnect any agent that&apos;s
+                  signed in to your account.
+                </div>
+                <Link href="/agents" className="btn btn-secondary btn-sm">
+                  Manage agents
+                </Link>
+              </div>
+            </section>
 
             <section className="ks-card ks-card-danger">
               <div className="ks-card-head">
