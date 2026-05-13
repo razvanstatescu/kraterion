@@ -67,6 +67,9 @@ export default function Home() {
       {/* TOP */}
       <header className="topbar">
         <a className="brand" href="#" aria-label="Kraterion">
+          {/* Canonical "light" variant — three earth-tone rings, no
+              krater-orange dot. Matches design-system/assets/
+              kraterion-light.svg and the dashboard's Mark component. */}
           <svg
             className="brand-mark"
             viewBox="0 0 256 256"

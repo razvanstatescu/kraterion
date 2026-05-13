@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -11,20 +10,23 @@ import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { useAgents } from "@/lib/queries";
-import { CreateAgentDialog } from "./CreateAgentDialog";
 
 interface Props {
   projectId: string | undefined;
+  /** Fired when the user clicks "New agent" from the EmptyState. The
+   *  page owns the actual dialog state (and renders the button in the
+   *  Topbar to match the buckets/keys pattern). */
+  onCreate: () => void;
 }
 
 /**
- * Lists every KraterionAgent in the project. The action surface lives
- * here (Create) — per-agent actions move to the detail page where the
- * chat panel and settings form sit together.
+ * Lists every KraterionAgent in the project. The page hosts the
+ * `New agent` action in the Topbar — same shape as the buckets and
+ * keys pages — so this component only handles the empty/loading/data
+ * states.
  */
-export function AgentsListTab({ projectId }: Props) {
+export function AgentsListTab({ projectId, onCreate }: Props) {
   const { data, error, isLoading } = useAgents(projectId);
-  const [createOpen, setCreateOpen] = useState(false);
 
   const agents = data?.agents ?? [];
 
@@ -42,40 +44,21 @@ export function AgentsListTab({ projectId }: Props) {
   }
   if (agents.length === 0) {
     return (
-      <>
-        <EmptyState
-          icon="settings"
-          title="No agents yet"
-          body="Create your first agent to expose a configured chat endpoint over your buckets. Each agent has its own system prompt, chat model, and on-chain sub-wallet identity."
-          action={
-            <Button variant="cta" icon="plus" onClick={() => setCreateOpen(true)}>
-              New agent
-            </Button>
-          }
-        />
-        <CreateAgentDialog
-          open={createOpen}
-          projectId={projectId}
-          onClose={() => setCreateOpen(false)}
-        />
-      </>
+      <EmptyState
+        icon="settings"
+        title="No agents yet"
+        body="Create your first agent to expose a configured chat endpoint over your buckets. Each agent has its own system prompt, chat model, and on-chain sub-wallet identity."
+        action={
+          <Button variant="cta" icon="plus" onClick={onCreate}>
+            New agent
+          </Button>
+        }
+      />
     );
   }
 
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginBottom: 12,
-        }}
-      >
-        <Button variant="cta" icon="plus" onClick={() => setCreateOpen(true)}>
-          New agent
-        </Button>
-      </div>
-
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div className="ks-table" style={{ border: "none", borderRadius: 0 }}>
           <div className="ks-thead">
@@ -173,12 +156,6 @@ export function AgentsListTab({ projectId }: Props) {
           })}
         </div>
       </Card>
-
-      <CreateAgentDialog
-        open={createOpen}
-        projectId={projectId}
-        onClose={() => setCreateOpen(false)}
-      />
     </>
   );
 }

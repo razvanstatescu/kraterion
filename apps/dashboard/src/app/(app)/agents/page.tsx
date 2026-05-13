@@ -4,8 +4,10 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { AgentsListTab } from "@/components/agents/AgentsListTab";
+import { CreateAgentDialog } from "@/components/agents/CreateAgentDialog";
 import { ConnectedAgents } from "@/components/oauth/ConnectedAgents";
 import { Topbar } from "@/components/shell/Topbar";
+import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { useMe } from "@/lib/queries";
 
@@ -34,6 +36,9 @@ function AgentsPageInner() {
   const initialTab: Tab =
     params.get("tab") === "connections" ? "connections" : "my-agents";
   const [tab, setTab] = useState<Tab>(initialTab);
+  // Lifted from AgentsListTab so the "New agent" action can live in
+  // the Topbar — matches the buckets + keys pages.
+  const [createOpen, setCreateOpen] = useState(false);
 
   return (
     <>
@@ -41,7 +46,20 @@ function AgentsPageInner() {
         crumbs={[
           { label: tab === "connections" ? "Connections" : "My agents" },
         ]}
-        actions={<SignOutButton />}
+        actions={
+          <>
+            {tab === "my-agents" ? (
+              <Button
+                variant="cta"
+                icon="plus"
+                onClick={() => setCreateOpen(true)}
+              >
+                New agent
+              </Button>
+            ) : null}
+            <SignOutButton />
+          </>
+        }
       />
       <main className="ks-screen">
         <div className="ks-screen-head">
@@ -82,13 +100,22 @@ function AgentsPageInner() {
         </div>
 
         {tab === "my-agents" ? (
-          <AgentsListTab projectId={projectId} />
+          <AgentsListTab
+            projectId={projectId}
+            onCreate={() => setCreateOpen(true)}
+          />
         ) : (
           <div style={{ maxWidth: 880 }}>
             <ConnectedAgents />
           </div>
         )}
       </main>
+
+      <CreateAgentDialog
+        open={createOpen}
+        projectId={projectId}
+        onClose={() => setCreateOpen(false)}
+      />
     </>
   );
 }

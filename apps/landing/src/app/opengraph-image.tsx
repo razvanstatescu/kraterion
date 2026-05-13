@@ -355,6 +355,9 @@ export default async function Image() {
 }
 
 function BrandMark({ size }: { size: number }) {
+  // Canonical "light" variant — three earth-tone rings on cream.
+  // Matches design-system/assets/kraterion-light.svg and the
+  // dashboard's Mark component.
   return (
     <svg width={size} height={size} viewBox="0 0 256 256">
       <circle cx="128" cy="128" r="110" fill="none" stroke={STONE_500} strokeWidth="10" />

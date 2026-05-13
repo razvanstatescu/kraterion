@@ -3,19 +3,23 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
-import { Button } from "@/components/ui/Button";
 import { Mark } from "@/components/ui/Mark";
+import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
 import { useCpSession, useGoogleSignIn } from "@/lib/auth";
 import { ControlPlaneError } from "@/lib/api";
+import { GridPulse } from "@/components/auth/GridPulse";
+import { LoginStoryPanel } from "@/components/auth/LoginStoryPanel";
+import { ProviderButton } from "@/components/auth/ProviderButton";
 
 /**
- * Marketing-style single-column sign-in. The whole flow is one click —
- * Enoki opens the Google popup and returns the JWT directly to the SDK.
+ * Two-pane editorial sign-in.
+ * Left (Ink) — rotating story panel of Kraterion's differentiators.
+ * Right (Cream) — the actual auth controls.
  *
- * `?reason=stale` indicates the dashboard detected an expired Enoki
- * session (zkLogin sessions are ~1 day; CP JWT is 7 days). Show a
- * one-line banner so the user knows they weren't kicked out maliciously.
+ * Auth flow itself is unchanged: Enoki opens the Google popup and returns
+ * the JWT directly to the SDK. `?reason=stale` indicates the dashboard
+ * detected an expired Enoki session (zkLogin ~1 day; CP JWT 7 days).
  */
 export default function LoginPage() {
   const router = useRouter();
@@ -28,7 +32,6 @@ export default function LoginPage() {
 
   const stale = params?.get("reason") === "stale";
 
-  // Already signed in → bounce to the app.
   useEffect(() => {
     if (mounted && session) router.replace("/buckets");
   }, [mounted, session, router]);
@@ -58,44 +61,79 @@ export default function LoginPage() {
 
   return (
     <main className="ks-login">
-      <div className="ks-login-card">
-        <Mark size={56} variant="light" />
-        <div>
-          <h1 style={{ fontSize: 32, marginBottom: 8 }}>Kraterion</h1>
-          <p className="lead">Object storage you actually own.</p>
-        </div>
+      <aside className="ks-login-story" aria-label="About Kraterion">
+        <GridPulse />
 
-        {stale ? (
-          <div style={{ maxWidth: 380, width: "100%" }}>
+        <header className="ks-login-story-head ks-brand">
+          <Mark size={28} variant="krater" animate="pulse" />
+          <span className="ks-wordmark">Kraterion</span>
+        </header>
+
+        <LoginStoryPanel />
+
+        <footer className="ks-login-story-foot">
+          <div className="ks-login-facts">
+            <span>Stored on Walrus</span>
+            <span aria-hidden="true">·</span>
+            <span>Sealed by you</span>
+            <span aria-hidden="true">·</span>
+            <span>Owned on Sui</span>
+          </div>
+          <p className="ks-login-foot-meta">
+            <span className="ks-login-foot-dot" aria-hidden="true" />
+            Testnet preview · Sui Overflow 2026
+          </p>
+        </footer>
+      </aside>
+
+      <section className="ks-login-auth" aria-label="Sign in">
+        <div className="ks-login-auth-inner">
+          <div className="ks-login-auth-head">
+            <h1 className="ks-login-h1">Sign in</h1>
+            <p className="ks-login-sub">
+              Continue to your console. One click — no seed phrases, no wallet
+              install.
+            </p>
+          </div>
+
+          {stale ? (
             <Banner
               tone="info"
-              title="Sign in to continue"
-              body="Your wallet session expired. Re-authenticate to keep working on-chain."
+              title="Session expired"
+              body="Your wallet session timed out. Re-authenticate to keep working on-chain."
             />
+          ) : null}
+
+          <div className="ks-login-providers">
+            <ProviderButton
+              provider="google"
+              onClick={onContinue}
+              loading={busy}
+            />
+            <ProviderButton provider="github" comingSoon />
           </div>
-        ) : null}
 
-        <Button
-          variant="cta"
-          size="lg"
-          onClick={onContinue}
-          loading={busy}
-          style={{ minWidth: 240 }}
-        >
-          {busy ? "Signing in…" : "Continue with Google"}
-        </Button>
+          {error ? <div className="ks-field-error">{error}</div> : null}
 
-        {error ? (
-          <div className="ks-field-error" style={{ maxWidth: 360 }}>
-            {error}
+          <div className="ks-login-rule">
+            <span>secured by zkLogin</span>
           </div>
-        ) : null}
 
-        <p className="muted" style={{ fontSize: 13, maxWidth: 360 }}>
-          We use zkLogin via Mysten Labs Enoki. Your Sui address is derived
-          from your Google account — no seed phrases, no wallet install.
-        </p>
-      </div>
+          <p className="ks-login-fineprint">
+            We use Mysten Labs Enoki. Your Sui address is derived from your
+            Google account through a zero-knowledge proof. Kraterion never sees
+            your password.
+          </p>
+
+          <div className="ks-login-legal">
+            <Pill>v0.1 · testnet</Pill>
+            <span>
+              By continuing you agree to the <a href="/terms">terms</a> and{" "}
+              <a href="/privacy">privacy policy</a>.
+            </span>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

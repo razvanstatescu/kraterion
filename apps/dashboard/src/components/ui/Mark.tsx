@@ -15,8 +15,14 @@ interface Props {
   className?: string;
 }
 
+// Canonical light variant matches `design-system/assets/kraterion-light.svg`
+// and the landing page's header / favicon / OG card / apple-touch icon.
+// All three rings sit in the earth-tone family on a cream surface; no
+// krater-orange accent on the inner dot. Source of truth lives in the
+// design-system folder — if you update colors here, mirror the change
+// to `design-system/assets/kraterion-light.svg`.
 const VARIANTS: Record<Variant, { outer: string; middle: string; dot: string }> = {
-  light:  { outer: "#A89C82", middle: "#0F0E0C", dot: "#C45B36" },
+  light:  { outer: "#7C7158", middle: "#403930", dot: "#1A1610" },
   dark:   { outer: "#7C7158", middle: "#F8F4EC", dot: "#C45B36" },
   krater: { outer: "#F8F4EC", middle: "#F8F4EC", dot: "#F8F4EC" },
   mono:   { outer: "currentColor", middle: "currentColor", dot: "currentColor" },

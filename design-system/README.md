@@ -196,7 +196,11 @@ Grain is acceptable if it's the natural film grain of the photograph. **No added
 - **Stroke:** 1.5px. Never thicken. Never thin.
 - **Emoji:** **Never** in product surfaces. (Acceptable in transactional email subjects only — but only the warm ones: `📦` etc. Document if/when added.)
 - **Unicode glyphs as icons:** No. Use Lucide.
-- **Custom marks:** Only the Kraterion aperture, in its four sanctioned variants (light, dark, on‑krater, mono). Don't redraw it; copy from `assets/`.
+- **Custom marks:** Only the Kraterion aperture, in its four sanctioned variants. Don't redraw it; copy from `assets/`. Canonical palettes:
+  - **light** (default for Cream surfaces) — outer `#7C7158`, middle `#403930`, dot `#1A1610`. Three earth-tone rings, no krater accent. Used by landing header, favicon, OG card, apple-touch icon, dashboard splash + auth + sidebar.
+  - **dark** (for Ink surfaces) — outer `#7C7158`, middle `#F8F4EC` (cream), dot `#C45B36` (krater).
+  - **on-krater** (white-on-orange, for accent-fill heroes) — all rings `#F8F4EC`.
+  - **mono** — `currentColor` throughout; use for ink-on-glass, favicons, embossing.
 
 > ⚠️ **Substitution flag:** No icon set was supplied with the brand brief. Lucide is a substitution chosen to match the stroke‑weight aesthetic. If the brand has a custom set, replace the CDN reference in `ui_kits/*/index.html` and update this section.
 

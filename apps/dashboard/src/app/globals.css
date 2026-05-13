@@ -973,18 +973,410 @@ code, kbd, samp {
 .ks-toast a { color: var(--krater); text-decoration: none; }
 .ks-toast a:hover { text-decoration: underline; }
 
-/* Login surface */
+/* ============================================================
+   Login surface — two-pane editorial split
+   Left (Ink): rotating story panel of differentiators.
+   Right (Cream): auth controls. Collapses to single column below 960px.
+   ============================================================ */
 .ks-login {
   min-height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-  padding: 32px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  background: var(--cream);
 }
-.ks-login-card {
+
+/* ---- Left pane (Ink, story) ---- */
+.ks-login-story {
+  position: relative;
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-12) var(--space-12);
+  background: var(--ink);
+  color: var(--cream);
+  overflow: hidden;
+  animation: ks-login-rise var(--dur-slow) var(--ease) 120ms both;
+}
+/* Subtle hairline grid texture. Slowly drifts diagonally — the pattern
+   repeats every 64px so the loop is seamless. */
+.ks-login-story::before {
+  content: "";
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(248, 244, 236, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(248, 244, 236, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  pointer-events: none;
+  animation: ks-grid-drift 32s linear infinite;
+}
+/* A solid Krater dot at top-right, very small — the only color accent
+   in the dark pane, used as an anchor not a decoration. */
+.ks-login-story::after {
+  content: "";
+  position: absolute;
+  top: var(--space-8); right: var(--space-12);
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--krater);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Re-use .ks-brand from the sidebar so the navbar logo treatment is
+   identical here. Override the sidebar's vertical padding because the
+   login pane sets its own. */
+.ks-login-story-head.ks-brand {
+  padding: 0;
+  position: relative; z-index: 2;
+}
+.ks-login-story-head .ks-wordmark {
+  color: var(--cream);
+}
+
+.ks-login-story-inner {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column;
+  gap: var(--space-8);
+  max-width: 560px;
+}
+
+.ks-login-slides {
+  position: relative;
+  min-height: 240px;
+}
+.ks-login-slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  gap: var(--space-4);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--dur-slow) var(--ease),
+    transform var(--dur-slow) var(--ease);
+  pointer-events: none;
+}
+.ks-login-slide[data-active] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.ks-login-slide-eyebrow {
+  display: inline-flex; align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--stone-400);
+}
+.ks-login-slide-headline {
+  font-size: var(--fs-h1);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 500;
+  color: var(--cream);
+  margin: 0;
+  max-width: 18ch;
+}
+.ks-login-slide-body {
+  font-size: var(--fs-lead);
+  line-height: var(--lh-body);
+  color: var(--stone-300);
+  margin: 0;
+  max-width: 52ch;
+}
+
+.ks-login-dots {
+  display: flex; align-items: center;
+  gap: var(--space-2);
+}
+.ks-login-dot {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.ks-login-dot::before {
+  content: "";
+  display: block;
+  width: 28px; height: 2px;
+  background: var(--stone-700);
+  border-radius: 999px;
+  transition: background var(--dur-base) var(--ease), width var(--dur-base) var(--ease);
+}
+.ks-login-dot[data-active]::before {
+  background: var(--krater);
+  width: 44px;
+}
+.ks-login-dot:hover::before {
+  background: var(--stone-500);
+}
+.ks-login-dot[data-active]:hover::before {
+  background: var(--krater);
+}
+.ks-login-dot:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.ks-login-story-foot {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column;
+  gap: var(--space-3);
+}
+.ks-login-facts {
+  display: flex; flex-wrap: wrap;
+  align-items: center; gap: var(--space-3);
+  font-size: var(--fs-small);
+  color: var(--stone-400);
+}
+.ks-login-facts > span:nth-child(even) {
+  color: var(--stone-600);
+}
+.ks-login-foot-meta {
+  display: inline-flex; align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--stone-500);
+  margin: 0;
+}
+.ks-login-foot-dot {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--success);
+  animation: ks-login-blink 2.5s var(--ease) infinite;
+}
+
+/* ---- Right pane (Cream, auth) ---- */
+.ks-login-auth {
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-12) var(--space-8);
+  background: var(--cream);
+  animation: ks-login-rise var(--dur-slow) var(--ease) both;
+}
+.ks-login-auth-inner {
   width: 100%;
-  max-width: 440px;
-  display: flex; flex-direction: column; align-items: center;
-  gap: 24px;
-  text-align: center;
+  max-width: 380px;
+  display: flex; flex-direction: column;
+  gap: var(--space-6);
+}
+.ks-login-auth-head {
+  display: flex; flex-direction: column;
+  gap: var(--space-2);
+}
+.ks-login-h1 {
+  font-size: var(--fs-h2);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-primary);
+}
+.ks-login-sub {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.ks-login-providers {
+  display: flex; flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Provider button — Google / GitHub etc. Shaped like .btn-secondary but
+   wider, taller, and able to hold a logo, a label, and an optional pill. */
+.ks-provider {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 48px;
+  padding: 0 var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background var(--dur-base) var(--ease),
+    border-color var(--dur-base) var(--ease),
+    color var(--dur-base) var(--ease);
+}
+.ks-provider:hover:not(:disabled) {
+  background: var(--stone-50);
+  border-color: var(--border-strong);
+}
+.ks-provider:focus-visible {
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+}
+.ks-provider:disabled {
+  cursor: not-allowed;
+}
+.ks-provider[data-coming-soon] {
+  color: var(--text-tertiary);
+  background: var(--bg);
+  border-color: var(--stone-200);
+  opacity: 1;
+}
+.ks-provider[data-coming-soon] .ks-provider-logo {
+  color: var(--stone-400);
+}
+.ks-provider-logo {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+}
+.ks-provider-label {
+  display: inline-flex;
+  align-items: center;
+}
+.ks-provider-tag {
+  display: inline-flex; align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--stone-100);
+  color: var(--stone-600);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ks-login-rule {
+  display: flex; align-items: center;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  margin: var(--space-2) 0;
+}
+.ks-login-rule::before,
+.ks-login-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.ks-login-fineprint {
+  font-size: var(--fs-small);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.ks-login-legal {
+  display: flex; align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+}
+.ks-login-legal a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--stone-300);
+  text-underline-offset: 2px;
+  transition: color var(--dur-base) var(--ease);
+}
+.ks-login-legal a:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--stone-500);
+}
+
+/* ---- Diagonal wave of pulsing dots over the dark pane ---- */
+.ks-grid-pulse {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.ks-grid-pulse-dot {
+  position: absolute;
+  width: 5px; height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 999px;
+  background: var(--cream);
+  opacity: 0;
+  animation: ks-grid-pulse 5.4s var(--ease) infinite;
+}
+/* Highlight the wave's leading edge with a Krater-tinted dot every 4th
+   row — a single ember tracking the wave across the grid. */
+.ks-grid-pulse-dot:nth-child(9n + 5) {
+  background: var(--krater);
+  width: 6px; height: 6px;
+  margin: -3px 0 0 -3px;
+}
+
+/* ---- Motion ---- */
+@keyframes ks-login-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ks-login-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@keyframes ks-grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 64px 64px, 64px 64px; }
+}
+@keyframes ks-grid-pulse {
+  0%, 100% { opacity: 0; transform: scale(0.6); }
+  18%      { opacity: 0.18; transform: scale(1); }
+  28%      { opacity: 0; transform: scale(1.4); }
+}
+
+/* ---- Responsive: single column below 960px ---- */
+@media (max-width: 960px) {
+  .ks-login {
+    grid-template-columns: 1fr;
+    min-height: 100vh;
+  }
+  .ks-login-auth {
+    order: 1;
+    padding: var(--space-8) var(--space-6);
+  }
+  .ks-login-story {
+    order: 2;
+    padding: var(--space-8) var(--space-6);
+  }
+  .ks-login-slide-headline {
+    font-size: var(--fs-h2);
+  }
+  .ks-login-slides {
+    min-height: 200px;
+  }
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .ks-login-story,
+  .ks-login-auth,
+  .ks-login-story::before,
+  .ks-grid-pulse-dot,
+  .ks-login-foot-dot {
+    animation: none;
+  }
+  .ks-grid-pulse-dot {
+    opacity: 0.08;
+  }
+  .ks-login-slide {
+    transition: opacity 0ms;
+  }
 }
 
 /* Delete-folder dialog */
