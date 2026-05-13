@@ -674,6 +674,7 @@ model KraterionAgent {
   project     Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
   sub_wallet  SubWallet         @relation(fields: [sub_wallet_id], references: [id])
   buckets     AgentBucket[]
+  tools       AgentTool[]
   invocations AgentInvocation[]
 
   @@unique([project_id, name])
@@ -694,6 +695,27 @@ model AgentBucket {
 
   @@id([agent_id, bucket_id])
   @@index([bucket_id])
+}
+
+/// Many-to-many junction between agents and the built-in tool registry.
+/// Each row enables one tool (by name) for one agent. The registry is
+/// hard-coded server-side; an unknown `tool_name` is rejected at
+/// agents.service write time.
+///
+/// `tool_kind` is a forward-compat discriminator — v1 only writes
+/// "builtin"; "webhook" (per-agent HTTP tools) and "mcp" (Kraterion
+/// consuming external MCP tool catalogs) are post-hackathon
+/// extensions that drop in here without a migration.
+model AgentTool {
+  agent_id   String
+  tool_name  String
+  tool_kind  String   @default("builtin")
+  created_at DateTime @default(now())
+
+  agent KraterionAgent @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+
+  @@id([agent_id, tool_name])
+  @@index([agent_id])
 }
 
 /// One row per `/chat/completions` call against an agent. Captures
@@ -749,8 +771,61 @@ model AgentInvocation {
   created_at  DateTime  @default(now())
   finished_at DateTime?
 
-  agent KraterionAgent @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  agent      KraterionAgent  @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  tool_calls AgentToolCall[]
 
   @@index([agent_id, created_at])
   @@index([project_id, created_at])
+}
+
+/// Per-tool-call audit row. Zero-to-many per AgentInvocation; one row
+/// for each `tool_calls[]` item the model emits across all rounds of
+/// the tool-call loop.
+///
+/// `tx_digest` is populated for tools that mint an on-chain Move tx
+/// (today: `kraterion_write_object`). The control plane polls
+/// `S3Object` after the gateway PUT settles and copies the indexer's
+/// tx digest here so the dashboard can render a Suiscan link without
+/// a second round-trip. Null for read tools and for writes still
+/// indexing — the dashboard falls back to "indexing…".
+model AgentToolCall {
+  id            String @id @default(uuid())
+  invocation_id String
+  // The OpenAI-issued `tool_calls[].id`. Stable across streaming
+  // deltas; deduplicates if the same call is re-processed.
+  tool_call_id  String
+  tool_name     String
+  // 'pending' | 'completed' | 'failed'.
+  status        String @default("pending")
+  // Round index within the parent invocation, starting at 0. Caps
+  // pathological loops at MAX_TOOL_ROUNDS (enforced application-side).
+  round         Int
+
+  // Raw arguments JSON emitted by the model — stored even if validation
+  // fails so the dashboard can show what was attempted.
+  arguments String @db.Text
+  // String form the model sees as the tool result. JSON-stringified
+  // when the underlying handler returns structured data.
+  output    String? @db.Text
+  // Structured metadata captured by the handler for the dashboard
+  // (walrus_blob_id, shared_blob_object_id, etag, etc.). Not fed back
+  // to the model.
+  output_json Json?
+
+  // On-chain receipt for tools that emit a Move tx. Populated by
+  // polling S3Object after writes settle.
+  tx_digest             String?
+  walrus_blob_id        String?
+  shared_blob_object_id String?
+
+  latency_ms   Int?
+  error_detail String?
+
+  created_at  DateTime  @default(now())
+  finished_at DateTime?
+
+  invocation AgentInvocation @relation(fields: [invocation_id], references: [id], onDelete: Cascade)
+
+  @@unique([invocation_id, tool_call_id])
+  @@index([invocation_id, created_at])
 }

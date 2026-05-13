@@ -3450,3 +3450,110 @@ Desktop). Revoke bearer → 401 immediately.
   same risk profile as the existing S3 AKIA keys).
 - Per-key scopes (`ApiKey.scopes` column scaffolded; v1 mints empty =
   full access).
+
+## 2026-05-13 [agents] P4 ships: built-in tools + on-chain audit
+
+Agent went from RAG chatbot → tool-using agent. Six built-in tools
+(search, list_buckets, list_objects, read_object, write_object,
+get_manifest), per-agent enablement via a 4th step on the create
+dialog, multi-round OpenAI tool-call loop in the chat endpoint, and
+a new `AgentToolCall` audit table that captures on-chain `tx_digest`
+for writes. Decision write-up: `docs/decisions.md` 2026-05-13 P4.
+
+**Schema (additive migration `20260513180000_p4_agent_tools`).**
+- `AgentTool(agent_id, tool_name, tool_kind, created_at)` — per-agent
+  enabled tools. `tool_kind` defaults to `"builtin"` (forward-compat
+  for webhook + external-MCP tool sources, both deferred).
+- `AgentToolCall(invocation_id, tool_call_id, tool_name, status,
+  round, arguments, output, output_json, tx_digest, walrus_blob_id,
+  shared_blob_object_id, latency_ms, error_detail, ...)` — one row
+  per OpenAI `tool_calls[]` item across all rounds.
+- Back-relations on `KraterionAgent.tools` and `AgentInvocation.tool_calls`.
+
+**Control plane.**
+
+- New `apps/control-plane/src/agents/tools/` package — `types.ts`,
+  `registry.ts`, `helpers.ts`, and one file per tool. Each tool
+  exports a `ToolDef` with `args` (Zod, runtime gate), `parameters`
+  (JSON Schema, what the model sees), and a pure-ish `execute`.
+- `AgentToolRegistry` (Nest provider) — `forNames`, `openAiToolsParam`,
+  `execute(name, args, ctx)`. Exported from `AgentsModule` so future
+  consumers (Activity feed, scheduled jobs, etc.) can dispatch
+  through the same catalog.
+- `apps/control-plane/src/agents/tool-runner.ts` — streaming-delta
+  accumulator (`accumulateToolCallDeltas`), execution helper that
+  validates args, persists the `AgentToolCall` row, returns the
+  `role: "tool"` message + an SSE telemetry frame.
+- `agents.controller.ts` — both chat paths now loop on tool rounds.
+  Non-streaming uses `answerWithAgent` repeatedly (returns the full
+  OpenAI completion now so the loop can inspect `finish_reason` +
+  `tool_calls`). Streaming forwards `chat.completion.chunk` frames
+  verbatim, accumulates tool_calls from `delta.tool_calls`, emits
+  `kraterion.tool_call` extension frames per call (pending →
+  completed/failed), then re-opens a new OpenAI stream with the
+  tool results appended. Capped at `MAX_TOOL_ROUNDS = 5`.
+- `answer.ts` — `tools` + `extraMessages` params on both helpers;
+  non-streaming returns the raw `completion` so the loop can read
+  `finish_reason`.
+- `agents.service.ts` — `create` + `update` validate `tools[]`
+  against `registry.knownNames`, mirror the wholesale-replace
+  pattern that buckets use.
+- `dto.ts` + `AgentJson` extended with `tools: string[]`.
+
+**Write tools and on-chain receipts.** `write-object.ts` polls
+`S3Object` by `(bucket_id, s3_key)` for up to 8s after the gateway
+PUT, copying `tx_digest` + `walrus_blob_id` + `shared_blob_object_id`
+into the `AgentToolCall` row. If the indexer hasn't settled, the
+row keeps `tx_digest: null` and the dashboard shows "indexing…" —
+the indexer eventually back-fills S3Object and the row stays
+consistent. Ownership model is unchanged from P3: the gateway-proxied
+SigV4 path signs the PUT, the project's AKIA key is the on-chain
+principal, the agent's `sub_wallet` is *not* in the write path.
+
+**Dashboard.**
+
+- `CreateAgentDialog` — 3 steps → 4, new "Tools" step at the end with
+  a checkbox grid. Default selection is `kraterion_search` +
+  `kraterion_list_objects` (safe reads); writes require explicit
+  opt-in. Step badge: read vs write · on-chain receipt.
+- `AgentSettingsForm` — new Tools section, same wholesale-replace
+  semantics as buckets.
+- `AgentChatPanel` — accumulates `kraterion.tool_call` SSE frames
+  (matched by `tool_call_id`), replaces the per-call deltas with
+  the authoritative `tool_calls[]` list from the final
+  `kraterion.extension` frame. New `ToolCallList` renders under
+  each assistant message: collapsible "Tools used" card with a
+  status dot per row, one-line argument summary, Suiscan link for
+  writes with a captured `tx_digest`.
+- `apps/dashboard/src/lib/agent-tools.ts` — tool metadata catalog
+  (label, description, icon, kind). Mirrors the server registry.
+- `apps/dashboard/src/lib/api.ts` — `AgentJson.tools[]`,
+  `AgentToolCallJson` type.
+- `globals.css` — `.ks-tool-calls*`, `.ks-tool-call-row`,
+  `.ks-tool-call-link` styles. Matches the sources-card visual
+  language (hairline border, no shadow, sentence case).
+
+**Known follow-ups.**
+
+- **MCP delegation to the shared registry.** The MCP server's
+  `server.registerTool` API and the registry's `execute(name, args,
+  ctx)` contract have different shapes; a clean delegation isn't a
+  one-liner. Both surfaces already share `BucketsService` /
+  `KnowledgeService` / `PresignService` so behavior is byte-equivalent —
+  pragmatic call: defer the refactor.
+- **HTTP webhook tools** — `AgentTool.tool_kind` already scaffolds
+  the `"webhook"` discriminator. Routing logic + per-tool user config
+  UI lands post-hackathon.
+- **External MCP tool servers as tool sources** — Kraterion as MCP
+  *client* consuming third-party catalogs (`tool_kind="mcp"`).
+- **Activity feed `agent_tool_call` event kind** — the chat panel
+  already shows tool trails inline; an activity timeline is polish.
+- **Agent sub-wallet as on-chain signer.** Today writes go through
+  the gateway's signing path. Funding the sub-wallet + building a
+  signed PTB inside `write-object.ts` would make the agent the
+  literal on-chain signer instead of a logical principal.
+- **Streaming tool deltas don't carry full args until completion.**
+  The `kraterion.tool_call` `pending` frame ships the partial args
+  buffer at the moment we detect `finish_reason="tool_calls"`; that's
+  the full string. No issue today, just worth noting if we move to
+  earlier emit on the first delta.

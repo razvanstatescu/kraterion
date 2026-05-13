@@ -33,6 +33,17 @@ import {
   type CreateAgentDto,
   type UpdateAgentDto,
 } from "./dto.js";
+import { AgentToolRegistry } from "./tools/registry.js";
+import type { ToolContext } from "./tools/types.js";
+import {
+  accumulateToolCallDeltas,
+  executeToolCall,
+  MAX_TOOL_ROUNDS,
+  type PartialToolCall,
+  type ToolCallFrame,
+} from "./tool-runner.js";
+import type OpenAI from "openai";
+import { PresignService } from "../objects/presign.service.js";
 
 /**
  * Agents resource: CRUD + the OpenAI Chat-Completions-compatible
@@ -57,7 +68,29 @@ export class AgentsController {
     private readonly knowledge: KnowledgeService,
     private readonly credentials: ProviderCredentialService,
     private readonly prisma: PrismaService,
+    private readonly toolRegistry: AgentToolRegistry,
+    private readonly presign: PresignService,
   ) {}
+
+  /** Build a ToolContext for the current chat invocation. Pure object —
+   *  no DI hops at call time. */
+  private toolContext(args: {
+    accountId: string;
+    projectId: string;
+    apiKeyId?: string | null;
+    invocationId: string;
+  }): ToolContext {
+    return {
+      prisma: this.prisma,
+      buckets: this.buckets,
+      knowledge: this.knowledge,
+      presign: this.presign,
+      accountId: args.accountId,
+      projectId: args.projectId,
+      apiKeyId: args.apiKeyId ?? null,
+      invocationId: args.invocationId,
+    };
+  }
 
   @Get("agents")
   async list(@Req() req: FastifyRequest, @Query("project_id") projectId: string) {
@@ -264,6 +297,15 @@ export class AgentsController {
       }
 
       // === LLM ===
+      const toolNames = agent.tools.map((t) => t.tool_name);
+      const tools = this.toolRegistry.openAiToolsParam(toolNames);
+      const toolCtx = this.toolContext({
+        accountId: user.accountId,
+        projectId: agent.project_id,
+        apiKeyId: user.kind === "api_key" ? user.apiKeyId : null,
+        invocationId: invocation.id,
+      });
+
       if (dto.stream) {
         return await this.streamResponse({
           req,
@@ -281,24 +323,73 @@ export class AgentsController {
           wallStart,
           includeRetrievalInfo: dto.include_retrieval_info,
           includeCitations: dto.include_citations,
+          tools,
+          toolCtx,
         });
       }
 
+      // === Non-streaming tool-call loop ===
       const llmStart = Date.now();
-      const answered = await this.credentials.useDecrypted(
-        agent.project_id,
-        "openai",
-        (apiKey) =>
-          answerWithAgent({
-            apiKey,
-            model: requestedModel,
-            systemPrompt: agent.system_prompt,
-            messages: conversationHistory,
-            hits: topHits,
-            temperature,
-            maxTokens,
-          }),
-      );
+      const extraMessages: OpenAI.ChatCompletionMessageParam[] = [];
+      let finalAnswered: Awaited<ReturnType<typeof answerWithAgent>> | null = null;
+      let toolRound = 0;
+      while (true) {
+        const answered = await this.credentials.useDecrypted(
+          agent.project_id,
+          "openai",
+          (apiKey) =>
+            answerWithAgent({
+              apiKey,
+              model: requestedModel,
+              systemPrompt: agent.system_prompt,
+              messages: conversationHistory,
+              hits: topHits,
+              temperature,
+              maxTokens,
+              ...(tools ? { tools, extraMessages } : { extraMessages }),
+            }),
+        );
+        const choice = answered.completion.choices[0];
+        const toolCalls = choice?.message?.tool_calls ?? [];
+        if (
+          !tools ||
+          choice?.finish_reason !== "tool_calls" ||
+          toolCalls.length === 0
+        ) {
+          finalAnswered = answered;
+          break;
+        }
+        if (toolRound >= MAX_TOOL_ROUNDS) {
+          throw new ControlPlaneError(
+            "PreconditionFailed",
+            `Exceeded the tool-call limit (${MAX_TOOL_ROUNDS} rounds).`,
+          );
+        }
+        // Thread the assistant's tool_calls message + the tool results
+        // back into the conversation for the next round.
+        extraMessages.push({
+          role: "assistant",
+          content: choice.message.content ?? null,
+          tool_calls: toolCalls,
+        });
+        for (const tc of toolCalls) {
+          if (tc.type !== "function") continue;
+          const executed = await executeToolCall({
+            registry: this.toolRegistry,
+            prisma: this.prisma,
+            ctx: toolCtx,
+            invocationId: invocation.id,
+            round: toolRound,
+            toolCallId: tc.id,
+            toolName: tc.function.name,
+            rawArguments: tc.function.arguments,
+          });
+          extraMessages.push(executed.message);
+        }
+        toolRound++;
+      }
+
+      const answered = finalAnswered!;
       const llmLatencyMs = Date.now() - llmStart;
       const wallMs = Date.now() - wallStart;
 
@@ -320,6 +411,13 @@ export class AgentsController {
         },
       });
 
+      // Pull the audit children we just wrote so the response includes
+      // the tool-call summary alongside citations.
+      const toolCallRows = await this.prisma.agentToolCall.findMany({
+        where: { invocation_id: invocation.id },
+        orderBy: { created_at: "asc" },
+      });
+
       const payload = this.buildOpenAiPayload({
         agentId,
         invocationId: invocation.id,
@@ -335,6 +433,7 @@ export class AgentsController {
         citations: answered.citations,
         includeRetrievalInfo: dto.include_retrieval_info,
         includeCitations: dto.include_citations,
+        toolCalls: toolCallRows,
       });
       void reply.status(200).send(payload);
       return;
@@ -372,6 +471,20 @@ export class AgentsController {
     citations: Array<{ chunk_hash: string; s3_key: string; ordinal: number }>;
     includeRetrievalInfo: boolean;
     includeCitations: boolean;
+    toolCalls?: Array<{
+      tool_call_id: string;
+      tool_name: string;
+      status: string;
+      round: number;
+      arguments: string;
+      output: string | null;
+      output_json: unknown;
+      tx_digest: string | null;
+      walrus_blob_id: string | null;
+      shared_blob_object_id: string | null;
+      error_detail: string | null;
+      latency_ms: number | null;
+    }>;
   }) {
     const base = {
       id: `chatcmpl_kr_${args.invocationId}`,
@@ -414,6 +527,22 @@ export class AgentsController {
         cited: args.citations.some((c) => c.chunk_hash === h.content_hash),
       }));
     }
+    if (args.toolCalls && args.toolCalls.length > 0) {
+      kraterion["tool_calls"] = args.toolCalls.map((tc) => ({
+        tool_call_id: tc.tool_call_id,
+        tool_name: tc.tool_name,
+        status: tc.status,
+        round: tc.round,
+        arguments: safeJson(tc.arguments),
+        output: tc.output,
+        output_json: tc.output_json,
+        tx_digest: tc.tx_digest,
+        walrus_blob_id: tc.walrus_blob_id,
+        shared_blob_object_id: tc.shared_blob_object_id,
+        error_detail: tc.error_detail,
+        latency_ms: tc.latency_ms,
+      }));
+    }
     return { ...base, kraterion };
   }
 
@@ -433,6 +562,8 @@ export class AgentsController {
     wallStart: number;
     includeRetrievalInfo: boolean;
     includeCitations: boolean;
+    tools: OpenAI.ChatCompletionTool[] | undefined;
+    toolCtx: ToolContext;
   }) {
     const { req, reply } = args;
 
@@ -473,44 +604,135 @@ export class AgentsController {
     const llmStart = Date.now();
 
     try {
-      const stream = await this.credentials.useDecrypted(
-        // Agent.project_id is the credential scope. Look it up via the
-        // invocation row to avoid a second DB hit; cheap enough.
-        (
-          await this.prisma.agentInvocation.findUniqueOrThrow({
-            where: { id: args.invocationId },
-            select: { project_id: true },
-          })
-        ).project_id,
-        "openai",
-        (apiKey) =>
-          streamWithAgent({
-            apiKey,
-            model: args.requestedModel,
-            systemPrompt: args.systemPrompt,
-            messages: args.messages,
-            hits: args.hits,
-            temperature: args.temperature,
-            maxTokens: args.maxTokens,
-            stream: true,
-          }),
-      );
+      // Resolve project id once for credential decryption.
+      const projectId = (
+        await this.prisma.agentInvocation.findUniqueOrThrow({
+          where: { id: args.invocationId },
+          select: { project_id: true },
+        })
+      ).project_id;
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content ?? "";
-        if (delta) accumulated += delta;
-        // Forward verbatim — clients expect the standard OpenAI shape.
-        sseSend({
-          id: completionId,
-          object: "chat.completion.chunk",
-          created: createdSec,
-          model: chunk.model ?? args.requestedModel,
-          choices: chunk.choices,
-        });
-        if (chunk.usage) {
-          promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
-          completionTokens = chunk.usage.completion_tokens ?? completionTokens;
+      // Per-round streaming loop. Each iteration:
+      //   1. Opens an OpenAI stream with the current `extraMessages`.
+      //   2. Forwards `chat.completion.chunk` frames verbatim and
+      //      accumulates content + tool_call deltas.
+      //   3. If the round ended with finish_reason="tool_calls": emit
+      //      pending → completed `kraterion.tool_call` frames per call,
+      //      append assistant+tool messages, loop.
+      //   4. Otherwise: terminal round; break and write the closing
+      //      kraterion.extension + [DONE].
+      const extraMessages: OpenAI.ChatCompletionMessageParam[] = [];
+      let toolRound = 0;
+      let finalRoundReached = false;
+      while (!finalRoundReached) {
+        if (toolRound > MAX_TOOL_ROUNDS) {
+          throw new ControlPlaneError(
+            "PreconditionFailed",
+            `Exceeded the tool-call limit (${MAX_TOOL_ROUNDS} rounds).`,
+          );
         }
+        const stream = await this.credentials.useDecrypted(
+          projectId,
+          "openai",
+          (apiKey) =>
+            streamWithAgent({
+              apiKey,
+              model: args.requestedModel,
+              systemPrompt: args.systemPrompt,
+              messages: args.messages,
+              hits: args.hits,
+              temperature: args.temperature,
+              maxTokens: args.maxTokens,
+              stream: true,
+              ...(args.tools ? { tools: args.tools, extraMessages } : { extraMessages }),
+            }),
+        );
+
+        const toolCallBuf = new Map<number, PartialToolCall>();
+        let roundFinishReason: string | null = null;
+        let assistantContentThisRound = "";
+
+        for await (const chunk of stream) {
+          const choice = chunk.choices[0];
+          const delta = choice?.delta?.content ?? "";
+          if (delta) {
+            accumulated += delta;
+            assistantContentThisRound += delta;
+          }
+          // Streaming tool_call deltas arrive as `choices[0].delta.tool_calls`.
+          accumulateToolCallDeltas(toolCallBuf, choice?.delta?.tool_calls);
+          if (choice?.finish_reason) {
+            roundFinishReason = choice.finish_reason;
+          }
+          // Forward verbatim — stock OpenAI SDKs expect this exact shape.
+          sseSend({
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdSec,
+            model: chunk.model ?? args.requestedModel,
+            choices: chunk.choices,
+          });
+          if (chunk.usage) {
+            promptTokens = chunk.usage.prompt_tokens ?? promptTokens;
+            completionTokens = chunk.usage.completion_tokens ?? completionTokens;
+          }
+        }
+
+        if (roundFinishReason !== "tool_calls" || !args.tools || toolCallBuf.size === 0) {
+          finalRoundReached = true;
+          break;
+        }
+
+        // Round produced tool_calls. Collect them in stable order
+        // (matches OpenAI's `index`), emit pending frames, execute,
+        // emit completion frames, thread results back.
+        const accumulatedCalls = [...toolCallBuf.values()].sort(
+          (a, b) => a.index - b.index,
+        );
+        const validCalls = accumulatedCalls.filter(
+          (c): c is PartialToolCall & { id: string; name: string } =>
+            typeof c.id === "string" && typeof c.name === "string",
+        );
+
+        const assistantToolMsg: OpenAI.ChatCompletionAssistantMessageParam = {
+          role: "assistant",
+          content: assistantContentThisRound.length > 0 ? assistantContentThisRound : null,
+          tool_calls: validCalls.map((c) => ({
+            id: c.id,
+            type: "function" as const,
+            function: { name: c.name, arguments: c.arguments },
+          })),
+        };
+        extraMessages.push(assistantToolMsg);
+
+        for (const call of validCalls) {
+          // Emit pending frame so the dashboard can render the
+          // "running…" state before the handler returns.
+          const pendingFrame: ToolCallFrame = {
+            object: "kraterion.tool_call",
+            round: toolRound,
+            tool_call_id: call.id,
+            tool_name: call.name,
+            status: "pending",
+            arguments: safeJson(call.arguments),
+          };
+          sseSend(pendingFrame);
+
+          const executed = await executeToolCall({
+            registry: this.toolRegistry,
+            prisma: this.prisma,
+            ctx: args.toolCtx,
+            invocationId: args.invocationId,
+            round: toolRound,
+            toolCallId: call.id,
+            toolName: call.name,
+            rawArguments: call.arguments,
+          });
+          extraMessages.push(executed.message);
+          sseSend(executed.frame);
+        }
+
+        toolRound++;
       }
 
       const llmLatencyMs = Date.now() - llmStart;
@@ -540,6 +762,31 @@ export class AgentsController {
           source_shared_blob_object_id: h.source_shared_blob_object_id,
           manifest_walrus_blob_id: h.manifest_walrus_blob_id,
           cited: citations.some((c) => c.chunk_hash === h.content_hash),
+        }));
+      }
+      // Tool-call summary lands on the final extension frame so clients
+      // that only read the last `kraterion.extension` (not the per-call
+      // `kraterion.tool_call` deltas) still see the trail. Refetches from
+      // the DB because individual round frames may be out of order in
+      // the client's buffer.
+      const toolCallRows = await this.prisma.agentToolCall.findMany({
+        where: { invocation_id: args.invocationId },
+        orderBy: { created_at: "asc" },
+      });
+      if (toolCallRows.length > 0) {
+        kraterion["tool_calls"] = toolCallRows.map((tc) => ({
+          tool_call_id: tc.tool_call_id,
+          tool_name: tc.tool_name,
+          status: tc.status,
+          round: tc.round,
+          arguments: safeJson(tc.arguments),
+          output: tc.output,
+          output_json: tc.output_json,
+          tx_digest: tc.tx_digest,
+          walrus_blob_id: tc.walrus_blob_id,
+          shared_blob_object_id: tc.shared_blob_object_id,
+          error_detail: tc.error_detail,
+          latency_ms: tc.latency_ms,
         }));
       }
       sseSend({ object: "kraterion.extension", kraterion });
@@ -573,5 +820,16 @@ export class AgentsController {
       reply.raw.end();
       throw err;
     }
+  }
+}
+
+/** Best-effort JSON parse for embedding arguments in the
+ *  `kraterion.tool_call` SSE frame (or returning the raw string when
+ *  the model emitted invalid JSON mid-stream). */
+function safeJson(raw: string): unknown {
+  try {
+    return raw.length === 0 ? {} : JSON.parse(raw);
+  } catch {
+    return raw;
   }
 }

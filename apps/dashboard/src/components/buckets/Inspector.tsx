@@ -26,6 +26,10 @@ import type { BucketJson, S3ObjectJson } from "@/lib/api";
 interface Props {
   object: S3ObjectJson;
   bucket: BucketJson;
+  /** Fired after a successful delete so the parent can close the drawer
+   *  (the underlying object is gone — keeping the inspector open would
+   *  surface stale state until the next refresh). */
+  onDeleted?: () => void;
 }
 
 /**
@@ -46,7 +50,7 @@ interface Props {
  * platform can't delete on the user's behalf either, which is the
  * correct outcome.
  */
-export function Inspector({ object, bucket }: Props) {
+export function Inspector({ object, bucket, onDeleted }: Props) {
   const network = env.network;
   const { show } = useToast();
   const prepareDownload = usePrepareDownload();
@@ -127,6 +131,9 @@ export function Inspector({ object, bucket }: Props) {
       invalidate(bucketId);
       setConfirmDelete(false);
       show({ tone: "success", title: `Deleted ${filename}`, body: "The on-chain SharedBlob persists — only the dashboard row is marked deleted." });
+      // Close the inspector — the object is gone; staying open would
+      // render stale state until the next list refresh lands.
+      onDeleted?.();
     } catch (err) {
       const message =
         err instanceof ControlPlaneError

@@ -3110,3 +3110,119 @@ story, same project ownership, same audit trail.
   `SUI_NETWORK=mainnet` control plane returns 401 — Stripe-style.
   The dashboard creation dialog shows a "Testnet" / "Mainnet" pill
   so the dev knows what prefix they're about to receive.
+
+## 2026-05-13 — P4 ships: built-in agent tools + per-call audit with on-chain receipt
+
+**Status:** Shipped.
+
+**Context.** The agent shipped in P3 was a RAG chatbot — retrieval + an
+answer, nothing more. The hackathon demo arc the Walrus track judges
+will respond to is "agent reads a contract → drafts a summary →
+writes it back to the bucket → the audit trail is on-chain." P4
+turns the agent into a tool-using agent and lights up that arc.
+
+**Decision.** Add six built-in tools (the seven MCP tools minus
+`invoke_agent` for recursion safety), expose them per-agent via a
+4th step in the create dialog, run the OpenAI tool-call loop inside
+the chat endpoint (streaming + non-streaming both), record each
+call in a new `AgentToolCall` audit table, and — for writes —
+capture the indexer-populated `tx_digest` on that row so the
+dashboard can link to Suiscan.
+
+**Tool catalog** (`apps/control-plane/src/agents/tools/`):
+
+| Name                        | Kind  | Notes                                                |
+|-----------------------------|-------|------------------------------------------------------|
+| `kraterion_search`          | read  | Hybrid retrieval over knowledge buckets             |
+| `kraterion_list_buckets`    | read  |                                                      |
+| `kraterion_list_objects`    | read  |                                                      |
+| `kraterion_read_object`     | read  | 1 MiB cap                                            |
+| `kraterion_write_object`    | write | 5 MiB cap; polls `S3Object.tx_digest` for receipt   |
+| `kraterion_get_manifest`    | read  | Manifest archive + chunk metadata                    |
+
+**Why hand-written JSON Schema for OpenAI's `tools[]` param.** Initial
+implementation tried `zod-to-json-schema` but the package wasn't an
+explicit dep and CLAUDE.md forbids installing new packages without
+explicit user go-ahead during the session. With six tools the JSON
+Schema bodies are <10 lines each; the duplication cost is far below
+the dependency-management cost. Both schemas stay in sync via
+proximity (next to each other in the tool's `.ts` file).
+
+**Why one `AgentToolCall` sibling table, not a JSON array on
+AgentInvocation.** Tool calls are real entities — we want to query
+"every time the agent wrote to bucket X across all invocations" or
+"agents that called write_object more than 10x last week." A JSON
+column blocks those queries. The 1-N relation also gives clean
+cascade-delete + audit timing fields per row.
+
+**Iteration cap (`MAX_TOOL_ROUNDS = 5`).** Generous for the demo arc
+(`search → read → write` = 3 rounds) and well short of OpenAI's
+safety guidance. Past the cap we patch the invocation to
+`status="failed"` with `error_detail="exceeded tool-call limit"`.
+
+**Recovery from invalid arguments.** When the model emits malformed
+JSON or arguments that fail the Zod schema, the `AgentToolCall` row
+is written with `status="failed"` and the tool's `content` returned
+to the model is `Error: <reason>`. The model can self-correct on
+the next round — OpenAI's documented recovery pattern. Cheaper than
+a hard abort.
+
+**On-chain receipt capture.** `write_object` polls `S3Object` by
+`(bucket_id, s3_key)` after the gateway PUT for up to 8s waiting on
+the indexer to populate `tx_digest`. If the indexer hasn't caught up
+within that window, the audit row keeps `tx_digest: null` and the
+dashboard shows "indexing…" — the indexer eventually backfills
+S3Object and the row stays consistent. The poll budget is generous
+(indexer typically settles in 1-3s) and bounded.
+
+**Ownership model — agent's sub_wallet is NOT the signer.** The
+`write_object` flow reuses the same gateway-proxied path normal
+`aws s3 cp` takes: the SigV4 signer is the project's auto-minted
+AKIA key, the gateway encrypts via Seal, mints the SharedBlob via
+sponsored Enoki txs. The agent's `sub_wallet` is *not* in the write
+path — it only exists as an on-chain principal granted decryption
+access via the bucket ACL ("Connect agent" flow). The audit chain
+`AgentInvocation.api_key_id → AgentToolCall.tx_digest → S3Object.kraterion_bucket_object_id`
+is off-chain but verifiable; the on-chain side only knows "the
+gateway minted a blob for bucket Y." Demo narration should say:
+*"The agent acted within the user's pre-funded sandbox; the write
+is on-chain and attestable; the audit trail links the agent
+identity to the specific Move tx."* Not: *"the agent signed the
+tx."* Funding the sub-wallet + agent-signed PTBs is a clean
+post-hackathon evolution.
+
+**Deferred (post-hackathon backlog):**
+
+- **MCP delegation to the shared registry.** The plan called for
+  the MCP server to dispatch via `AgentToolRegistry`. The Anthropic
+  MCP SDK's `server.registerTool` API has a different shape than
+  the registry's `execute(name, args, ctx)` contract, so the clean
+  delegation isn't a one-liner. The pragmatic call: leave MCP tool
+  handlers as-is (they already share the same `BucketsService` /
+  `KnowledgeService` / `PresignService` as the agent tools, so
+  behavior is byte-equivalent). Refactor later when the duplication
+  becomes painful.
+- **HTTP webhook tools** — `AgentTool.tool_kind` already scaffolds
+  the `"webhook"` discriminator; the handler-routing path slots in
+  without a migration.
+- **External MCP tool servers as tool sources** — Kraterion as an
+  MCP *client* consuming third-party catalogs. Similar plug point
+  via `tool_kind = "mcp"`.
+- **Activity feed `agent_tool_call` event kind** — the chat panel
+  already surfaces the trail inline; a historical activity feed is
+  a polish item.
+
+**Consequences:**
+
+- The demo arc the proposal pitched is now live: ask the agent to
+  summarize and save → the agent calls `search → write_object` →
+  the chat panel renders both tool cards with a Suiscan link on
+  the write → the new object appears in the bucket. End-to-end.
+- The agent chat endpoint is now stateful across rounds — each
+  tool round extends `extraMessages` with the assistant's
+  `tool_calls` + the `tool` results, then re-invokes OpenAI. Past
+  MAX_TOOL_ROUNDS, we hard-fail. Documented in `tool-runner.ts`.
+- Auditability is the differentiator: every tool invocation lands
+  in `AgentToolCall` with arguments, output, latency, and (for
+  writes) the on-chain digest. No other AI platform on the Walrus
+  track will have a per-tool-call on-chain receipt.

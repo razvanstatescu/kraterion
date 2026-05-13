@@ -697,6 +697,7 @@ export interface CreateAgentInput {
   max_tokens?: number;
   top_k?: number;
   bucket_ids: string[];
+  tools?: string[];
 }
 
 export function useCreateAgent(projectId: string | undefined) {
@@ -724,6 +725,7 @@ export interface UpdateAgentInput {
   max_tokens?: number;
   top_k?: number;
   bucket_ids?: string[];
+  tools?: string[];
 }
 
 export function useUpdateAgent(agentId: string | undefined, projectId: string | undefined) {

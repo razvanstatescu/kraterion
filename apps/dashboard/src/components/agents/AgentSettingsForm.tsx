@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError, type AgentJson } from "@/lib/api";
+import { AGENT_TOOL_CATALOG } from "@/lib/agent-tools";
+import { Icon } from "@/components/ui/Icon";
 import { useBuckets, useUpdateAgent } from "@/lib/queries";
 
 interface Props {
@@ -43,6 +45,9 @@ export function AgentSettingsForm({ agent }: Props) {
   const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(
     new Set(agent.bucket_ids),
   );
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(
+    new Set(agent.tools),
+  );
   const [error, setError] = useState<string | null>(null);
 
   // When the agent prop changes (e.g. after Save), reset local state to
@@ -56,6 +61,7 @@ export function AgentSettingsForm({ agent }: Props) {
     setMaxTokens(agent.max_tokens);
     setTopK(agent.top_k);
     setSelectedBuckets(new Set(agent.bucket_ids));
+    setSelectedTools(new Set(agent.tools));
   }, [agent]);
 
   const bucketIdsArray = useMemo(
@@ -66,6 +72,11 @@ export function AgentSettingsForm({ agent }: Props) {
     () => [...agent.bucket_ids].sort(),
     [agent.bucket_ids],
   );
+  const toolsArray = useMemo(
+    () => Array.from(selectedTools).sort(),
+    [selectedTools],
+  );
+  const serverTools = useMemo(() => [...agent.tools].sort(), [agent.tools]);
   const dirty =
     name !== agent.name ||
     description !== (agent.description ?? "") ||
@@ -74,7 +85,8 @@ export function AgentSettingsForm({ agent }: Props) {
     temperature !== agent.temperature ||
     maxTokens !== agent.max_tokens ||
     topK !== agent.top_k ||
-    bucketIdsArray.join(",") !== serverBuckets.join(",");
+    bucketIdsArray.join(",") !== serverBuckets.join(",") ||
+    toolsArray.join(",") !== serverTools.join(",");
 
   const reset = () => {
     setName(agent.name);
@@ -85,6 +97,7 @@ export function AgentSettingsForm({ agent }: Props) {
     setMaxTokens(agent.max_tokens);
     setTopK(agent.top_k);
     setSelectedBuckets(new Set(agent.bucket_ids));
+    setSelectedTools(new Set(agent.tools));
     setError(null);
   };
 
@@ -103,6 +116,8 @@ export function AgentSettingsForm({ agent }: Props) {
       if (topK !== agent.top_k) payload.top_k = topK;
       if (bucketIdsArray.join(",") !== serverBuckets.join(","))
         payload.bucket_ids = bucketIdsArray;
+      if (toolsArray.join(",") !== serverTools.join(","))
+        payload.tools = toolsArray;
       await update.mutateAsync(payload);
       show({ tone: "success", title: "Agent updated" });
     } catch (err) {
@@ -121,6 +136,15 @@ export function AgentSettingsForm({ agent }: Props) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleTool = (name: string) => {
+    setSelectedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
       return next;
     });
   };
@@ -340,6 +364,85 @@ export function AgentSettingsForm({ agent }: Props) {
             })}
           </div>
         )}
+      </FormField>
+
+      <FormField
+        label="Tools"
+        helper="Built-in tools the agent can invoke. Write tools mint an on-chain Move tx; reads are safe by default."
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
+            padding: 8,
+          }}
+        >
+          {AGENT_TOOL_CATALOG.map((tool) => {
+            const checked = selectedTools.has(tool.name);
+            const isWrite = tool.kind === "write";
+            return (
+              <label
+                key={tool.name}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  padding: "10px 12px",
+                  borderRadius: "var(--radius-sm)",
+                  cursor: busy ? "not-allowed" : "pointer",
+                  background: checked ? "var(--bg-elevated)" : "transparent",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleTool(tool.name)}
+                  disabled={busy}
+                  style={{ marginTop: 3, flexShrink: 0 }}
+                />
+                <Icon
+                  name={tool.icon}
+                  size={16}
+                  style={{
+                    color: "var(--text-secondary)",
+                    flexShrink: 0,
+                    marginTop: 2,
+                  }}
+                />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>
+                      {tool.label}
+                    </span>
+                    <span
+                      className="mono"
+                      style={{ fontSize: 11, color: "var(--text-tertiary)" }}
+                    >
+                      {tool.name}
+                    </span>
+                    {isWrite ? (
+                      <Pill tone="warning">Write · on-chain receipt</Pill>
+                    ) : (
+                      <Pill tone="neutral">Read</Pill>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-secondary)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {tool.description}
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
       </FormField>
 
       {error ? (

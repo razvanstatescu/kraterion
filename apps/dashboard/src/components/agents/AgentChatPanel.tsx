@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import type { AgentCitationJson, AgentJson } from "@/lib/api";
+import type { AgentCitationJson, AgentJson, AgentToolCallJson } from "@/lib/api";
+import { findToolMeta } from "@/lib/agent-tools";
+import { renderMarkdown } from "./markdown";
 import { useCpSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
@@ -18,6 +20,9 @@ interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   citations?: AgentCitationJson[];
+  /** Per-call tool trail. Keyed by tool_call_id so streaming
+   *  `pending → completed` updates land on the same row. */
+  toolCalls?: AgentToolCallJson[];
   pending?: boolean;
   errored?: boolean;
 }
@@ -144,7 +149,23 @@ export function AgentChatPanel({ agent }: Props) {
           const frame = parsed as {
             object?: string;
             choices?: { delta?: { content?: string } }[];
-            kraterion?: { citations?: AgentCitationJson[] };
+            kraterion?: {
+              citations?: AgentCitationJson[];
+              tool_calls?: AgentToolCallJson[];
+            };
+            // kraterion.tool_call (per-call delta) shape:
+            round?: number;
+            tool_call_id?: string;
+            tool_name?: string;
+            status?: "pending" | "completed" | "failed";
+            arguments?: unknown;
+            output?: string;
+            output_json?: unknown;
+            tx_digest?: string;
+            walrus_blob_id?: string;
+            shared_blob_object_id?: string;
+            error_detail?: string;
+            latency_ms?: number;
             error?: { message?: string };
           };
           if (frame.object === "error") {
@@ -152,6 +173,47 @@ export function AgentChatPanel({ agent }: Props) {
           }
           if (frame.object === "kraterion.extension") {
             citations = frame.kraterion?.citations;
+            // Replace the per-call deltas with the authoritative final
+            // list (preserves order; lets us patch status/tx_digest).
+            if (frame.kraterion?.tool_calls) {
+              const finalCalls = frame.kraterion.tool_calls;
+              setTurns((prev) =>
+                prev.map((t) =>
+                  t.id === assistantTurn.id ? { ...t, toolCalls: finalCalls } : t,
+                ),
+              );
+            }
+            continue;
+          }
+          if (frame.object === "kraterion.tool_call" && frame.tool_call_id) {
+            const incoming: AgentToolCallJson = {
+              tool_call_id: frame.tool_call_id,
+              tool_name: frame.tool_name ?? "(unknown)",
+              status: frame.status ?? "pending",
+              round: frame.round ?? 0,
+              arguments: frame.arguments,
+              output: frame.output ?? null,
+              output_json: frame.output_json,
+              tx_digest: frame.tx_digest ?? null,
+              walrus_blob_id: frame.walrus_blob_id ?? null,
+              shared_blob_object_id: frame.shared_blob_object_id ?? null,
+              error_detail: frame.error_detail ?? null,
+              latency_ms: frame.latency_ms ?? null,
+            };
+            setTurns((prev) =>
+              prev.map((t) => {
+                if (t.id !== assistantTurn.id) return t;
+                const existing = t.toolCalls ?? [];
+                const at = existing.findIndex(
+                  (c) => c.tool_call_id === incoming.tool_call_id,
+                );
+                const next =
+                  at < 0
+                    ? [...existing, incoming]
+                    : existing.map((c, i) => (i === at ? incoming : c));
+                return { ...t, toolCalls: next };
+              }),
+            );
             continue;
           }
           const delta = frame.choices?.[0]?.delta?.content;
@@ -199,6 +261,18 @@ export function AgentChatPanel({ agent }: Props) {
     abortRef.current?.abort();
   };
 
+  /**
+   * "New chat" reset. Aborts any in-flight stream first (otherwise the
+   * SSE reader keeps appending into a turn we just removed), then drops
+   * every turn and the draft input. Cheap — no server-side conversation
+   * state today, so the client wiping its own state is sufficient.
+   */
+  const resetChat = () => {
+    abortRef.current?.abort();
+    setTurns([]);
+    setInput("");
+  };
+
   return (
     <div
       style={{
@@ -210,6 +284,27 @@ export function AgentChatPanel({ agent }: Props) {
         background: "var(--bg-elevated)",
       }}
     >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          padding: "8px 12px",
+          borderBottom: "1px solid var(--border)",
+          minHeight: 40,
+        }}
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="plus"
+          onClick={resetChat}
+          disabled={turns.length === 0 && !input}
+          title="Start a fresh conversation. The current turns will be cleared from the panel; server-side audit rows stay intact."
+        >
+          New chat
+        </Button>
+      </div>
       <div
         ref={scrollRef}
         style={{
@@ -313,6 +408,7 @@ function Turn({ turn }: { turn: ChatTurn }) {
       }}
     >
       <div
+        className={isUser ? undefined : "ks-md-bubble"}
         style={{
           maxWidth: isUser ? "82%" : "100%",
           alignSelf: isUser ? "flex-end" : "flex-start",
@@ -331,21 +427,33 @@ function Turn({ turn }: { turn: ChatTurn }) {
           border: isUser ? "none" : "1px solid var(--border)",
           fontSize: 14,
           lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
+          // User turn = plain text typed by the user → preserve
+          // exact whitespace. Assistant turn = markdown blocks own
+          // their spacing (we'd double up if pre-wrap was on too).
+          whiteSpace: isUser ? "pre-wrap" : "normal",
           overflowWrap: "anywhere",
         }}
       >
-        {turn.content
-          ? renderAssistantContent(
-              turn.content,
+        {turn.content ? (
+          isUser ? (
+            // User text rendered verbatim (no markdown — typing
+            // `**bold**` should land as literal asterisks).
+            turn.content
+          ) : (
+            renderMarkdown(turn.content, {
               citationByIndex,
               sourceDomId,
               panelDomId,
-            )
-          : turn.pending
-            ? <Typing />
-            : null}
+              CitationBadge,
+            })
+          )
+        ) : turn.pending ? (
+          <Typing />
+        ) : null}
       </div>
+      {turn.toolCalls && turn.toolCalls.length > 0 ? (
+        <ToolCallList toolCalls={turn.toolCalls} />
+      ) : null}
       {cited.length > 0 ? (
         <SourcesCard
           citations={cited}
@@ -358,59 +466,92 @@ function Turn({ turn }: { turn: ChatTurn }) {
 }
 
 /**
- * Parse assistant text for `[chunk N]` citation markers and replace
- * each with a clickable inline badge that scrolls to the matching
- * source row below. Plain text segments render unchanged.
- *
- * The model is instructed (in the agent's system prompt prelude) to
- * cite using `[chunk N]` markers, where `N` is the 1-indexed position
- * in the retrieval block. The same `N` appears as `index` on the
- * citation row, so we can map markers → sources without ambiguity.
- *
- * Unresolvable markers (out-of-range, hallucinated) render as plain
- * text — the model lying about which chunk it used shouldn't crash
- * the renderer. Same defensive policy as the citation resolver on
- * the backend.
+ * Compact "Tools used" callout rendered under an assistant message.
+ * Each row carries the tool name, a one-line argument summary, the
+ * status (running / done / failed) and — for writes — the on-chain
+ * `tx_digest` linked to Suiscan. Errors get an inline detail string.
  */
-function renderAssistantContent(
-  text: string,
-  citationByIndex: Map<number, AgentCitationJson>,
-  sourceDomId: (index: number) => string,
-  panelDomId: string,
-): ReactNode[] {
-  const re = /\[chunk\s+(\d+)\]/gi;
-  const out: ReactNode[] = [];
-  let cursor = 0;
-  let nodeKey = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > cursor) {
-      out.push(<span key={`t-${nodeKey++}`}>{text.slice(cursor, m.index)}</span>);
-    }
-    const n = Number(m[1]);
-    const citation = citationByIndex.get(n);
-    if (citation) {
-      out.push(
-        <CitationBadge
-          key={`b-${nodeKey++}`}
-          n={n}
-          targetId={sourceDomId(citation.index)}
-          panelId={panelDomId}
-        />,
-      );
-    } else {
-      // Drop the marker entirely if it doesn't resolve — printing
-      // `[chunk 7]` raw is the noise that prompted this whole change.
-      // The space we ate from the surrounding text is preserved by
-      // the slice above.
-    }
-    cursor = m.index + m[0].length;
-  }
-  if (cursor < text.length) {
-    out.push(<span key={`t-${nodeKey++}`}>{text.slice(cursor)}</span>);
-  }
-  return out;
+function ToolCallList({ toolCalls }: { toolCalls: AgentToolCallJson[] }) {
+  return (
+    <details className="ks-tool-calls" open>
+      <summary className="ks-tool-calls-summary">
+        <Icon name="settings" size={14} strokeWidth={1.6} />
+        <span>Tools used</span>
+        <span className="ks-tool-calls-count">{toolCalls.length}</span>
+      </summary>
+      <div className="ks-tool-calls-list">
+        {toolCalls.map((tc) => {
+          const meta = findToolMeta(tc.tool_name);
+          const label = meta?.label ?? tc.tool_name;
+          const dotTone =
+            tc.status === "completed"
+              ? "var(--success)"
+              : tc.status === "failed"
+                ? "var(--error)"
+                : "var(--text-tertiary)";
+          return (
+            <div key={tc.tool_call_id} className="ks-tool-call-row">
+              <span
+                className="ks-tool-call-dot"
+                style={{ background: dotTone }}
+                aria-hidden
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="ks-tool-call-line">
+                  <span className="ks-tool-call-label">{label}</span>
+                  <code className="ks-tool-call-args">
+                    {summarizeArgs(tc.arguments)}
+                  </code>
+                </div>
+                {tc.status === "failed" && tc.error_detail ? (
+                  <div className="ks-tool-call-error">{tc.error_detail}</div>
+                ) : null}
+                {tc.tx_digest ? (
+                  <a
+                    className="ks-tool-call-link"
+                    href={suiscanTxUrl(tc.tx_digest)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Icon name="arrow-up-right" size={14} strokeWidth={1.6} />
+                    <span className="mono">{tc.tx_digest.slice(0, 8)}…</span>
+                    <span>· view on Suiscan</span>
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
 }
+
+function summarizeArgs(args: unknown): string {
+  if (args === null || args === undefined) return "";
+  if (typeof args !== "object") return String(args);
+  const obj = args as Record<string, unknown>;
+  const entries = Object.entries(obj);
+  if (entries.length === 0) return "()";
+  return entries
+    .map(([k, v]) => {
+      if (typeof v === "string") {
+        const trimmed = v.length > 40 ? `${v.slice(0, 40)}…` : v;
+        return `${k}=${JSON.stringify(trimmed)}`;
+      }
+      return `${k}=${JSON.stringify(v)}`;
+    })
+    .join(" ");
+}
+
+function suiscanTxUrl(digest: string): string {
+  const network = env.network === "mainnet" ? "mainnet" : "testnet";
+  return `https://suiscan.xyz/${network}/tx/${digest}`;
+}
+
+// Citation-only inline renderer was replaced by full markdown support
+// in `./markdown.tsx` (2026-05-13). The same `[chunk N]` resolution
+// lives there — see `renderMarkdown`'s inline pass.
 
 function CitationBadge({
   n,

@@ -126,7 +126,13 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
       eyebrow="Object details"
       width={480}
     >
-      {selected ? <Inspector object={selected} bucket={bucket} /> : null}
+      {selected ? (
+        <Inspector
+          object={selected}
+          bucket={bucket}
+          onDeleted={() => setSelected(null)}
+        />
+      ) : null}
     </Drawer>
   );
 

@@ -19,6 +19,9 @@ export const createAgentSchema = z.object({
   max_tokens: z.number().int().positive().max(8192).optional(),
   top_k: z.number().int().min(1).max(32).optional(),
   bucket_ids: z.array(z.string().uuid()).default([]),
+  // P4 — tool names enabled for this agent. Validated against the
+  // server-side registry; an unknown name fails create.
+  tools: z.array(z.string().min(1).max(64)).default([]),
 });
 export type CreateAgentDto = z.infer<typeof createAgentSchema>;
 
@@ -35,6 +38,7 @@ export const updateAgentSchema = z.object({
   max_tokens: z.number().int().positive().max(8192).optional(),
   top_k: z.number().int().min(1).max(32).optional(),
   bucket_ids: z.array(z.string().uuid()).optional(),
+  tools: z.array(z.string().min(1).max(64)).optional(),
 });
 export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
 
@@ -80,6 +84,9 @@ export interface AgentJson {
   status: "active" | "revoked";
   sub_wallet_address: string;
   bucket_ids: string[];
+  /** Enabled built-in tool names — fed to OpenAI as `tools[]` at chat
+   *  time. Empty array means "no tools; pure RAG." */
+  tools: string[];
   created_at: string;
   updated_at: string;
   revoked_at: string | null;

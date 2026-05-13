@@ -11,6 +11,12 @@ import type { ChunkHit } from "../knowledge/knowledge.service.js";
  * appended retrieval block instructs the model to inline `[chunk N]`
  * markers that the controller resolves back to source chunks before
  * returning the response.
+ *
+ * P4 (2026-05-13) adds optional `tools` + cross-turn message threading
+ * (`extraMessages`). When `tools` is non-empty the model may emit
+ * `tool_calls` instead of `content`; the controller's tool-call loop
+ * accumulates them, executes the registered handlers, and re-invokes
+ * this helper with the tool results appended via `extraMessages`.
  */
 
 /**
@@ -23,6 +29,9 @@ export interface ChatHistoryMessage {
   content: string;
 }
 
+/** Alias for OpenAI's `tools[]` shape (function-call kind). */
+export type ChatToolDef = OpenAI.ChatCompletionTool;
+
 export interface AnswerNonStreamRequest {
   apiKey: string;
   model: string;
@@ -33,6 +42,14 @@ export interface AnswerNonStreamRequest {
   hits: ChunkHit[];
   temperature: number;
   maxTokens: number;
+  /** Tool catalog the model may invoke. Omit (or pass empty) for pure
+   *  RAG mode — when absent the model can only emit `content`. */
+  tools?: ChatToolDef[];
+  /** Trailing messages appended verbatim after the user history. The
+   *  tool-call loop uses this to thread `assistant({tool_calls})` +
+   *  `tool` results back into the conversation across rounds. Caller
+   *  is responsible for the wire format (OpenAI shape). */
+  extraMessages?: OpenAI.ChatCompletionMessageParam[];
   stream?: false;
 }
 
@@ -61,6 +78,7 @@ function buildMessages(req: {
   systemPrompt: string;
   messages: readonly ChatHistoryMessage[];
   hits: readonly ChunkHit[];
+  extraMessages?: OpenAI.ChatCompletionMessageParam[];
 }): OpenAI.ChatCompletionMessageParam[] {
   // Retrieval block lives on the system prompt for now. Known
   // limitation: this means every turn re-sends the full retrieval
@@ -73,6 +91,7 @@ function buildMessages(req: {
   return [
     { role: "system", content: `${req.systemPrompt}${retrievalBlock}` },
     ...req.messages.map((m) => ({ role: m.role, content: m.content })),
+    ...(req.extraMessages ?? []),
   ];
 }
 
@@ -82,7 +101,7 @@ function buildMessages(req: {
  */
 export async function answerWithAgent(
   req: AnswerNonStreamRequest,
-): Promise<AnswerResult> {
+): Promise<AnswerResult & { completion: OpenAI.ChatCompletion }> {
   const client = new OpenAI({ apiKey: req.apiKey, maxRetries: 0 });
   // Empty retrieval => stub a "no context" response. We previously
   // short-circuited here; with multi-turn we still want to surface
@@ -95,6 +114,7 @@ export async function answerWithAgent(
     messages: buildMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxTokens,
+    ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
   });
   const answer = completion.choices[0]?.message?.content ?? "";
   return {
@@ -103,6 +123,10 @@ export async function answerWithAgent(
     model: completion.model ?? req.model,
     prompt_tokens: completion.usage?.prompt_tokens ?? 0,
     completion_tokens: completion.usage?.completion_tokens ?? 0,
+    // The full completion is returned so the tool-call loop can read
+    // `choices[0].finish_reason` and `tool_calls` without a second
+    // parse.
+    completion,
   };
 }
 
@@ -121,6 +145,7 @@ export async function streamWithAgent(req: AnswerStreamRequest) {
     max_tokens: req.maxTokens,
     stream: true,
     stream_options: { include_usage: true },
+    ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
   });
 }
 

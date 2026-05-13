@@ -342,7 +342,18 @@ Off by default; toggleable per-bucket in `KnowledgeBucketSettings.reranker_model
 
 ---
 
-### P4 — Function calling (medium, agent-defining)
+### P4 — Function calling (medium, agent-defining) — [Shipped 2026-05-13 — built-in tools only; webhook tools deferred]
+
+**Hackathon scope landed:** Six built-in tools (`kraterion_search`,
+`kraterion_list_buckets`, `kraterion_list_objects`, `kraterion_read_object`,
+`kraterion_write_object`, `kraterion_get_manifest`), 4-step Tools picker
+in the agent create dialog, OpenAI tool-call loop in the chat endpoint
+(streaming + non-streaming), per-call `AgentToolCall` audit table, and
+on-chain `tx_digest` capture for writes (linked to Suiscan in the chat
+panel). HTTP webhook tools were deferred — the schema's `tool_kind`
+column scaffolds them as a no-migration future add. See
+`docs/decisions.md` 2026-05-13 P4 for the full write-up; full session
+log in `docs/progress.md`.
 
 **What:** Agents (P3) can declare functions that the LLM can invoke. Two registered tool types:
 

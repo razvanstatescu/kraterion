@@ -198,9 +198,28 @@ export interface AgentJson {
   status: AgentStatus;
   sub_wallet_address: string;
   bucket_ids: string[];
+  /** Enabled built-in tool names (P4). Empty array = pure RAG, no
+   *  tools fed to the model. */
+  tools: string[];
   created_at: string;
   updated_at: string;
   revoked_at: string | null;
+}
+
+/** Per-call tool audit row surfaced in the chat panel + activity feed. */
+export interface AgentToolCallJson {
+  tool_call_id: string;
+  tool_name: string;
+  status: "pending" | "completed" | "failed";
+  round: number;
+  arguments: unknown;
+  output: string | null;
+  output_json: unknown;
+  tx_digest: string | null;
+  walrus_blob_id: string | null;
+  shared_blob_object_id: string | null;
+  error_detail: string | null;
+  latency_ms: number | null;
 }
 
 /** Per-bucket on-chain grant status for an agent's sub-wallet. */

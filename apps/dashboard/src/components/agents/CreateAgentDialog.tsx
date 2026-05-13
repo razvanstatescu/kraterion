@@ -14,7 +14,9 @@ import { Pill } from "@/components/ui/Pill";
 import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
+import { AGENT_TOOL_CATALOG } from "@/lib/agent-tools";
 import { useBuckets, useCreateAgent } from "@/lib/queries";
+import { useSponsoredTx } from "@/lib/sponsor";
 
 interface Props {
   open: boolean;
@@ -25,7 +27,16 @@ interface Props {
   initialBucketId?: string;
 }
 
-type Step = "identity" | "model" | "buckets";
+type Step = "identity" | "model" | "buckets" | "tools";
+
+const STEP_LABELS: Record<Step, string> = {
+  identity: "Identity",
+  model: "Chat model",
+  buckets: "Knowledge",
+  tools: "Tools",
+};
+
+const STEP_ORDER: readonly Step[] = ["identity", "model", "buckets", "tools"];
 
 const DEFAULT_PROMPT = `You are a helpful assistant grounded in the user's Kraterion bucket. Answer the user's question using ONLY the retrieval context supplied after the dashed line. If the context doesn't cover the question, say so plainly instead of guessing.`;
 
@@ -60,6 +71,26 @@ export function CreateAgentDialog({
     [bucketsData],
   );
   const create = useCreateAgent(projectId);
+  const runSponsored = useSponsoredTx();
+
+  // Per-bucket grant progress after the agent is minted. We're firing
+  // one sponsored Move tx per attached bucket (Enoki caps a sponsored
+  // PTB to a single Move-call allow-list — see decisions.md 2026-05-13
+  // "agent sub-wallet" — so batching isn't an option here).
+  //
+  // Each row is the bucket id paired with its current state. We hold
+  // the agent's name on the granting state for the toast/title only.
+  type GrantStatus =
+    | { kind: "pending" }
+    | { kind: "running" }
+    | { kind: "success"; digest: string }
+    | { kind: "failed"; message: string };
+  const [grants, setGrants] = useState<Record<string, GrantStatus>>({});
+  const [grantPhase, setGrantPhase] = useState<
+    | { kind: "idle" }
+    | { kind: "running"; agentId: string; agentName: string; bucketsRemaining: number }
+    | { kind: "done"; agentId: string }
+  >({ kind: "idle" });
 
   const [step, setStep] = useState<Step>("identity");
   const [name, setName] = useState("");
@@ -67,6 +98,12 @@ export function CreateAgentDialog({
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
   const [model, setModel] = useState<string>(DEFAULT_CHAT_MODEL_ID);
   const [selectedBuckets, setSelectedBuckets] = useState<Set<string>>(new Set());
+  // Default to the safe read tools (search + list). Write tools require
+  // an explicit opt-in because they emit on-chain receipts and (modestly)
+  // cost the user's pre-funded WAL pool.
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(
+    new Set(["kraterion_search", "kraterion_list_objects"]),
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,13 +114,31 @@ export function CreateAgentDialog({
       setSystemPrompt(DEFAULT_PROMPT);
       setModel(DEFAULT_CHAT_MODEL_ID);
       setSelectedBuckets(new Set(initialBucketId ? [initialBucketId] : []));
+      setSelectedTools(new Set(["kraterion_search", "kraterion_list_objects"]));
       setError(null);
+      setGrants({});
+      setGrantPhase({ kind: "idle" });
     }
   }, [open, initialBucketId]);
 
+  // Bucket id → display name. Used by the progress UI to label rows
+  // without re-fetching once the agent is created. Must sit above the
+  // `if (!open) return null` early return — otherwise hooks below the
+  // guard fire conditionally and React throws on a hook-order change.
+  const bucketNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of allBuckets) m.set(b.id, b.name);
+    return m;
+  }, [allBuckets]);
+
   if (!open) return null;
 
-  const busy = create.isPending;
+  // Busy includes the post-create grant loop so the dialog can't be
+  // dismissed mid-flight (the loop's per-bucket signatures are user
+  // interactions; closing the dialog mid-loop would orphan the agent
+  // with partial on-chain grants — recoverable via the Connect tab,
+  // but bad UX to surprise the user with).
+  const busy = create.isPending || grantPhase.kind === "running";
   const trimmedName = name.trim();
   const trimmedPrompt = systemPrompt.trim();
   const identityValid = trimmedName.length > 0 && trimmedPrompt.length > 0;
@@ -98,9 +153,21 @@ export function CreateAgentDialog({
     });
   };
 
+  const toggleTool = (name: string) => {
+    setSelectedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   const onSubmit = async () => {
     if (!canCreate) return;
     setError(null);
+
+    // === Phase 1: create the agent server-side ===
+    let agent;
     try {
       const payload = {
         name: trimmedName,
@@ -108,15 +175,10 @@ export function CreateAgentDialog({
         system_prompt: trimmedPrompt,
         model,
         bucket_ids: Array.from(selectedBuckets),
+        tools: Array.from(selectedTools),
       };
       const res = await create.mutateAsync(payload);
-      show({
-        tone: "success",
-        title: `Agent "${res.agent.name}" created`,
-        body: "Open the Connect tab to grant the agent on-chain access to its buckets.",
-      });
-      onClose();
-      router.push(`/agents/${res.agent.id}`);
+      agent = res.agent;
     } catch (err) {
       const message =
         err instanceof ControlPlaneError
@@ -125,10 +187,106 @@ export function CreateAgentDialog({
             ? err.message
             : "Couldn't create the agent. Try again.";
       setError(message);
+      return;
+    }
+
+    // No buckets attached → nothing to grant. Toast + route.
+    const bucketIds = Array.from(selectedBuckets);
+    if (bucketIds.length === 0) {
+      show({
+        tone: "success",
+        title: `Agent "${agent.name}" created`,
+        body: "Attach a bucket from the Settings tab when you're ready.",
+      });
+      onClose();
+      router.push(`/agents/${agent.id}`);
+      return;
+    }
+
+    // === Phase 2: sequential per-bucket on-chain grants ===
+    //
+    // One sponsored Move tx per (agent × bucket). Each tx requires one
+    // wallet signature — Enoki sponsors gas but the user's session key
+    // signs the PTB. We loop sequentially because (a) the Mysten
+    // sign-transaction hook is a single in-flight mutation, and (b)
+    // back-to-back prompts confuse users less than parallel popups.
+    //
+    // A failure in one grant does NOT abort the others — the agent
+    // exists; pending buckets stay "Pending" on the Connect tab and
+    // the user can retry from there.
+    setGrants(
+      Object.fromEntries(bucketIds.map((id) => [id, { kind: "pending" }])),
+    );
+    setGrantPhase({
+      kind: "running",
+      agentId: agent.id,
+      agentName: agent.name,
+      bucketsRemaining: bucketIds.length,
+    });
+
+    let successCount = 0;
+    let failureCount = 0;
+    for (const bucketId of bucketIds) {
+      setGrants((prev) => ({ ...prev, [bucketId]: { kind: "running" } }));
+      try {
+        const res = await runSponsored({
+          prepareEndpoint: `/v1/buckets/${bucketId}/prepare-grant-agent`,
+          body: { agent_id: agent.id },
+        });
+        setGrants((prev) => ({
+          ...prev,
+          [bucketId]: { kind: "success", digest: res.digest },
+        }));
+        successCount++;
+      } catch (err) {
+        const message =
+          err instanceof ControlPlaneError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Sponsored grant failed.";
+        setGrants((prev) => ({
+          ...prev,
+          [bucketId]: { kind: "failed", message },
+        }));
+        failureCount++;
+      }
+      setGrantPhase((prev) =>
+        prev.kind === "running"
+          ? { ...prev, bucketsRemaining: prev.bucketsRemaining - 1 }
+          : prev,
+      );
+    }
+
+    setGrantPhase({ kind: "done", agentId: agent.id });
+
+    if (failureCount === 0) {
+      show({
+        tone: "success",
+        title: `Agent "${agent.name}" created`,
+        body: `Granted on-chain access on ${successCount} ${successCount === 1 ? "bucket" : "buckets"}.`,
+      });
+    } else {
+      show({
+        tone: "warning",
+        title: `Agent "${agent.name}" created with partial access`,
+        body: `${successCount} granted, ${failureCount} failed. Retry the failed ones from the Connect tab.`,
+      });
     }
   };
 
-  const stepNumber = step === "identity" ? 1 : step === "model" ? 2 : 3;
+  const dismissAfterGrants = () => {
+    if (grantPhase.kind !== "done") return;
+    const agentId = grantPhase.agentId;
+    onClose();
+    router.push(`/agents/${agentId}`);
+  };
+
+  const stepNumber = STEP_ORDER.indexOf(step) + 1;
+  const isLastStep = step === STEP_ORDER[STEP_ORDER.length - 1];
+  const prevStep = (): Step => STEP_ORDER[Math.max(0, STEP_ORDER.indexOf(step) - 1)]!;
+  const nextStep = (): Step =>
+    STEP_ORDER[Math.min(STEP_ORDER.length - 1, STEP_ORDER.indexOf(step) + 1)]!;
 
   return (
     <Portal>
@@ -151,43 +309,80 @@ export function CreateAgentDialog({
         >
           <div className="ks-modal-head">
             <div>
-              <div style={{ fontSize: 18, fontWeight: 500 }}>New agent</div>
+              <div style={{ fontSize: 18, fontWeight: 500 }}>
+                {grantPhase.kind === "idle"
+                  ? "New agent"
+                  : grantPhase.kind === "running"
+                    ? "Granting on-chain access"
+                    : "Agent ready"}
+              </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                Step {stepNumber} of 3 · {step === "identity" ? "Identity" : step === "model" ? "Chat model" : "Knowledge"}
+                {grantPhase.kind === "idle"
+                  ? `Step ${stepNumber} of ${STEP_ORDER.length} · ${STEP_LABELS[step]}`
+                  : grantPhase.kind === "running"
+                    ? `Signing one sponsored tx per bucket. ${grantPhase.bucketsRemaining} remaining.`
+                    : "Review the on-chain grants and open the agent."}
               </div>
             </div>
-            <IconButton name="x" label="Close" onClick={onClose} disabled={busy} />
+            <IconButton
+              name="x"
+              label="Close"
+              onClick={grantPhase.kind === "done" ? dismissAfterGrants : onClose}
+              disabled={busy}
+            />
           </div>
 
-          {/* Body — scrolls if a step ever exceeds the viewport, but
-              with 3 small steps it shouldn't on typical laptops. */}
           <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
-            {step === "identity" ? (
-              <IdentityStep
-                name={name}
-                description={description}
-                systemPrompt={systemPrompt}
-                onNameChange={setName}
-                onDescriptionChange={setDescription}
-                onSystemPromptChange={setSystemPrompt}
-                disabled={busy}
-              />
-            ) : step === "model" ? (
-              <ModelStep model={model} onModelChange={setModel} disabled={busy} />
+            {grantPhase.kind === "idle" ? (
+              <>
+                {step === "identity" ? (
+                  <IdentityStep
+                    name={name}
+                    description={description}
+                    systemPrompt={systemPrompt}
+                    onNameChange={setName}
+                    onDescriptionChange={setDescription}
+                    onSystemPromptChange={setSystemPrompt}
+                    disabled={busy}
+                  />
+                ) : step === "model" ? (
+                  <ModelStep
+                    model={model}
+                    onModelChange={setModel}
+                    disabled={busy}
+                  />
+                ) : step === "buckets" ? (
+                  <BucketsStep
+                    buckets={allBuckets}
+                    selectedBuckets={selectedBuckets}
+                    onToggle={toggleBucket}
+                    disabled={busy}
+                  />
+                ) : (
+                  <ToolsStep
+                    selectedTools={selectedTools}
+                    onToggle={toggleTool}
+                    disabled={busy}
+                  />
+                )}
+
+                {error ? (
+                  <div style={{ marginTop: 12 }}>
+                    <Banner
+                      tone="error"
+                      title="Couldn't create the agent"
+                      body={error}
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : (
-              <BucketsStep
-                buckets={allBuckets}
-                selectedBuckets={selectedBuckets}
-                onToggle={toggleBucket}
-                disabled={busy}
+              <GrantProgress
+                grants={grants}
+                bucketIds={Array.from(selectedBuckets)}
+                bucketNameById={bucketNameById}
               />
             )}
-
-            {error ? (
-              <div style={{ marginTop: 12 }}>
-                <Banner tone="error" title="Couldn't create the agent" body={error} />
-              </div>
-            ) : null}
           </div>
 
           <div
@@ -200,37 +395,52 @@ export function CreateAgentDialog({
               borderTop: "1px solid var(--border)",
             }}
           >
-            <Button
-              variant="ghost"
-              onClick={step === "identity" ? onClose : () => setStep(prev => prev === "buckets" ? "model" : "identity")}
-              disabled={busy}
-            >
-              {step === "identity" ? "Cancel" : "Back"}
-            </Button>
-            <div style={{ display: "flex", gap: 8 }}>
-              {step === "buckets" ? (
+            {grantPhase.kind === "idle" ? (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={step === "identity" ? onClose : () => setStep(prevStep())}
+                  disabled={busy}
+                >
+                  {step === "identity" ? "Cancel" : "Back"}
+                </Button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {isLastStep ? (
+                    <Button
+                      variant="cta"
+                      onClick={onSubmit}
+                      loading={busy}
+                      disabled={!canCreate}
+                    >
+                      {busy ? "Creating…" : "Create agent"}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="cta"
+                      onClick={() => setStep(nextStep())}
+                      disabled={step === "identity" && !identityValid}
+                    >
+                      Continue
+                    </Button>
+                  )}
+                </div>
+              </>
+            ) : (
+              // Grant phase — no Back. Close is the only exit, and is
+              // disabled until the loop drains.
+              <>
+                <span />
                 <Button
                   variant="cta"
-                  onClick={onSubmit}
-                  loading={busy}
-                  disabled={!canCreate}
+                  onClick={dismissAfterGrants}
+                  disabled={grantPhase.kind !== "done"}
                 >
-                  {busy ? "Creating…" : "Create agent"}
+                  {grantPhase.kind === "running"
+                    ? "Signing…"
+                    : "Open agent"}
                 </Button>
-              ) : (
-                <Button
-                  variant="cta"
-                  onClick={() =>
-                    setStep((prev) =>
-                      prev === "identity" ? "model" : "buckets",
-                    )
-                  }
-                  disabled={step === "identity" && !identityValid}
-                >
-                  Continue
-                </Button>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -377,6 +587,103 @@ function ModelStep({
   );
 }
 
+function ToolsStep({
+  selectedTools,
+  onToggle,
+  disabled,
+}: {
+  selectedTools: Set<string>;
+  onToggle: (name: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--text-secondary)",
+          margin: 0,
+          lineHeight: 1.55,
+        }}
+      >
+        Pick what this agent can do beyond plain RAG. Read tools are
+        safe by default; write tools mint an on-chain Move tx and
+        spend the bucket&apos;s pre-funded WAL pool.
+      </p>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-md)",
+          padding: 8,
+        }}
+      >
+        {AGENT_TOOL_CATALOG.map((tool) => {
+          const checked = selectedTools.has(tool.name);
+          const isWrite = tool.kind === "write";
+          return (
+            <label
+              key={tool.name}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: "10px 12px",
+                borderRadius: "var(--radius-sm)",
+                cursor: disabled ? "not-allowed" : "pointer",
+                background: checked ? "var(--bg-elevated)" : "transparent",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => onToggle(tool.name)}
+                disabled={disabled}
+                style={{ marginTop: 3, flexShrink: 0 }}
+              />
+              <Icon
+                name={tool.icon}
+                size={16}
+                style={{ color: "var(--text-secondary)", flexShrink: 0, marginTop: 2 }}
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>
+                    {tool.label}
+                  </span>
+                  <span
+                    className="mono"
+                    style={{ fontSize: 11, color: "var(--text-tertiary)" }}
+                  >
+                    {tool.name}
+                  </span>
+                  {isWrite ? (
+                    <Pill tone="warning">Write · on-chain receipt</Pill>
+                  ) : (
+                    <Pill tone="neutral">Read</Pill>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-secondary)",
+                    marginTop: 4,
+                  }}
+                >
+                  {tool.description}
+                </div>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BucketsStep({
   buckets,
   selectedBuckets,
@@ -507,6 +814,137 @@ function BucketsStep({
           })}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Per-bucket grant status, rendered while the dialog's grant loop
+ * walks through the attached buckets. One row per bucket; dot tone
+ * tracks state (pending / running / done / failed). On failure we
+ * surface the error inline + tell the user where to retry from.
+ */
+function GrantProgress({
+  grants,
+  bucketIds,
+  bucketNameById,
+}: {
+  grants: Record<
+    string,
+    | { kind: "pending" }
+    | { kind: "running" }
+    | { kind: "success"; digest: string }
+    | { kind: "failed"; message: string }
+  >;
+  bucketIds: string[];
+  bucketNameById: Map<string, string>;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <p
+        className="muted"
+        style={{ fontSize: 13, margin: 0, lineHeight: 1.55 }}
+      >
+        Each bucket needs a separate sponsored Move tx (Enoki caps a
+        sponsored PTB to one Move-call target). You&apos;ll see one
+        wallet-signature prompt per bucket. Failed grants can be retried
+        from the agent&apos;s Connect tab.
+      </p>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-md)",
+          padding: 6,
+        }}
+      >
+        {bucketIds.map((id) => {
+          const state = grants[id] ?? { kind: "pending" as const };
+          const name = bucketNameById.get(id) ?? id;
+          const dotColor =
+            state.kind === "success"
+              ? "var(--success)"
+              : state.kind === "failed"
+                ? "var(--error)"
+                : state.kind === "running"
+                  ? "var(--krater)"
+                  : "var(--text-tertiary)";
+          const label =
+            state.kind === "success"
+              ? "Granted"
+              : state.kind === "failed"
+                ? "Failed"
+                : state.kind === "running"
+                  ? "Signing…"
+                  : "Pending";
+          return (
+            <div
+              key={id}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                padding: "8px 10px",
+                borderRadius: "var(--radius-sm)",
+                background:
+                  state.kind === "running"
+                    ? "var(--bg-elevated)"
+                    : "transparent",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  background: dotColor,
+                  marginTop: 7,
+                  flexShrink: 0,
+                  // Pulse the running dot so the user can tell which row
+                  // is waiting on their signature.
+                  animation:
+                    state.kind === "running"
+                      ? "ks-pulse 1.2s ease-in-out infinite"
+                      : "none",
+                }}
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>{name}</span>
+                  <span
+                    className="muted"
+                    style={{ fontSize: 12, marginLeft: "auto" }}
+                  >
+                    {label}
+                  </span>
+                </div>
+                {state.kind === "failed" ? (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--error)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {state.message}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { ProjectsService } from "../projects/projects.service.js";
 import { SuiClientService } from "../sui/sui-client.service.js";
 import type { AgentJson, CreateAgentDto, UpdateAgentDto } from "./dto.js";
+import { AgentToolRegistry } from "./tools/registry.js";
 
 /** Per-bucket on-chain grant status for an agent. */
 export interface AgentBucketGrant {
@@ -24,6 +25,7 @@ function redact(
   row: KraterionAgent & {
     sub_wallet: { sui_address: string };
     buckets: { bucket_id: string }[];
+    tools: { tool_name: string }[];
   },
 ): AgentJson {
   return {
@@ -39,6 +41,7 @@ function redact(
     status: row.status as "active" | "revoked",
     sub_wallet_address: row.sub_wallet.sui_address,
     bucket_ids: row.buckets.map((b) => b.bucket_id),
+    tools: row.tools.map((t) => t.tool_name),
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
     revoked_at: row.revoked_at ? row.revoked_at.toISOString() : null,
@@ -48,6 +51,7 @@ function redact(
 const AGENT_INCLUDE = {
   sub_wallet: { select: { sui_address: true } as const },
   buckets: { select: { bucket_id: true } as const },
+  tools: { select: { tool_name: true } as const },
 } as const;
 
 /**
@@ -73,7 +77,23 @@ export class AgentsService {
     private readonly buckets: BucketsService,
     private readonly wrapping: KeyWrappingService,
     private readonly sui: SuiClientService,
+    private readonly toolRegistry: AgentToolRegistry,
   ) {}
+
+  /** Reject unknown tool names against the server-side registry. The
+   *  dashboard catalog and the registry stay in sync via convention;
+   *  this is the runtime gate. */
+  private validateToolNames(names: readonly string[]): void {
+    for (const name of names) {
+      if (!this.toolRegistry.knownNames.has(name)) {
+        throw new ControlPlaneError(
+          "InvalidArgument",
+          `Unknown tool "${name}".`,
+          { tool: name },
+        );
+      }
+    }
+  }
 
   async listForProject(accountId: string, projectId: string): Promise<AgentJson[]> {
     await this.projects.getOwned(accountId, projectId);
@@ -129,6 +149,9 @@ export class AgentsService {
       }
     }
 
+    // Validate enabled tools against the server-side registry.
+    this.validateToolNames(dto.tools);
+
     // Provision sub-wallet. Same pattern bootstrap-gateway uses for
     // `knowledge_indexer`: Ed25519 keypair, raw 32-byte seed wrapped
     // via the KMS wrapper, stored alongside the Sui address. Sanity
@@ -174,6 +197,9 @@ export class AgentsService {
             sub_wallet_id: subWallet.id,
             buckets: {
               create: dto.bucket_ids.map((bucket_id) => ({ bucket_id })),
+            },
+            tools: {
+              create: dto.tools.map((tool_name) => ({ tool_name })),
             },
           },
           include: AGENT_INCLUDE,
@@ -224,6 +250,10 @@ export class AgentsService {
       }
     }
 
+    if (dto.tools) {
+      this.validateToolNames(dto.tools);
+    }
+
     try {
       const row = await this.prisma.$transaction(async (tx) => {
         if (dto.bucket_ids) {
@@ -235,6 +265,20 @@ export class AgentsService {
               data: dto.bucket_ids.map((bucket_id) => ({
                 agent_id: agentId,
                 bucket_id,
+              })),
+            });
+          }
+        }
+        if (dto.tools) {
+          // Same wholesale-replace pattern. Disabling a tool is a single
+          // delete; the model will stop being told about it on the next
+          // chat turn.
+          await tx.agentTool.deleteMany({ where: { agent_id: agentId } });
+          if (dto.tools.length > 0) {
+            await tx.agentTool.createMany({
+              data: dto.tools.map((tool_name) => ({
+                agent_id: agentId,
+                tool_name,
               })),
             });
           }

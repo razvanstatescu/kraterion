@@ -209,7 +209,11 @@ export default function AgentDetailPage() {
         </div>
 
         {tab === "chat" ? (
-          <div style={{ maxWidth: 900 }}>
+          // No inner maxWidth — the chat container should align with the
+          // tabs divider and the Revoke/Delete buttons above it (i.e.
+          // the screen's own padding). Message bubbles still have their
+          // own per-turn caps inside AgentChatPanel.
+          <div>
             {agent.bucket_ids.length === 0 ? (
               <Banner
                 tone="info"

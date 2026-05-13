@@ -257,6 +257,12 @@ code, kbd, samp {
   background: var(--stone-100);
   color: var(--ink);
   text-transform: uppercase;
+  /* Pills are atomic labels — they must never wrap across lines or get
+     squeezed by a flex sibling. Without this, a long left-hand
+     description in the same flex row forces the pill text onto two
+     lines and the 22px height clips the bottom half. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .pill-success { background: #DEE6CB; color: #2E3F1E; }
 .pill-error   { background: #EFCFC9; color: #5A1D14; }
@@ -2523,4 +2529,248 @@ code, kbd, samp {
 }
 @media (prefers-reduced-motion: reduce) {
   .ks-source-row-flash { animation: none; }
+}
+
+/* Tool-call card — rendered under an assistant message when the agent
+   invoked one or more tools during this turn. Same visual language as
+   the sources card (hairline border, denser micro-label) so the two
+   read as siblings. */
+.ks-tool-calls {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  margin-top: 4px;
+  overflow: hidden;
+}
+.ks-tool-calls-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  list-style: none;
+  user-select: none;
+}
+.ks-tool-calls-summary::-webkit-details-marker { display: none; }
+.ks-tool-calls-summary::marker { content: ""; }
+.ks-tool-calls-summary:hover,
+.ks-tool-calls-summary:focus-visible {
+  color: var(--text-secondary);
+  outline: none;
+}
+.ks-tool-calls-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--stone-100);
+  color: var(--text-secondary);
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: auto;
+}
+.ks-tool-calls-list {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.ks-tool-call-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ks-tool-call-row:last-child {
+  border-bottom: none;
+}
+.ks-tool-call-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+.ks-tool-call-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ks-tool-call-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-tool-call-args {
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.ks-tool-call-error {
+  font-size: 12px;
+  color: var(--error);
+  margin-top: 4px;
+}
+.ks-tool-call-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--krater);
+  text-decoration: none;
+}
+.ks-tool-call-link:hover,
+.ks-tool-call-link:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+/* Markdown blocks inside the agent chat bubble. Scoped under
+   `.ks-md-bubble` so the rules don't leak into other surfaces. The
+   bubble itself owns the padding + border; the markdown adjusts
+   margins between blocks. */
+.ks-md-bubble > *:first-child { margin-top: 0; }
+.ks-md-bubble > *:last-child  { margin-bottom: 0; }
+
+.ks-md-p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ks-md-h {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.ks-md-h:first-child { margin-top: 0; }
+
+.ks-md-ul,
+.ks-md-ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+.ks-md-li {
+  margin: 2px 0;
+  line-height: 1.55;
+}
+
+.ks-md-code {
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  background: var(--stone-100);
+  color: var(--text-primary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.ks-md-pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--stone-100);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.ks-md-pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.ks-md-link {
+  color: var(--krater);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.ks-md-link:hover,
+.ks-md-link:focus-visible {
+  text-decoration-thickness: 2px;
+  outline: none;
+}
+
+/* GFM table support — streamdown emits real <table>/<thead>/<tbody>/
+   <tr> when the model produces a markdown table. Our overrides only
+   class the cells; style the surrounding chrome here. */
+.ks-md-bubble table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.ks-md-bubble thead {
+  background: var(--stone-100);
+}
+.ks-md-bubble th,
+.ks-md-bubble .ks-md-th {
+  text-align: left;
+  font-weight: 500;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+}
+.ks-md-bubble td,
+.ks-md-bubble .ks-md-td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+/* Block quote — uncommon in chat but cheap to support. */
+.ks-md-bubble blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 2px solid var(--krater);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Streamdown emits class names like `language-typescript` on fenced
+   code blocks. Our `.ks-md-pre` already gives the block its
+   monospace+stone look; this just ensures the inner <code> inherits
+   font from the <pre>. */
+.ks-md-pre code[class^="language-"] {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+
+/* Generic dot-pulse used by the agent grant-progress UI to signal the
+   row currently waiting on a wallet signature. */
+@keyframes ks-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(1.35); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Static dot for users who opted out of motion. */
+  [style*="ks-pulse"] { animation: none !important; }
 }
