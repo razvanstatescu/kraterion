@@ -902,3 +902,29 @@ An earlier attempt at this fix used `SELECT DISTINCT ON (m.s3_object_id) … FRO
 
 **Notes:** The existing `/reindex` and disable flows already wipe chunks scoped by `bucket_id`, so they didn't have this leak. The defensive search filter means any *future* code path that creates orphan chunks (a dev script, an aborted backfill, etc.) won't pollute results until the cleanup lands.
 
+
+---
+
+## Symptom: `POST /v1/buckets/:id/knowledge/ask` returns 404 / older dashboard build asks for a "default chat model"
+
+**Cause:** `/ask` was removed in P3 (2026-05-13) and replaced by
+`POST /v1/agents/:id/chat/completions` (OpenAI Chat Completions wire
+format). The bucket-scoped `default_llm_model` column was dropped at
+the same time; chat model selection moved to the per-agent layer.
+
+**Fix:** create or pick an agent attached to the bucket, then call
+its chat endpoint. Dashboard: `/agents` → New agent → attach the
+bucket → use the Chat tab. API: `POST /v1/agents/:id/chat/completions`
+with an OpenAI Chat Completions payload. MCP: switch from
+`kraterion_ask({bucket, query, ...})` to
+`kraterion_invoke_agent({agent_id, input, model?})`.
+
+**Observed:** 2026-05-13, during the P3 migration. Live consumers
+should not hit this — the migration is part of a single round; the
+dashboard updated alongside.
+
+**Notes:** See `decisions.md` 2026-05-13 ("P3 ships…") for the
+full migration shape. The Move-call grant flow for the agent's
+sub-wallet is a follow-up; today the agent's address is visible on
+the agent's Connect tab but the on-chain grant is deferred.
+

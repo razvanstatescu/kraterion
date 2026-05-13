@@ -1,11 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { DEFAULT_CHAT_MODEL_ID } from "@kraterion/shared";
+import { isKnownChatModel } from "@kraterion/shared";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
+import { AgentsService } from "../agents/agents.service.js";
+import { answerWithAgent } from "../agents/answer.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { serializeBucket, serializeObject } from "../buckets/serialize.js";
-import { answerWithLLM } from "../knowledge/ask.js";
 import { KnowledgeService } from "../knowledge/knowledge.service.js";
 import { PresignService } from "../objects/presign.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -13,13 +14,15 @@ import { ProviderCredentialService } from "../providers/provider-credential.serv
 import type { McpPrincipal } from "./mcp.types.js";
 
 /**
- * MCP tool implementations — the seven tools the agent surface
- * exposes (per `docs/ai-features-plan.md` §2.2):
+ * MCP tool implementations — the seven tools the MCP surface exposes:
  *
  *   - `kraterion_list_buckets`
  *   - `kraterion_list_objects(bucket, prefix?)`
  *   - `kraterion_search(bucket, query, top_k?)`
- *   - `kraterion_ask(bucket, query, openai_api_key, model?, top_k?)`
+ *   - `kraterion_invoke_agent(agent_id, input, model?)` ← P3 replacement
+ *     for the deprecated `kraterion_ask`. Invokes a configured agent
+ *     (system prompt + model + bucket attachments) by id; no per-call
+ *     prompt-stuffing.
  *   - `kraterion_read_object(bucket, key)`
  *   - `kraterion_write_object(bucket, key, content, content_type?)`
  *   - `kraterion_get_manifest(bucket, key)`
@@ -33,12 +36,6 @@ import type { McpPrincipal } from "./mcp.types.js";
  * CP-signed SigV4 envelopes — same as the dashboard. The CP fetches
  * (or PUTs) bytes server-to-server, so the agent never holds a
  * Kraterion S3 secret.
- *
- * Why a Nest service, not a free module: tool handlers need DI to
- * reach `BucketsService`, `KnowledgeService`, `PresignService`,
- * `PrismaService`. Wrapping the registration in a Nest provider
- * means we don't hand-thread dependencies through closures and the
- * controller stays small.
  */
 
 const READ_BYTES_CAP = 1 * 1024 * 1024; // 1 MiB cap on read_object responses
@@ -54,6 +51,7 @@ export class McpToolsService {
     private readonly knowledge: KnowledgeService,
     private readonly presign: PresignService,
     private readonly credentials: ProviderCredentialService,
+    private readonly agents: AgentsService,
   ) {}
 
   /** Resolve `(account_id, bucket_name)` to a `Bucket` row. */
@@ -81,7 +79,7 @@ export class McpToolsService {
     this.registerListBuckets(server, principal);
     this.registerListObjects(server, principal);
     this.registerSearch(server, principal);
-    this.registerAsk(server, principal);
+    this.registerInvokeAgent(server, principal);
     this.registerReadObject(server, principal);
     this.registerWriteObject(server, principal);
     this.registerGetManifest(server, principal);
@@ -182,80 +180,154 @@ export class McpToolsService {
     );
   }
 
-  private registerAsk(server: McpServer, principal: McpPrincipal): void {
+  private registerInvokeAgent(server: McpServer, principal: McpPrincipal): void {
     server.registerTool(
-      "kraterion_ask",
+      "kraterion_invoke_agent",
       {
         description:
-          "Answer a natural-language question grounded in a bucket's " +
-          "knowledge index. Uses the OpenAI API key the project owner " +
-          "configured on /keys — the agent does not supply one. Returns " +
-          "the answer plus the chunk hashes that backed it.",
+          "Invoke a configured Kraterion agent and return its answer. " +
+          "The agent's system prompt, chat model, attached buckets, and " +
+          "sampling controls are configured at create time — this tool " +
+          "just delivers a user message and returns the answer with " +
+          "verifiable chunk citations. Look up agents via the dashboard " +
+          "or the `/v1/agents` REST endpoint to discover their ids.",
         inputSchema: {
-          bucket: z.string().min(1),
-          query: z.string().min(1).max(4096),
+          agent_id: z.string().uuid().describe("UUID of the agent to invoke."),
+          input: z
+            .string()
+            .min(1)
+            .max(8192)
+            .describe("User-facing message to send to the agent."),
           model: z
             .string()
             .optional()
-            .describe("Defaults to `gpt-4o-mini`."),
-          top_k: z.number().int().min(1).max(32).optional(),
+            .describe("Per-call override; defaults to the agent's configured model."),
         },
       },
-      async ({ bucket: bucketName, query, model, top_k }) => {
-        const bucket = await this.findBucketByName(principal.account_id, bucketName);
-        const retrieved = await this.knowledge.search({
-          accountId: principal.account_id,
-          bucketId: bucket.id,
-          query,
-          ...(top_k !== undefined ? { topK: top_k } : {}),
-          efSearch: 96,
-        });
-        // Same model-resolution chain as the REST /ask: per-call
-        // override > bucket default_llm_model > global default.
-        const settings = await this.prisma.knowledgeBucketSettings.findUnique({
-          where: { bucket_id: bucket.id },
-          select: { default_llm_model: true },
-        });
-        const chosenModel =
-          model ?? settings?.default_llm_model ?? DEFAULT_CHAT_MODEL_ID;
-        const answered = await this.credentials.useDecrypted(
-          principal.project_id,
-          "openai",
-          (apiKey) =>
-            answerWithLLM({
-              query,
-              hits: retrieved.hits,
-              apiKey,
-              model: chosenModel,
-            }),
-        );
-        await this.knowledge.recordQuery({
-          bucketId: bucket.id,
-          projectId: principal.project_id,
-          apiKeyId: principal.api_key_id ?? null,
-          kind: "ask",
-          query,
-          topK: top_k ?? 8,
-          latencyMs: retrieved.latency_ms,
-          chunkHashes: retrieved.hits.map((h) => h.content_hash),
-          llmModel: answered.model,
-          llmTokens: answered.prompt_tokens + answered.completion_tokens,
-        });
-        return textJson({
-          answer: answered.answer,
-          citations: answered.citations,
-          retrieval: {
-            embedding_model: retrieved.embedding_model,
-            embedding_dimensions: retrieved.embedding_dimensions,
-            latency_ms: retrieved.latency_ms,
-            hit_count: retrieved.hits.length,
-          },
-          llm: {
-            model: answered.model,
-            prompt_tokens: answered.prompt_tokens,
-            completion_tokens: answered.completion_tokens,
+      async ({ agent_id, input, model }) => {
+        const agent = await this.agents.getOwnedRow(principal.account_id, agent_id);
+        if (agent.status !== "active") {
+          throw new ControlPlaneError(
+            "PreconditionFailed",
+            "Agent is revoked. Restore the agent or create a new one.",
+            { agent_id, status: agent.status },
+          );
+        }
+        const chosenModel = model ?? agent.model;
+        if (!isKnownChatModel(chosenModel)) {
+          throw new ControlPlaneError(
+            "InvalidArgument",
+            `Chat model "${chosenModel}" isn't available.`,
+            { model: chosenModel },
+          );
+        }
+
+        // Audit row up front so credential / retrieval failures still
+        // produce a trace.
+        const invocation = await this.prisma.agentInvocation.create({
+          data: {
+            agent_id: agent.id,
+            project_id: agent.project_id,
+            api_key_id: principal.api_key_id ?? null,
+            input,
+            model: chosenModel,
+            bucket_ids: agent.buckets.map((b) => b.bucket_id),
           },
         });
+
+        const wallStart = Date.now();
+        try {
+          const retrievalStart = Date.now();
+          const allHits: Awaited<
+            ReturnType<KnowledgeService["search"]>
+          >["hits"] = [];
+          for (const link of agent.buckets) {
+            try {
+              const res = await this.knowledge.search({
+                accountId: principal.account_id,
+                bucketId: link.bucket_id,
+                query: input,
+                topK: agent.top_k,
+                efSearch: 96,
+              });
+              allHits.push(...res.hits);
+            } catch (err) {
+              // Skip buckets that 409/403 — the agent answers from the
+              // accessible ones; per-bucket failures are silent here.
+              if (err instanceof ControlPlaneError) continue;
+              throw err;
+            }
+          }
+          allHits.sort((a, b) => b.rrf_score - a.rrf_score);
+          const topHits = allHits.slice(0, agent.top_k);
+          const retrievalLatencyMs = Date.now() - retrievalStart;
+
+          const llmStart = Date.now();
+          const answered = await this.credentials.useDecrypted(
+            agent.project_id,
+            "openai",
+            (apiKey) =>
+              answerWithAgent({
+                apiKey,
+                model: chosenModel,
+                systemPrompt: agent.system_prompt,
+                userMessage: input,
+                hits: topHits,
+                temperature: agent.temperature,
+                maxTokens: agent.max_tokens,
+              }),
+          );
+          const llmLatencyMs = Date.now() - llmStart;
+          const wallMs = Date.now() - wallStart;
+
+          await this.prisma.agentInvocation.update({
+            where: { id: invocation.id },
+            data: {
+              status: "completed",
+              output: answered.answer,
+              prompt_tokens: answered.prompt_tokens,
+              completion_tokens: answered.completion_tokens,
+              retrieval_latency_ms: retrievalLatencyMs,
+              llm_latency_ms: llmLatencyMs,
+              latency_ms: wallMs,
+              cited_hashes: answered.citations.map((c) =>
+                Buffer.from(c.chunk_hash, "hex"),
+              ),
+              finished_at: new Date(),
+            },
+          });
+
+          return textJson({
+            answer: answered.answer,
+            citations: answered.citations,
+            retrieval: {
+              hit_count: topHits.length,
+              latency_ms: retrievalLatencyMs,
+            },
+            llm: {
+              model: answered.model,
+              prompt_tokens: answered.prompt_tokens,
+              completion_tokens: answered.completion_tokens,
+              latency_ms: llmLatencyMs,
+            },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await this.prisma.agentInvocation
+            .update({
+              where: { id: invocation.id },
+              data: {
+                status: "failed",
+                error_detail: message.slice(0, 1024),
+                latency_ms: Date.now() - wallStart,
+                finished_at: new Date(),
+              },
+            })
+            .catch(() => {
+              /* don't mask the original error */
+            });
+          throw err;
+        }
       },
     );
   }

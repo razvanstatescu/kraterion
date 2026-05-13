@@ -55,14 +55,15 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
     flow), MCP connect panel (API key + OAuth), Activity feed.
   - **Tests / typecheck:** 33/33 Vitest in control-plane, 36/36 boto3
     in gateway, all workspace `tsc --noEmit` clean.
-- **Next (locked for submission):** P3 (Agents) + P4 (Function calling)
-  → P6 (widget, stretch). **P1 (multi-provider), P2 (reranker), and
-  P5 (guardrails) all deferred past Jun 21**, along with three small
-  P0 deviations (1536d/3072d embeddings, transactional swap re-index,
-  separate "Test connection" button). Scope decisions logged in
-  `decisions.md` 2026-05-13 entries ("Hackathon scope cuts…" + the P2
-  amendment). P2 research preserved in `docs/p2-reranker-research.md`
-  so the post-hackathon round can start with the architecture in hand.
+- **Next (locked for submission):** P4 (Function calling) → P6
+  (widget, stretch). **P3 (Agents) landed 2026-05-13** including the
+  full `/ask` → `/v1/agents/:id/chat/completions` migration, MCP
+  `kraterion_invoke_agent`, and the per-bucket chat-model deprecation;
+  scope decision in `decisions.md` 2026-05-13 ("P3 ships…"). **P1
+  (multi-provider), P2 (reranker), and P5 (guardrails) all deferred
+  past Jun 21**, along with three small P0 deviations (1536d/3072d
+  embeddings, transactional swap re-index, separate "Test connection"
+  button). P2 research preserved in `docs/p2-reranker-research.md`.
   From W6 onward focus shifts to demo-prep — demo video, README
   rewrite, deployed demo, submission form.
 

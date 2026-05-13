@@ -3150,3 +3150,88 @@ Existing pollution can be cleaned with a bucket-wide `/reindex` — that
 flow already wipes chunks by `bucket_id` before re-enqueueing. Runbook
 entry added.
 
+
+## 2026-05-13 — [ai-platform] P3 ships: Agents resource + OpenAI Chat Completions + /ask removed
+
+Full end-to-end implementation of the proposal's P3, plus the
+`/ask` → agent-endpoint migration the user called for in the same
+round. Drops `KnowledgeBucketSettings.default_llm_model`; chat model
+selection moves to the per-agent layer.
+
+**Schema** (`prisma/migrations/20260513140000_p3_agents`):
+- `KraterionAgent` (`system_prompt`, `model`, `temperature`, `max_tokens`,
+  `top_k`, `status`, `sub_wallet_id`, `guardrails_id?` stub for P5).
+- `AgentBucket` many-to-many junction (cascade on agent delete).
+- `AgentInvocation` audit row (`status`, principal, latency split,
+  cited hashes, retrieval bucket ids).
+- `SubWallet` role extended to include `agent`.
+- `KnowledgeBucketSettings.default_llm_model` dropped.
+
+**CP** (`apps/control-plane/src/agents/`):
+- `AgentsService` — CRUD with sub-wallet provisioning at create time
+  (Ed25519 keypair, KMS-wrapped seed, round-trip verified). Bucket
+  attachment validation against project ownership + `deleted_at`.
+- `AgentsController` — `POST /v1/projects/:id/agents`, `GET /v1/agents`,
+  `GET/PATCH/DELETE /v1/agents/:id`, `POST /v1/agents/:id/revoke`.
+- `POST /v1/agents/:id/chat/completions` — OpenAI Chat Completions wire
+  format. Single-turn (uses the most recent `messages[]` user message).
+  `kraterion` extension carries retrieval info + citation strip. SSE
+  streaming when `stream: true`; the Kraterion citation frame arrives
+  as a `kraterion.extension` event before `data: [DONE]`.
+- `answerWithAgent` + `streamWithAgent` helpers in `agents/answer.ts`
+  replace the deprecated `knowledge/ask.ts` (deleted).
+
+**Access control onion** on the chat endpoint:
+1. Session JWT (API key / OAuth pencilled as follow-ups).
+2. Agent ownership via project.
+3. `agent.status === 'active'`.
+4. Per-attached-bucket `BucketsService.getOwned` (which now refuses
+   soft-deleted buckets after the pre-P3 cleanup).
+5. `ProviderCredentialService.useDecrypted(project_id, 'openai', ...)`.
+6. `AgentInvocation` row created before the LLM call, patched to
+   `completed`/`failed`/`revoked` on outcome.
+
+**Knowledge cleanup:**
+- `/ask` REST endpoint removed (`POST /v1/buckets/:id/knowledge/ask`
+  is 404 now). MCP `kraterion_ask` replaced by `kraterion_invoke_agent`
+  in `apps/control-plane/src/mcp/mcp.tools.ts`.
+- `KnowledgeBucketSettings.default_llm_model` references removed from
+  both the upsert + reindex schemas; corresponding dashboard hooks
+  pruned.
+- Pre-P3 audit: `BucketsService.getOwned` now refuses soft-deleted
+  buckets by default (`includeDeleted` opt-in for admin paths).
+
+**Dashboard** (`apps/dashboard/src/components/agents/`):
+- `/agents` page is tabbed: "My agents" + "Connections" (renamed from
+  the existing OAuth-clients page).
+- `AgentsListTab` renders the project's agent table with create CTA.
+- `CreateAgentDialog` — single-screen create (name, description,
+  system prompt, model, attached buckets).
+- `/agents/[agentId]` detail page — Chat / Settings / Connect tabs.
+  - **Chat**: `AgentChatPanel` streams the SSE response with a typing
+    indicator + citation strip linking to Walruscan. Stop button
+    aborts mid-stream.
+  - **Settings**: `AgentSettingsForm` — dirty-state Save/Discard
+    footer, full editability for name / description / system prompt /
+    model / sampling / top-k / attached buckets.
+  - **Connect**: endpoint URL + curl example + sub-wallet address
+    display.
+- Bucket Knowledge tab — drops the "Default chat model" row entirely;
+  adds a "Use an agent to ask questions" pointer linking to
+  `/agents`. Enable-Knowledge modal collapses from 3 steps to 2
+  (embedding → confirm).
+
+**Verification:** `tsc --noEmit` clean on control-plane, worker,
+gateway, dashboard, embeddings-client, shared.
+
+**Deferred to a P3-on-chain follow-up:**
+- Auto-firing `grant_api_access(bucket, agent_addr)` on agent create /
+  bucket-attach. Sub-wallet is provisioned + visible; the on-chain
+  grant is an explicit user action (sponsored tx) post-creation.
+- Per-address `revoke_api_access` Move entry point. Today's revoke is
+  DB-only; the chat endpoint refuses immediately, which covers the
+  demo flow.
+- API key + OAuth principals on the chat endpoint. Session JWT only
+  for v1; the existing MCP guard pattern carries over when needed.
+- Multi-turn conversation history.
+

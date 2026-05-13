@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  CHAT_MODELS,
-  DEFAULT_CHAT_MODEL_ID,
   DEFAULT_EMBEDDING_OPTION,
   EMBEDDING_OPTIONS,
   estimateEmbeddingCostUsd,
@@ -12,6 +10,7 @@ import {
 } from "@kraterion/shared";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
 import { Pill } from "@/components/ui/Pill";
 import { Portal } from "@/components/ui/Portal";
@@ -24,16 +23,15 @@ interface Props {
   status: KnowledgeStatus;
   busy: boolean;
   /** "enable" (default) is the first-time flow. "reindex" is the
-   *  destructive change-settings flow: pre-fills the pickers from
+   *  destructive change-settings flow: pre-fills the picker from
    *  current settings, swaps copy + button labels, and the confirm
-   *  step shows the destructive banner. Both modes hit the same
-   *  picker components. */
+   *  step shows the destructive banner. */
   mode?: "enable" | "reindex";
   onCancel: () => void;
   onConfirm: (payload: ToggleKnowledgePayload) => void | Promise<void>;
 }
 
-type Step = "embedding" | "chat" | "confirm";
+type Step = "embedding" | "confirm";
 
 function findOptionId(model?: string, dims?: number): string {
   if (!model || !dims) return DEFAULT_EMBEDDING_OPTION.id;
@@ -44,22 +42,17 @@ function findOptionId(model?: string, dims?: number): string {
 }
 
 /**
- * Multi-step modal that captures the user's picks before Knowledge is
- * enabled on a bucket. Replaces the bare "Enable Knowledge" button.
+ * Two-step modal: embedding model → confirm. Captures the user's picks
+ * before Knowledge is enabled (or re-indexed) on a bucket.
  *
- * Steps:
- *   1. Embedding model — radio with a warning that it's locked once
- *      indexing starts. Only the 1024d option is selectable today
- *      because the pgvector column is fixed at halfvec(1024); the
- *      others are visible so the future trade-off is discoverable.
- *   2. Default chat model — picker stored on the bucket. Callers can
- *      override per request.
- *   3. Confirm — summary line + indexing-cost estimate computed from
- *      the bucket's total bytes × the embedding option's per-million
- *      price.
+ * Previously a third "chat model" step lived here, storing
+ * `default_llm_model` on the bucket. With P3 the chat model is an
+ * agent concern — users create an agent (with its own model + system
+ * prompt + bucket attachments) instead of configuring it per bucket.
+ * Buckets only own retrieval-spec fields now.
  *
- * Credential check is done one level up (KnowledgeToggle) — we don't
- * even render this modal when no active OpenAI key exists.
+ * Credential check happens one level up (KnowledgeToggle) — this
+ * modal doesn't even render when no active OpenAI key exists.
  */
 export function EnableKnowledgeModal({
   open,
@@ -80,15 +73,10 @@ export function EnableKnowledgeModal({
     status.settings?.embedding_model,
     status.settings?.embedding_dimensions,
   );
-  const initialChatModelId =
-    status.settings?.default_llm_model ?? DEFAULT_CHAT_MODEL_ID;
 
   const [step, setStep] = useState<Step>("embedding");
   const [embeddingId, setEmbeddingId] = useState<string>(
     isReindex ? initialEmbeddingId : DEFAULT_EMBEDDING_OPTION.id,
-  );
-  const [chatModelId, setChatModelId] = useState<string>(
-    isReindex ? initialChatModelId : DEFAULT_CHAT_MODEL_ID,
   );
 
   const embedding = useMemo<EmbeddingOption>(
@@ -118,7 +106,6 @@ export function EnableKnowledgeModal({
       enabled: true,
       embedding_model: embedding.model,
       embedding_dimensions: embedding.dimensions,
-      default_llm_model: chatModelId,
     });
 
   const title = isReindex ? "Re-index Knowledge" : "Enable Knowledge";
@@ -132,113 +119,97 @@ export function EnableKnowledgeModal({
 
   return (
     <Portal>
-    <div
-      className="ks-modal-scrim"
-      onClick={busy ? undefined : onCancel}
-      role="dialog"
-      aria-modal="true"
-    >
       <div
-        className="ks-modal"
-        style={{ width: 600, maxWidth: "calc(100vw - 32px)" }}
-        onClick={(e) => e.stopPropagation()}
+        className="ks-modal-scrim"
+        onClick={busy ? undefined : onCancel}
+        role="dialog"
+        aria-modal="true"
       >
-        <div className="ks-modal-head">
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 500 }}>{title}</div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-              Step {step === "embedding" ? 1 : step === "chat" ? 2 : 3} of 3
+        <div
+          className="ks-modal"
+          style={{ width: 600, maxWidth: "calc(100vw - 32px)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="ks-modal-head">
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 500 }}>{title}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                Step {step === "embedding" ? 1 : 2} of 2
+              </div>
             </div>
+            <IconButton name="x" label="Close" onClick={onCancel} disabled={busy} />
           </div>
-          <IconButton name="x" label="Close" onClick={onCancel} disabled={busy} />
-        </div>
 
-        {openai ? (
+          {openai ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--text-tertiary)",
+                marginBottom: 16,
+              }}
+            >
+              Using OpenAI key sk-…{openai.key_last_4} (project default).{" "}
+              <Link href="/keys?tab=providers">Manage</Link>
+            </div>
+          ) : null}
+
+          {step === "embedding" ? (
+            <EmbeddingStep
+              embeddingId={embeddingId}
+              onChange={setEmbeddingId}
+            />
+          ) : (
+            <ConfirmStep
+              embedding={embedding}
+              totalBytes={totalBytes}
+              totalObjects={status.summary.total_objects}
+              estimatedCostUsd={estimatedCostUsd}
+              isReindex={isReindex}
+              indexedChunks={status.summary.indexed}
+            />
+          )}
+
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              justifyContent: "flex-end",
               gap: 8,
-              fontSize: 12,
-              color: "var(--text-tertiary)",
-              marginBottom: 16,
+              marginTop: 24,
             }}
           >
-            Using OpenAI key sk-…{openai.key_last_4} (project default).{" "}
-            <Link href="/keys?tab=providers">Manage</Link>
+            {step === "embedding" ? (
+              <>
+                <Button variant="ghost" onClick={onCancel} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button variant="cta" onClick={() => setStep("confirm")}>
+                  Continue
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep("embedding")}
+                  disabled={busy}
+                >
+                  Back
+                </Button>
+                <Button
+                  variant={isReindex ? "danger" : "cta"}
+                  onClick={goConfirm}
+                  loading={busy}
+                >
+                  {ctaLabel}
+                </Button>
+              </>
+            )}
           </div>
-        ) : null}
-
-        {step === "embedding" ? (
-          <EmbeddingStep
-            embeddingId={embeddingId}
-            onChange={setEmbeddingId}
-          />
-        ) : step === "chat" ? (
-          <ChatStep chatModelId={chatModelId} onChange={setChatModelId} />
-        ) : (
-          <ConfirmStep
-            embedding={embedding}
-            chatModelId={chatModelId}
-            totalBytes={totalBytes}
-            totalObjects={status.summary.total_objects}
-            estimatedCostUsd={estimatedCostUsd}
-            isReindex={isReindex}
-            indexedChunks={status.summary.indexed}
-          />
-        )}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-            marginTop: 24,
-          }}
-        >
-          {step === "embedding" ? (
-            <>
-              <Button variant="ghost" onClick={onCancel} disabled={busy}>
-                Cancel
-              </Button>
-              <Button variant="cta" onClick={() => setStep("chat")}>
-                Continue
-              </Button>
-            </>
-          ) : step === "chat" ? (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => setStep("embedding")}
-                disabled={busy}
-              >
-                Back
-              </Button>
-              <Button variant="cta" onClick={() => setStep("confirm")}>
-                Continue
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => setStep("chat")}
-                disabled={busy}
-              >
-                Back
-              </Button>
-              <Button
-                variant={isReindex ? "danger" : "cta"}
-                onClick={goConfirm}
-                loading={busy}
-              >
-                {ctaLabel}
-              </Button>
-            </>
-          )}
         </div>
       </div>
-    </div>
     </Portal>
   );
 }
@@ -256,7 +227,7 @@ function EmbeddingStep({
         tone="warning"
         icon="alert"
         title="The embedding model is locked once indexing starts."
-        body="Switching it later requires re-indexing every object in this bucket. Switching the chat model is free and per-request."
+        body="Switching it later requires re-indexing every object in this bucket. The agent's chat model is configured separately and is free to swap."
       />
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {EMBEDDING_OPTIONS.map((opt) => {
@@ -265,7 +236,6 @@ function EmbeddingStep({
           return (
             <label
               key={opt.id}
-              className="ks-radio-row"
               data-selected={selected ? "true" : undefined}
               data-disabled={disabled ? "true" : undefined}
               style={{
@@ -298,9 +268,7 @@ function EmbeddingStep({
                   }}
                 >
                   <span style={{ fontWeight: 500, fontSize: 14 }}>{opt.label}</span>
-                  {opt.default ? (
-                    <Pill tone="success">Recommended</Pill>
-                  ) : null}
+                  {opt.default ? <Pill tone="success">Recommended</Pill> : null}
                   {disabled ? <Pill tone="neutral">Coming soon</Pill> : null}
                 </div>
                 <div
@@ -330,90 +298,8 @@ function EmbeddingStep({
   );
 }
 
-function ChatStep({
-  chatModelId,
-  onChange,
-}: {
-  chatModelId: string;
-  onChange: (id: string) => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <p style={{ fontSize: 14, color: "var(--text-secondary)", margin: 0 }}>
-        Default model for the bucket&apos;s <code>/ask</code> endpoint. Callers
-        can still override per request.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {CHAT_MODELS.map((m) => {
-          const selected = m.id === chatModelId;
-          return (
-            <label
-              key={m.id}
-              style={{
-                display: "flex",
-                gap: 12,
-                alignItems: "flex-start",
-                padding: 12,
-                border: `1px solid ${selected ? "var(--krater)" : "var(--border)"}`,
-                borderRadius: "var(--radius-md)",
-                cursor: "pointer",
-                background: selected ? "var(--bg-elevated)" : "transparent",
-              }}
-            >
-              <input
-                type="radio"
-                name="chat-model"
-                checked={selected}
-                onChange={() => onChange(m.id)}
-                style={{ marginTop: 3 }}
-              />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span
-                    className="mono"
-                    style={{ fontWeight: 500, fontSize: 14 }}
-                  >
-                    {m.label}
-                  </span>
-                  {m.default ? <Pill tone="success">Recommended</Pill> : null}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "var(--text-secondary)",
-                    marginTop: 4,
-                  }}
-                >
-                  {m.description}
-                </div>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-tertiary)",
-                    marginTop: 4,
-                  }}
-                >
-                  ~${m.price_per_m_tokens_usd.toFixed(2)} / million output tokens
-                </div>
-              </div>
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function ConfirmStep({
   embedding,
-  chatModelId,
   totalBytes,
   totalObjects,
   estimatedCostUsd,
@@ -421,7 +307,6 @@ function ConfirmStep({
   indexedChunks,
 }: {
   embedding: EmbeddingOption;
-  chatModelId: string;
   totalBytes: bigint;
   totalObjects: number;
   estimatedCostUsd: number;
@@ -445,7 +330,7 @@ function ConfirmStep({
           body={
             <>
               Existing chunks {indexedChunks > 0 ? `(${indexedChunks.toLocaleString()} indexed)` : ""} will be
-              deleted before re-embedding begins. Search and ask return
+              deleted before re-embedding begins. Search and chat return
               empty results for this bucket until the new pass completes.
               Manifests stay on chain for audit but their hashes no longer
               match live chunks until re-indexing finishes.
@@ -455,7 +340,6 @@ function ConfirmStep({
       ) : null}
       <SummaryRow label="Provider" value="OpenAI" />
       <SummaryRow label="Embedding model" value={embedding.label} />
-      <SummaryRow label="Default chat model" value={chatModelId} />
       <SummaryRow
         label="Bucket contents"
         value={`${totalObjects.toLocaleString()} object${totalObjects === 1 ? "" : "s"} · ${formatBytes(totalBytes)}`}
@@ -478,6 +362,37 @@ function ConfirmStep({
         }
         helper="Rough estimate using ~4 bytes per token. Actual usage may differ."
       />
+      {!isReindex ? (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-start",
+            padding: 12,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
+            background: "var(--bg-surface)",
+          }}
+        >
+          <Icon
+            name="info"
+            size={14}
+            style={{ color: "var(--text-secondary)", marginTop: 2 }}
+          />
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--text-secondary)",
+              lineHeight: 1.5,
+            }}
+          >
+            After Knowledge is on, head to{" "}
+            <Link href="/agents">Agents</Link> to create a configured chat
+            agent over this bucket. Each agent has its own system prompt,
+            chat model, and audit trail.
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

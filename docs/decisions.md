@@ -2798,3 +2798,110 @@ also cutting P2 from the submission.
 - The post-hackathon backlog has P2 as the first item — it's the
   cheapest quality lift on the list.
 
+
+## 2026-05-13 — P3 ships: Agents resource + OpenAI Chat Completions endpoint; /ask removed, per-bucket chat model deprecated
+
+**Status:** Accepted, shipped.
+
+**Context:** Before P3 the AI surface had three coupled gaps:
+
+1. The `/ask` endpoint baked a hardcoded system prompt, temperature,
+   max-tokens, and citation format into [`apps/control-plane/src/knowledge/ask.ts`](apps/control-plane/src/knowledge/ask.ts).
+   No conversation history, no streaming, non-OpenAI-compatible
+   response shape. Every consumer had to learn a Kraterion-specific
+   wire format that no OpenAI SDK speaks.
+2. `KnowledgeBucketSettings.default_llm_model` put model selection on
+   the wrong resource. A bucket conceptually owns retrieval spec
+   (embedding model, chunking); the chat model is an agent concern.
+   Two different agents reading the same bucket should be able to
+   pick different chat models without changing bucket state.
+3. There was no "agent" resource users could compare to ChatGPT
+   custom GPTs / Claude projects / DigitalOcean agents — the unit
+   every PM understands. MCP tools were generic over buckets; every
+   external consumer re-invented prompts.
+
+**Decision:** Ship P3 in full. Drop `/ask`. Drop
+`KnowledgeBucketSettings.default_llm_model`. The new shape:
+
+- **`KraterionAgent` resource** owned by a project, with fields
+  `name`, `description`, `system_prompt`, `model`, `temperature`,
+  `max_tokens`, `top_k`, `status`, attached `buckets[]`, and a
+  provisioned `SubWallet` (role='agent'). Many-to-many bucket
+  attachment via `AgentBucket`. Full audit row per call in
+  `AgentInvocation`.
+- **`POST /v1/agents/:id/chat/completions`** — strict-subset OpenAI
+  Chat Completions wire format. SSE streaming when `stream: true`,
+  buffered otherwise. Kraterion extensions (`retrieval`, `citations`)
+  live under a `kraterion` field that stock OpenAI SDK consumers
+  ignore. Per-call model override allowed.
+- **MCP `kraterion_ask` → `kraterion_invoke_agent`.** Input is
+  `{ agent_id, input, model? }`. Replaces the bucket-scoped ask tool;
+  no back-compat alias (the migration window is short and the demo is
+  the only consumer).
+- **Dashboard `/agents`** is now tabbed: "My agents" (KraterionAgent
+  list with create / detail / revoke / delete) + "Connections" (the
+  existing OAuth-clients list). Agent detail page has Chat /
+  Settings / Connect tabs.
+- **Knowledge tab** drops the "Default chat model" row entirely;
+  replaced with an "Agents" pointer that routes to `/agents`.
+- **Enable-Knowledge modal** drops its third step (chat model
+  picker). Now 2 steps: embedding model → confirm with cost estimate.
+
+**Decision 1: Strict-subset Chat Completions, not the Responses API.**
+OpenAI is migrating new builders to the Responses API (Assistants
+deprecates 2026-08-26), but Chat Completions remains the canonical
+shape for *deterministic, idempotent, audit-friendly* RAG flows —
+which is exactly Kraterion's profile. Plus DigitalOcean's own
+`gradient-ai/agents` ship Chat-Completions-compatible endpoints, so
+this matches the closest market reference. Responses API would force
+us to adopt OpenAI-hosted threads/state which conflicts with the
+on-chain verifiability story.
+
+**Decision 2: Sub-wallet provisioned at agent-create time, on-chain
+grant deferred.** Every agent gets an Ed25519 keypair generated and
+KMS-wrapped at create time (same pattern as `knowledge_indexer`).
+The Sui address is the agent's stable on-chain identity going
+forward. **What's deferred:** auto-firing the
+`grant_api_access(bucket, agent_addr)` Move call on each attached
+bucket. Today the agent's chat endpoint refuses when
+`agent.status='revoked'`, but the Move package isn't aware of the
+agent yet. Pencilled as a P3-on-chain follow-up; the architectural
+seam is in place (`SubWallet` role='agent', address exposed on the
+Connect tab) and adding the sponsored grant/revoke PTBs later is
+additive.
+
+**Decision 3: `/ask` is removed, not aliased.** No backward-compat
+shim. The demo is the only consumer; aliasing would just leave the
+old surface in place for a few weeks and force two response shapes.
+External consumers point an OpenAI SDK at
+`/v1/agents/{id}/chat/completions`.
+
+**Decision 4: Single-turn chat at submission.** The agent endpoint
+accepts a `messages[]` array (OpenAI shape) but only honors the most
+recent user turn — system prompt comes from the agent, not the
+request. Multi-turn conversation history with compaction is a clean
+follow-up.
+
+**Decision 5: Cross-bucket retrieval merges by RRF.** An agent
+attached to N buckets queries each one in parallel (today: serial
+loop, fine at hackathon scale), then merges the hits by their
+existing `rrf_score` before slicing to `agent.top_k`. Per-bucket
+failure is silent — the agent answers from accessible buckets and
+keeps going. A bucket-wide credential miss still surfaces (every
+bucket would fail).
+
+**Consequences:**
+
+- Bucket-level `default_llm_model` is dropped. Existing buckets keep
+  working (the column is removed by the same migration that adds the
+  Agent tables); ad-hoc "ask this bucket" is now "create an agent
+  attached to this bucket and chat with it".
+- MCP consumers that previously called `kraterion_ask` need to switch
+  to `kraterion_invoke_agent({ agent_id, input })`. Tool description
+  spells this out.
+- The dashboard's `/agents` page is the demo-defining surface — every
+  Kraterion-native angle (on-chain identity, sub-wallet, verifiable
+  citations, per-agent revoke) lives there.
+- Chat works in the dashboard via SSE streaming; the citation strip
+  renders inline with the assistant response.
+

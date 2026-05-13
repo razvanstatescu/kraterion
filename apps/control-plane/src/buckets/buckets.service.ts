@@ -65,12 +65,23 @@ export class BucketsService {
     return makePage(rows, opts.limit);
   }
 
-  async getOwned(accountId: string, bucketId: string): Promise<Bucket> {
+  async getOwned(
+    accountId: string,
+    bucketId: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): Promise<Bucket> {
     const row = await this.prisma.bucket.findUnique({
       where: { id: bucketId },
       include: { project: { select: { account_id: true } } },
     });
     if (!row || row.project.account_id !== accountId) {
+      throw new ControlPlaneError("NotFound", "Bucket not found");
+    }
+    // Soft-deleted buckets are 404 by default. Pass `includeDeleted: true`
+    // when the caller genuinely needs the row — admin / audit reads, the
+    // disable cleanup path. Knowledge, search, ask, and agent flows
+    // should never touch a deleted bucket.
+    if (row.deleted_at !== null && !opts.includeDeleted) {
       throw new ControlPlaneError("NotFound", "Bucket not found");
     }
     // Strip the join so the caller gets a clean `Bucket`.

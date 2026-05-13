@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AgentsModule } from "../agents/agents.module.js";
 import { KeyWrappingService } from "../auth/key-wrapping.service.js";
 import { BucketsModule } from "../buckets/buckets.module.js";
 import { KnowledgeModule } from "../knowledge/knowledge.module.js";
@@ -29,7 +30,14 @@ import { McpToolsService } from "./mcp.tools.js";
  * guard with the OAuth JWT branch.
  */
 @Module({
-  imports: [BucketsModule, KnowledgeModule, ObjectsModule, OAuthModule, ProvidersModule],
+  imports: [
+    BucketsModule,
+    KnowledgeModule,
+    ObjectsModule,
+    OAuthModule,
+    ProvidersModule,
+    AgentsModule,
+  ],
   providers: [KeyWrappingService, McpAuthGuard, McpToolsService],
   controllers: [McpController],
 })

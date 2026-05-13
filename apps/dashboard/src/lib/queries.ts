@@ -15,6 +15,7 @@ import {
   cpFetch,
   type AccountJson,
   type ActivityEventJson,
+  type AgentJson,
   type ApiKeyJson,
   type BucketJson,
   type FolderMarkerJson,
@@ -410,9 +411,6 @@ export interface KnowledgeSummary {
 export interface KnowledgeSettings {
   embedding_model: string;
   embedding_dimensions: number;
-  /** Bucket-wide default chat model for /ask. Per-request `model`
-   *  overrides this; null means "use the global default". */
-  default_llm_model: string | null;
   chunk_tokens: number;
   chunk_overlap_tokens: number;
   updated_at: string;
@@ -472,8 +470,6 @@ export interface ToggleKnowledgePayload {
   enabled: boolean;
   embedding_model?: string;
   embedding_dimensions?: number;
-  /** Pass `null` to clear the bucket default; omit to leave unchanged. */
-  default_llm_model?: string | null;
   chunk_tokens?: number;
   chunk_overlap_tokens?: number;
 }
@@ -525,7 +521,6 @@ export function useKnowledgeBackfill(bucketId: string | undefined) {
 export interface ReindexKnowledgePayload {
   embedding_model?: string;
   embedding_dimensions?: number;
-  default_llm_model?: string | null;
   chunk_tokens?: number;
   chunk_overlap_tokens?: number;
 }
@@ -629,6 +624,122 @@ export function useDisconnectOAuthClient() {
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "oauth", "clients"] });
+    },
+  });
+}
+
+// === Agents (P3) =============================================================
+
+interface AgentListResponse {
+  agents: AgentJson[];
+}
+interface AgentResponse {
+  agent: AgentJson;
+}
+
+export function useAgents(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "agents", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<AgentListResponse>(`/v1/agents?project_id=${projectId}`),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 10_000,
+  });
+}
+
+export function useAgent(agentId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "agents", "byId", agentId ?? "none"],
+    queryFn: () => cpFetch<AgentResponse>(`/v1/agents/${agentId}`),
+    enabled: Boolean(session?.token && agentId),
+    staleTime: 10_000,
+  });
+}
+
+export interface CreateAgentInput {
+  name: string;
+  description?: string;
+  system_prompt: string;
+  model: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_k?: number;
+  bucket_ids: string[];
+}
+
+export function useCreateAgent(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateAgentInput) =>
+      cpFetch<AgentResponse>(`/v1/projects/${projectId}/agents`, {
+        method: "POST",
+        body: input,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", projectId ?? "none"],
+      });
+    },
+  });
+}
+
+export interface UpdateAgentInput {
+  name?: string;
+  description?: string | null;
+  system_prompt?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_k?: number;
+  bucket_ids?: string[];
+}
+
+export function useUpdateAgent(agentId: string | undefined, projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateAgentInput) =>
+      cpFetch<AgentResponse>(`/v1/agents/${agentId}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", "byId", agentId ?? "none"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", projectId ?? "none"],
+      });
+    },
+  });
+}
+
+export function useRevokeAgent(agentId: string | undefined, projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      cpFetch<AgentResponse>(`/v1/agents/${agentId}/revoke`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", "byId", agentId ?? "none"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", projectId ?? "none"],
+      });
+    },
+  });
+}
+
+export function useDeleteAgent(agentId: string | undefined, projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      cpFetch<null>(`/v1/agents/${agentId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", projectId ?? "none"],
+      });
     },
   });
 }

@@ -49,6 +49,7 @@ model Project {
   buckets              Bucket[]
   api_keys             ApiKey[]
   provider_credentials ProviderCredential[]
+  agents               KraterionAgent[]
 
   @@index([account_id])
 }
@@ -121,6 +122,7 @@ model Bucket {
   folder_markers    FolderMarker[]
   knowledge         KnowledgeBucketSettings?
   knowledge_queries KnowledgeQuery[]
+  agent_buckets     AgentBucket[]
 
   @@unique([project_id, name])
   // Idempotency key for the indexer: `(tx_digest, event_seq)` is unique
@@ -222,10 +224,11 @@ model SubWallet {
   sui_address      String  @unique
   // KMS-wrapped Ed25519 seed/mnemonic. Never persisted in plaintext.
   mnemonic_wrapped Bytes
-  // "publisher" | "renewal" | "api_decryption"
+  // "publisher" | "renewal" | "api_decryption" | "knowledge_indexer" | "agent"
   role             String
   // Set for "api_decryption" role (one wallet per account). Null for
-  // shared-pool roles (publisher, renewal).
+  // shared-pool roles (publisher, renewal) and for the agent role
+  // (one wallet per agent, linked via KraterionAgent.sub_wallet_id).
   account_id       String? @unique
 
   // Last-known balances, refreshed by the health-check worker. Used to
@@ -234,7 +237,8 @@ model SubWallet {
   wal_balance   BigInt    @default(0)
   last_topup_at DateTime?
 
-  account Account? @relation("api_decryption_for_account", fields: [account_id], references: [id])
+  account Account?        @relation("api_decryption_for_account", fields: [account_id], references: [id])
+  agent   KraterionAgent?
 
   @@index([role])
 }
@@ -306,8 +310,10 @@ model KnowledgeBucketSettings {
   chunking_strategy    String   @default("recursive")
   chunk_tokens         Int      @default(400)
   chunk_overlap_tokens Int      @default(60)
-  // Caller-supplied for `/ask`; null = require BYO key per request.
-  default_llm_model    String?
+  // Note: previously `default_llm_model` lived here as the bucket's
+  // default chat model for `/ask`. With the P3 agent layer, model
+  // selection moved to `KraterionAgent.model`. The column was dropped
+  // in the 2026-05-13 agents migration.
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
 
@@ -586,4 +592,137 @@ model ProviderCredential {
 
   @@unique([project_id, provider])
   @@index([project_id])
+}
+
+/// P3 — First-class Agents resource.
+///
+/// A KraterionAgent is a user-configured RAG agent owned by a project.
+/// It bundles a system prompt, a chat model, retrieval params, and a
+/// set of attached buckets into a single addressable resource with a
+/// stable OpenAI Chat Completions-compatible endpoint at
+/// `POST /v1/agents/:id/chat/completions`.
+///
+/// Each agent ships with its own sub-wallet (role='agent'), which gets
+/// registered as an authorized API decryption address on every
+/// attached bucket via the existing Move `grant_api_access` flow.
+/// Revoking the agent is a sponsored on-chain tx that
+/// `revoke_all + grant(gateway + indexer + remaining_active_agents)`,
+/// taking the agent off the bucket's grant list without breaking the
+/// other principals.
+model KraterionAgent {
+  id            String  @id @default(uuid())
+  project_id    String
+  // Human-readable label. Unique within a project so a project owner
+  // can refer to agents by name in API calls and URLs.
+  name          String
+  description   String?
+  // Per-agent system prompt. Wrapped around the retrieval context at
+  // chat time. Free-form text; the dashboard validates length.
+  system_prompt String  @db.Text
+  // Chat model id from the shared catalog (e.g. "gpt-4o-mini").
+  // Per-request override allowed via the `model` field on
+  // /chat/completions, same as OpenAI.
+  model         String
+  // Sampling controls — sane defaults matching the previous /ask flow.
+  temperature   Float   @default(0.2)
+  max_tokens    Int     @default(1024)
+  // Retrieval top-k applied when this agent calls `KnowledgeService.search`.
+  top_k         Int     @default(8)
+  // 'active' | 'revoked'. Revoke flips this AND fires the on-chain
+  // re-grant PTB; chat endpoint refuses to serve when not 'active'.
+  status        String  @default("active")
+  // P5 stub. Always null at submission; the column is here so plugging
+  // in guardrails post-hackathon is additive only.
+  guardrails_id String?
+  // Sub-wallet provisioned at create time. 1:1 — when the agent is
+  // deleted the wallet stays in SubWallet for audit but is unlinked
+  // (via the relation's optional side).
+  sub_wallet_id String  @unique
+
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  revoked_at DateTime?
+
+  project     Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  sub_wallet  SubWallet         @relation(fields: [sub_wallet_id], references: [id])
+  buckets     AgentBucket[]
+  invocations AgentInvocation[]
+
+  @@unique([project_id, name])
+  @@index([project_id])
+}
+
+/// Many-to-many junction between agents and buckets. An agent reads
+/// from every attached bucket at retrieval time; attaching is a
+/// no-op for already-attached buckets, detaching emits the per-agent
+/// on-chain revoke for that bucket only.
+model AgentBucket {
+  agent_id   String
+  bucket_id  String
+  created_at DateTime @default(now())
+
+  agent  KraterionAgent @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  bucket Bucket         @relation(fields: [bucket_id], references: [id])
+
+  @@id([agent_id, bucket_id])
+  @@index([bucket_id])
+}
+
+/// One row per `/chat/completions` call against an agent. Captures
+/// auth principal, retrieval breakdown, token counts, citations, and
+/// the final answer for the Activity feed + replay/audit.
+///
+/// Row is created with `status='pending'` *before* the LLM call so
+/// failures (credential missing, agent revoked mid-flight, provider
+/// 5xx) still produce an audit trail. The handler patches the row to
+/// 'completed' or 'failed' before returning.
+model AgentInvocation {
+  id              String  @id @default(uuid())
+  agent_id        String
+  // Denormalized for activity scoping. Same `project_id` as the
+  // parent agent.
+  project_id      String
+  // Auth principal — exactly one of these is set per invocation, based
+  // on which guard branch authenticated the request.
+  user_id         String? // session JWT
+  api_key_id      String? // bearer API key (gateway-style AKIA)
+  oauth_client_id String? // OAuth 2.1 / MCP DCR
+
+  // 'pending' | 'completed' | 'failed' | 'revoked'.
+  // 'revoked' is set when the agent was revoked mid-request (post-credential-fetch, pre-LLM-call).
+  status String @default("pending")
+
+  // The user's input — the last `messages[]` entry on the request.
+  // Stored in full so the Activity feed can render the conversation
+  // snippet without a separate messages table.
+  input  String  @db.Text
+  output String? @db.Text
+
+  // Model actually invoked (may differ from agent.model when the
+  // caller overrides per-request).
+  model             String
+  prompt_tokens     Int?
+  completion_tokens Int?
+
+  retrieval_latency_ms Int?
+  llm_latency_ms       Int?
+  latency_ms           Int? // total wall clock; nullable while pending
+
+  // Bucket ids the retrieval stage hit. Many-to-one against AgentBucket
+  // at the moment the request was processed (an agent's buckets can
+  // change between invocations).
+  bucket_ids   String[]
+  // Cited chunk hashes (SHA-256). Aligned with [chunk N] markers in
+  // `output` and resolvable against on-chain manifests for verification.
+  cited_hashes Bytes[]
+
+  error_detail String?
+
+  created_at  DateTime  @default(now())
+  finished_at DateTime?
+
+  agent KraterionAgent @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+
+  @@index([agent_id, created_at])
+  @@index([project_id, created_at])
 }

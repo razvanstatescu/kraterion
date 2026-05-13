@@ -18,7 +18,6 @@ import { ProviderCredentialService } from "../providers/provider-credential.serv
 import { KnowledgeIndexerAddressService } from "../sui/knowledge-indexer-address.service.js";
 import { SuiClientService } from "../sui/sui-client.service.js";
 import { parseBody } from "../validation/zod-pipe.js";
-import { answerWithLLM } from "./ask.js";
 import {
   EMBEDDINGS_QUEUE_NAME,
   type EmbeddingsJobData,
@@ -52,13 +51,6 @@ const enableKnowledgeSchema = z.object({
   enabled: z.boolean(),
   embedding_model: z.string().optional(),
   embedding_dimensions: z.number().int().positive().max(3072).optional(),
-  /**
-   * Default LLM model for `/ask` on this bucket. Callers can still
-   * override per request. Null clears the column back to "no default".
-   * Validated against the shared chat-model catalog so the dashboard's
-   * picker and the API stay in lockstep.
-   */
-  default_llm_model: z.string().nullable().optional(),
   chunk_tokens: z.number().int().positive().max(8192).optional(),
   chunk_overlap_tokens: z.number().int().nonnegative().max(2048).optional(),
 });
@@ -70,14 +62,6 @@ const searchSchema = z.object({
 });
 type SearchDto = z.infer<typeof searchSchema>;
 
-const askSchema = z.object({
-  query: z.string().min(1).max(4096),
-  top_k: z.number().int().min(1).max(32).optional(),
-  model: z.string().optional(),
-  max_tokens: z.number().int().positive().max(2048).optional(),
-});
-type AskDto = z.infer<typeof askSchema>;
-
 // Re-index payload is a strict subset of the enable schema — same
 // fields, all optional. Omitting a field means "keep the current value
 // from KnowledgeBucketSettings". `enabled` is implicit (re-indexing on
@@ -85,7 +69,6 @@ type AskDto = z.infer<typeof askSchema>;
 const reindexKnowledgeSchema = z.object({
   embedding_model: z.string().optional(),
   embedding_dimensions: z.number().int().positive().max(3072).optional(),
-  default_llm_model: z.string().nullable().optional(),
   chunk_tokens: z.number().int().positive().max(8192).optional(),
   chunk_overlap_tokens: z.number().int().nonnegative().max(2048).optional(),
 });
@@ -215,7 +198,6 @@ export class KnowledgeController {
         ? {
             embedding_model: row.embedding_model,
             embedding_dimensions: row.embedding_dimensions,
-            default_llm_model: row.default_llm_model,
             chunk_tokens: row.chunk_tokens,
             chunk_overlap_tokens: row.chunk_overlap_tokens,
             updated_at: row.updated_at.toISOString(),
@@ -290,16 +272,6 @@ export class KnowledgeController {
         );
       }
     }
-    if (dto.default_llm_model !== undefined && dto.default_llm_model !== null) {
-      if (!isKnownChatModel(dto.default_llm_model)) {
-        throw new ControlPlaneError(
-          "InvalidArgument",
-          `Chat model "${dto.default_llm_model}" isn't available.`,
-          { model: dto.default_llm_model },
-        );
-      }
-    }
-
     // Lock the embedding spec on already-enabled buckets. Changing
     // model/dimensions without dropping chunks would leave the bucket
     // with vectors indexed under the old model — every subsequent
@@ -335,9 +307,6 @@ export class KnowledgeController {
       bucket_id: bucketId,
       ...(dto.embedding_model ? { embedding_model: dto.embedding_model } : {}),
       ...(dto.embedding_dimensions ? { embedding_dimensions: dto.embedding_dimensions } : {}),
-      ...(dto.default_llm_model !== undefined
-        ? { default_llm_model: dto.default_llm_model }
-        : {}),
       ...(dto.chunk_tokens ? { chunk_tokens: dto.chunk_tokens } : {}),
       ...(dto.chunk_overlap_tokens !== undefined
         ? { chunk_overlap_tokens: dto.chunk_overlap_tokens }
@@ -378,7 +347,6 @@ export class KnowledgeController {
       settings: {
         embedding_model: row.embedding_model,
         embedding_dimensions: row.embedding_dimensions,
-        default_llm_model: row.default_llm_model,
         chunk_tokens: row.chunk_tokens,
         chunk_overlap_tokens: row.chunk_overlap_tokens,
         updated_at: row.updated_at.toISOString(),
@@ -474,14 +442,6 @@ export class KnowledgeController {
         { model: nextModel, dimensions: String(nextDims) },
       );
     }
-    if (dto.default_llm_model && !isKnownChatModel(dto.default_llm_model)) {
-      throw new ControlPlaneError(
-        "InvalidArgument",
-        `Chat model "${dto.default_llm_model}" isn't available.`,
-        { model: dto.default_llm_model },
-      );
-    }
-
     // Wipe live chunks, swap settings — one transaction so a partial
     // failure doesn't leave the bucket pointing at chunks indexed with
     // the wrong embedding spec.
@@ -492,9 +452,6 @@ export class KnowledgeController {
         data: {
           embedding_model: nextModel,
           embedding_dimensions: nextDims,
-          ...(dto.default_llm_model !== undefined
-            ? { default_llm_model: dto.default_llm_model }
-            : {}),
           ...(dto.chunk_tokens !== undefined
             ? { chunk_tokens: dto.chunk_tokens }
             : {}),
@@ -544,77 +501,10 @@ export class KnowledgeController {
     return result;
   }
 
-  @Post("ask")
-  @HttpCode(200)
-  async ask(
-    @Req() req: FastifyRequest,
-    @Param("bucketId") bucketId: string,
-    @Body(parseBody(askSchema)) dto: AskDto,
-  ) {
-    const user = requireUser(req);
-    const bucket = await this.buckets.getOwned(user.accountId, bucketId);
-    // `/ask` uses a slightly higher ef_search to widen the retrieval
-    // window before the LLM step picks citations.
-    const retrieved = await this.knowledge.search({
-      accountId: user.accountId,
-      bucketId,
-      query: dto.query,
-      ...(dto.top_k !== undefined ? { topK: dto.top_k } : {}),
-      efSearch: 96,
-    });
-    // Model resolution: explicit per-request override > bucket's
-    // default_llm_model > the global default. Settings is null on
-    // a knowledge-disabled bucket (`/ask` would 404 before this point,
-    // but the chain is safe either way).
-    const settings = await this.prisma.knowledgeBucketSettings.findUnique({
-      where: { bucket_id: bucketId },
-      select: { default_llm_model: true },
-    });
-    const chosenModel =
-      dto.model ?? settings?.default_llm_model ?? DEFAULT_CHAT_MODEL_ID;
-    const answered = await this.credentials.useDecrypted(
-      bucket.project_id,
-      "openai",
-      (apiKey) =>
-        answerWithLLM({
-          query: dto.query,
-          hits: retrieved.hits,
-          apiKey,
-          model: chosenModel,
-          ...(dto.max_tokens ? { maxTokens: dto.max_tokens } : {}),
-        }),
-    );
-
-    await this.knowledge.recordQuery({
-      bucketId,
-      projectId: bucket.project_id,
-      apiKeyId: null,
-      kind: "ask",
-      query: dto.query,
-      topK: dto.top_k ?? 8,
-      latencyMs: retrieved.latency_ms,
-      chunkHashes: retrieved.hits.map((h) => h.content_hash),
-      llmModel: answered.model,
-      llmTokens: answered.prompt_tokens + answered.completion_tokens,
-    });
-
-    return {
-      answer: answered.answer,
-      citations: answered.citations,
-      retrieval: {
-        embedding_model: retrieved.embedding_model,
-        embedding_dimensions: retrieved.embedding_dimensions,
-        query_tokens: retrieved.query_tokens,
-        latency_ms: retrieved.latency_ms,
-        hit_count: retrieved.hits.length,
-      },
-      llm: {
-        model: answered.model,
-        prompt_tokens: answered.prompt_tokens,
-        completion_tokens: answered.completion_tokens,
-      },
-    };
-  }
+  // `/ask` was removed in P3 (2026-05-13). Chat against a bucket now
+  // happens via a configured `KraterionAgent` at
+  // `POST /v1/agents/:id/chat/completions` (OpenAI Chat Completions wire
+  // format). Migration notes in `docs/decisions.md`.
 
   /**
    * Enqueue every non-deleted object in a bucket. Mirrors the

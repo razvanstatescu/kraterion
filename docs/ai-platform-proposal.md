@@ -16,11 +16,17 @@ Overflow 2026 submission (deadline **Jun 21, 2026** — 39 days from this
 note) we are explicitly cutting scope. The plan from here to submission:
 
 **Shipping:**
-- **P0** (project credentials, multi-step enable modal, model pickers, cost
+- **P0** (project credentials, enable modal, embedding picker, cost
   estimate, destructive re-index) — done.
-- **P3** (Agents) + **P4** (Function calling) — the demo-defining surface.
-  Plan to land both before the final demo cut.
-- **P6** (Embeddable widget) — stretch; the demo lands harder if we ship it.
+- **P3** (Agents resource + OpenAI Chat Completions endpoint) — done
+  2026-05-13. Replaces the previous `/ask` endpoint and the per-bucket
+  `default_llm_model` field. See `decisions.md` 2026-05-13 ("P3 ships:
+  Agents resource + OpenAI Chat Completions endpoint; /ask removed,
+  per-bucket chat model deprecated").
+- **P4** (Function calling) — next on the queue, builds on the agent
+  model + tools[] column already in the schema.
+- **P6** (Embeddable widget) — stretch; the demo lands harder if we
+  ship it.
 
 **Deferred past the hackathon (will not ship for the submission):**
 - **P1 — Multi-provider abstraction.** OpenAI-only at submission. Adding
@@ -296,7 +302,20 @@ Off by default; toggleable per-bucket in `KnowledgeBucketSettings.reranker_model
 
 ---
 
-### P3 — First-class Agents resource (medium, defining product surface)
+### P3 — First-class Agents resource (medium, defining product surface) — [Shipped 2026-05-13]
+
+> **Hackathon status (2026-05-13):** **shipped.** Implementation
+> covers everything in this section except the on-chain
+> `grant_api_access` / `revoke_api_access` Move-call flow per agent —
+> that's a follow-up (the agent's sub-wallet is provisioned at create
+> time, but the on-chain grant is not auto-fired; revoke today is a
+> DB-only flag flip with immediate effect on the chat endpoint).
+> Also shipped in the same round: `/ask` endpoint removal (replaced by
+> `POST /v1/agents/:id/chat/completions`, OpenAI Chat Completions wire
+> format with SSE streaming), MCP `kraterion_ask` → `kraterion_invoke_agent`,
+> and `KnowledgeBucketSettings.default_llm_model` dropped. See
+> `decisions.md` 2026-05-13 for the full set of design calls.
+
 
 **What:** A new domain object — **KraterionAgent** — owned by a project, scoped to one or more buckets, with:
 

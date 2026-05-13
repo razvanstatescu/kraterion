@@ -23,7 +23,6 @@ import {
   type ToggleKnowledgePayload,
 } from "@/lib/queries";
 import { useSponsoredTx } from "@/lib/sponsor";
-import { ChangeChatModelDialog } from "./ChangeChatModelDialog";
 import { EnableKnowledgeModal } from "./EnableKnowledgeModal";
 
 interface Props {
@@ -47,7 +46,6 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
   const [reindexOpen, setReindexOpen] = useState(false);
-  const [chatModelOpen, setChatModelOpen] = useState(false);
   const [granting, setGranting] = useState(false);
   const [credentialMissing, setCredentialMissing] = useState(false);
 
@@ -244,9 +242,6 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
       ...(payload.embedding_dimensions !== undefined
         ? { embedding_dimensions: payload.embedding_dimensions }
         : {}),
-      ...(payload.default_llm_model !== undefined
-        ? { default_llm_model: payload.default_llm_model }
-        : {}),
       ...(payload.chunk_tokens !== undefined
         ? { chunk_tokens: payload.chunk_tokens }
         : {}),
@@ -277,37 +272,6 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
   };
 
   // Lightweight settings write: only the chat model changes. Goes
-  // through the existing toggle endpoint (which now refuses embedding
-  // edits on enabled buckets server-side), so existing chunks stay
-  // intact.
-  const onChangeChatModel = async (modelId: string) => {
-    try {
-      await toggle.mutateAsync({ enabled: true, default_llm_model: modelId });
-      setChatModelOpen(false);
-      show({
-        tone: "success",
-        title: "Chat model updated",
-        body: (
-          <>
-            <code>/ask</code> now defaults to <code>{modelId}</code> on
-            this bucket.
-          </>
-        ),
-      });
-    } catch (err) {
-      show({
-        tone: "error",
-        title: "Couldn't update the chat model",
-        body:
-          err instanceof ControlPlaneError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : "Try again.",
-      });
-    }
-  };
-
   if (!status.enabled) {
     // No project-scoped OpenAI key → don't even offer the Enable CTA.
     // The toggle would 409 the moment it's pressed; redirect the user
@@ -416,8 +380,6 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
     );
     return option?.label ?? `${m} @ ${d}d`;
   })();
-  const chatModelLabel =
-    status.settings?.default_llm_model ?? "Not set (uses platform default)";
   const mutating = toggle.isPending || reindex.isPending;
 
   return (
@@ -441,23 +403,57 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             destructive
             onAction={() => setReindexOpen(true)}
             disabled={mutating}
-          />
-          <ModelRow
-            icon="text"
-            label="Default chat model"
-            value={chatModelLabel}
-            valueMono={Boolean(status.settings?.default_llm_model)}
-            helper={
-              <>
-                Default model for <code>/ask</code> on this bucket.
-                Callers can override per request. Switching is free.
-              </>
-            }
-            actionLabel="Change chat model"
-            onAction={() => setChatModelOpen(true)}
-            disabled={mutating}
             last
           />
+        </div>
+
+        <div
+          style={{
+            marginTop: 12,
+            padding: "16px 0 0",
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <Icon
+            name="settings"
+            size={16}
+            style={{ color: "var(--text-secondary)", marginTop: 2 }}
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              className="micro"
+              style={{ color: "var(--text-tertiary)", marginBottom: 4 }}
+            >
+              Chat
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>
+              Use an agent to ask questions
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--text-tertiary)",
+                marginTop: 6,
+                lineHeight: 1.5,
+              }}
+            >
+              The bucket no longer carries a per-bucket chat model.
+              Create or pick an agent to chat against this bucket — agents
+              own the system prompt, model, sampling controls, and audit
+              trail.
+            </div>
+          </div>
+          <Link
+            href="/agents"
+            style={{ textDecoration: "none" }}
+          >
+            <Button variant="secondary" size="sm" icon="settings">
+              Manage agents
+            </Button>
+          </Link>
         </div>
 
         <div
@@ -506,13 +502,6 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
         onConfirm={onReindex}
       />
 
-      <ChangeChatModelDialog
-        open={chatModelOpen}
-        busy={toggle.isPending}
-        current={status.settings?.default_llm_model ?? null}
-        onCancel={() => (toggle.isPending ? undefined : setChatModelOpen(false))}
-        onConfirm={onChangeChatModel}
-      />
     </>
   );
 }

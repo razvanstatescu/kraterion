@@ -163,6 +163,45 @@ export interface ProviderCredentialJson {
   updated_at: string;
 }
 
+/**
+ * P3 — First-class agents resource. Owned by a project, configured
+ * with a system prompt + model + attached buckets, exposed at
+ * `POST /v1/agents/:id/chat/completions` (OpenAI Chat Completions
+ * wire format).
+ */
+export type AgentStatus = "active" | "revoked";
+export interface AgentJson {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  system_prompt: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  top_k: number;
+  status: AgentStatus;
+  sub_wallet_address: string;
+  bucket_ids: string[];
+  created_at: string;
+  updated_at: string;
+  revoked_at: string | null;
+}
+
+/** Citation row attached to a chat completion response (kraterion ext). */
+export interface AgentCitationJson {
+  index: number;
+  chunk_hash: string;
+  s3_key: string;
+  ordinal: number;
+  bucket_id: string;
+  source_walrus_blob_id: string;
+  source_shared_blob_object_id: string;
+  manifest_walrus_blob_id: string | null;
+  /** True when the assistant text actually referenced this chunk. */
+  cited: boolean;
+}
+
 export interface BucketJson {
   id: string;
   project_id: string;
