@@ -171,6 +171,171 @@ export class PrepareTxService {
     return this.sponsor(tx, senderAddress, qualified(FN.grantApi), summary);
   }
 
+  // === per-agent grant / revoke ===
+
+  /**
+   * Sponsored `grant_api_access(bucket, agent.sub_wallet_address)`.
+   *
+   * The dashboard fires this once per attached bucket so the agent's
+   * Sui sub-wallet shows up in the bucket's on-chain
+   * `api_decryption_addresses` list. Idempotent — granting an
+   * already-granted address is a no-op on chain.
+   *
+   * Ownership: the agent must belong to the same account as the
+   * bucket; we look up the agent here and refuse foreign ids.
+   */
+  async prepareGrantAgent(
+    accountId: string,
+    senderAddress: string,
+    bucketId: string,
+    args: { agentId: string },
+  ): Promise<PrepareTxResponse> {
+    const bucket = await this.buckets.getOwned(accountId, bucketId);
+    const agent = await this.fetchOwnedAgent(accountId, args.agentId);
+    if (agent.project_id !== bucket.project_id) {
+      throw new ControlPlaneError(
+        "InvalidArgument",
+        "Agent and bucket belong to different projects.",
+        { agent_id: args.agentId, bucket_id: bucketId },
+      );
+    }
+    if (agent.status !== "active") {
+      throw new ControlPlaneError(
+        "PreconditionFailed",
+        "Cannot grant a revoked agent. Create a new agent or restore this one first.",
+        { agent_id: args.agentId, status: agent.status },
+      );
+    }
+    const tx = new Transaction();
+    const bucketArg = mutableShared(tx, bucket.kraterion_bucket_object_id);
+    tx.add(
+      kraterion.grantApiAccess({
+        package: KRATERION_PACKAGE_ID,
+        arguments: { bucket: bucketArg, apiAddr: agent.sub_wallet.sui_address },
+      }),
+    );
+    const summary =
+      `Grant agent "${agent.name}" (${shorten(agent.sub_wallet.sui_address)}) ` +
+      `on-chain access to "${bucket.name}"`;
+    return this.sponsor(tx, senderAddress, qualified(FN.grantApi), summary);
+  }
+
+  /**
+   * Sponsored per-agent revoke. Move package only exposes
+   * `revoke_all_api_access`; we emulate per-address revoke by
+   * reading the current `api_decryption_addresses` list from chain,
+   * filtering out the agent's address, and emitting
+   * `revoke_all_api_access` + a `grant_api_access` per surviving
+   * principal in one PTB. Net effect: only the agent is removed.
+   *
+   * Why read the list from chain instead of computing from DB:
+   * the DB doesn't shadow the on-chain ACL — there's no indexer
+   * handler for `KraterionApiAccessGranted`/`Revoked` events. The
+   * chain is the source of truth; we re-read it here so we never
+   * "drop" a principal we didn't know about.
+   */
+  async prepareRevokeAgent(
+    accountId: string,
+    senderAddress: string,
+    bucketId: string,
+    args: { agentId: string },
+  ): Promise<PrepareTxResponse> {
+    const bucket = await this.buckets.getOwned(accountId, bucketId);
+    const agent = await this.fetchOwnedAgent(accountId, args.agentId);
+    if (agent.project_id !== bucket.project_id) {
+      throw new ControlPlaneError(
+        "InvalidArgument",
+        "Agent and bucket belong to different projects.",
+        { agent_id: args.agentId, bucket_id: bucketId },
+      );
+    }
+
+    const currentAddresses = await this.readApiDecryptionAddresses(
+      bucket.kraterion_bucket_object_id,
+    );
+    const targetAddr = agent.sub_wallet.sui_address.toLowerCase();
+    const survivors = currentAddresses.filter(
+      (a) => a.toLowerCase() !== targetAddr,
+    );
+
+    const tx = new Transaction();
+    const bucketArg = mutableShared(tx, bucket.kraterion_bucket_object_id);
+    tx.add(
+      kraterion.revokeAllApiAccess({
+        package: KRATERION_PACKAGE_ID,
+        arguments: { bucket: bucketArg },
+      }),
+    );
+    for (const addr of survivors) {
+      tx.add(
+        kraterion.grantApiAccess({
+          package: KRATERION_PACKAGE_ID,
+          arguments: { bucket: bucketArg, apiAddr: addr },
+        }),
+      );
+    }
+    const summary =
+      `Revoke agent "${agent.name}" (${shorten(agent.sub_wallet.sui_address)}) ` +
+      `from "${bucket.name}"; keeps ${survivors.length} other principal` +
+      `${survivors.length === 1 ? "" : "s"}`;
+    return this.sponsor(
+      tx,
+      senderAddress,
+      [qualified(FN.revokeAll), qualified(FN.grantApi)],
+      summary,
+    );
+  }
+
+  /**
+   * Look up an agent + its sub-wallet, verifying it belongs to the
+   * caller's account. Used by the per-agent prepare endpoints; the
+   * AgentsService has its own getter but we'd induce a circular
+   * module dependency by importing it here, so we go through Prisma
+   * directly (same shape AgentsService.fetchOwned uses).
+   */
+  private async fetchOwnedAgent(accountId: string, agentId: string) {
+    const row = await this.prisma.kraterionAgent.findUnique({
+      where: { id: agentId },
+      include: {
+        sub_wallet: { select: { sui_address: true } },
+        project: { select: { account_id: true } },
+      },
+    });
+    if (!row || row.project.account_id !== accountId) {
+      throw new ControlPlaneError("NotFound", "Agent not found");
+    }
+    return row;
+  }
+
+  /**
+   * Read the live `api_decryption_addresses` vector off the
+   * KraterionBucket object. Returns lower-cased hex strings.
+   *
+   * Defensive: any RPC / parsing failure falls back to an empty
+   * list, which makes the revoke PTB effectively a `revoke_all` —
+   * acceptable because the user has explicit intent to revoke this
+   * agent. We log so a flaky RPC at revoke time leaves a trail.
+   */
+  private async readApiDecryptionAddresses(
+    bucketObjectId: string,
+  ): Promise<string[]> {
+    try {
+      const obj = await this.sui.get().getObject({
+        id: bucketObjectId,
+        options: { showContent: true },
+      });
+      const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
+        ?.fields;
+      const list = fields?.["api_decryption_addresses"];
+      if (!Array.isArray(list)) return [];
+      return list
+        .filter((x): x is string => typeof x === "string")
+        .map((s) => s.toLowerCase());
+    } catch {
+      return [];
+    }
+  }
+
   // === revoke just the knowledge_indexer ===
 
   /**

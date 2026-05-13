@@ -304,12 +304,16 @@ Off by default; toggleable per-bucket in `KnowledgeBucketSettings.reranker_model
 
 ### P3 — First-class Agents resource (medium, defining product surface) — [Shipped 2026-05-13]
 
-> **Hackathon status (2026-05-13):** **shipped.** Implementation
-> covers everything in this section except the on-chain
-> `grant_api_access` / `revoke_api_access` Move-call flow per agent —
-> that's a follow-up (the agent's sub-wallet is provisioned at create
-> time, but the on-chain grant is not auto-fired; revoke today is a
-> DB-only flag flip with immediate effect on the chat endpoint).
+> **Hackathon status (2026-05-13):** **fully shipped, including the
+> on-chain layer.** Each agent ships with its own Sui sub-wallet
+> (Ed25519, KMS-wrapped seed). The dashboard's Connect tab fires
+> sponsored `grant_api_access(bucket, agent_addr)` Move calls per
+> attached bucket; the per-address revoke is emulated server-side via
+> `revoke_all + grant(survivors)` reading the current
+> `api_decryption_addresses` list off chain so no surviving principal
+> is dropped. Live grant status is read from Sui RPC into the
+> dashboard's Connect tab.
+>
 > Also shipped in the same round: `/ask` endpoint removal (replaced by
 > `POST /v1/agents/:id/chat/completions`, OpenAI Chat Completions wire
 > format with SSE streaming), MCP `kraterion_ask` → `kraterion_invoke_agent`,

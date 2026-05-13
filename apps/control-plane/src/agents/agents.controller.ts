@@ -108,6 +108,18 @@ export class AgentsController {
     return { agent };
   }
 
+  /**
+   * Per-bucket on-chain grant status for the agent's sub-wallet.
+   * The dashboard's Connect tab calls this to know which attached
+   * buckets need a `prepare-grant-agent` tx fired vs. already done.
+   */
+  @Get("agents/:agentId/grants")
+  async grants(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
+    const user = requireUser(req);
+    const grants = await this.agents.listGrants(user.accountId, agentId);
+    return { grants };
+  }
+
   @Delete("agents/:agentId")
   @HttpCode(204)
   async remove(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {

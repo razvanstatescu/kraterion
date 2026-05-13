@@ -188,6 +188,14 @@ export interface AgentJson {
   revoked_at: string | null;
 }
 
+/** Per-bucket on-chain grant status for an agent's sub-wallet. */
+export interface AgentBucketGrantJson {
+  bucket_id: string;
+  bucket_name: string;
+  granted_on_chain: boolean;
+  kraterion_bucket_object_id: string;
+}
+
 /** Citation row attached to a chat completion response (kraterion ext). */
 export interface AgentCitationJson {
   index: number;

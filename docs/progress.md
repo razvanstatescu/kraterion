@@ -3235,3 +3235,44 @@ gateway, dashboard, embeddings-client, shared.
   for v1; the existing MCP guard pattern carries over when needed.
 - Multi-turn conversation history.
 
+
+## 2026-05-13 — [ai-platform] Agent sub-wallets fully on-chain — grant/revoke wired
+
+Closes the on-chain piece that P3 left as a follow-up the same day.
+Every agent's Sui sub-wallet is now grantable + revocable per attached
+bucket via sponsored Move calls; live grant status surfaces in the
+dashboard.
+
+**Backend:**
+- `prepareGrantAgent(account, bucket, { agentId })` in
+  `apps/control-plane/src/buckets/prepare/prepare.service.ts` — sponsored
+  `grant_api_access(bucket, agent.sub_wallet_address)` PTB. Validates
+  agent ownership + project match + non-revoked status.
+- `prepareRevokeAgent(account, bucket, { agentId })` — reads the live
+  `api_decryption_addresses` off chain, emits `revoke_all` + one
+  `grant_api_access` per surviving principal in one PTB. Per-address
+  revoke without a Move-package change.
+- `GET /v1/agents/:id/grants` — one Sui RPC per attached bucket;
+  returns `[{ bucket_id, bucket_name, granted_on_chain, kraterion_bucket_object_id }]`.
+- New `prepareAgentSchema` Zod DTO + routes wired on
+  `PrepareTxController`.
+- `AgentsModule` imports `SuiClientModule` to drive the grant status
+  reads.
+
+**Dashboard:**
+- New `AgentConnectPanel` replaces the inline Connect view on the
+  agent detail page. Three sections:
+  - **On-chain access** — per-bucket grant status (Granted / Not
+    granted pill + Suiscan link to bucket object). Per-row Grant /
+    Revoke buttons fire sponsored txes via the existing
+    `useSponsoredTx` hook. Toast on success with Suiscan tx link;
+    grants query invalidates so the row flips state immediately.
+  - **Sub-wallet** — the agent's Sui address with a Suiscan link.
+  - **OpenAI-compatible endpoint** — endpoint URL + curl example.
+- `useAgentGrants(agentId)` TanStack hook (`staleTime: 30_000`).
+- Top-level Revoke modal copy refreshed — explains that the DB flip
+  fails the next chat call immediately and points the user at the
+  Connect tab to clean up on-chain grants.
+
+**Verification:** all five packages `tsc --noEmit` clean.
+

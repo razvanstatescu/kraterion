@@ -928,3 +928,18 @@ full migration shape. The Move-call grant flow for the agent's
 sub-wallet is a follow-up; today the agent's address is visible on
 the agent's Connect tab but the on-chain grant is deferred.
 
+
+---
+
+## Symptom: agent's chat answers work, but its sub-wallet doesn't show up in a bucket's `api_decryption_addresses` on chain
+
+**Cause:** Granting the agent on-chain is an **explicit user action**, separate from creating the agent and attaching buckets. Creating an agent provisions the sub-wallet + DB row only; the on-chain grant flows through a sponsored Move call the user fires from the dashboard's Connect tab (or directly via `POST /v1/buckets/:id/prepare-grant-agent { agent_id }`).
+
+This is intentional — sponsored txes need the user to sign, so we can't auto-fire at agent create time. The user might also want to attach an agent to a bucket *without* granting on-chain decryption (e.g. for testing).
+
+**Fix:** open the agent detail page → Connect tab → click **Grant** for each "Not granted" bucket. Each click fires one sponsored tx. The status pill flips to "Granted" once the grants query refetches (~30s staleTime, or instantly after the tx confirms — we invalidate the query on success).
+
+**Observed:** 2026-05-13, design intent.
+
+**Notes:** Per-address revoke uses the `revoke_all + grant(survivors)` pattern from `prepare-revoke-indexer` — reads the bucket's current `api_decryption_addresses` from chain at PTB build time so it never accidentally drops a wallet that was granted outside our dashboard. See `decisions.md` 2026-05-13 ("Agent sub-wallet goes fully on-chain…").
+

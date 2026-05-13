@@ -2905,3 +2905,94 @@ bucket would fail).
 - Chat works in the dashboard via SSE streaming; the citation strip
   renders inline with the assistant response.
 
+
+## 2026-05-13 — Agent sub-wallet goes fully on-chain: sponsored grant + per-address revoke emulation
+
+**Status:** Accepted, shipped.
+
+**Context:** The earlier P3 ship landed every layer of the agents
+resource except the on-chain side — sub-wallets were provisioned at
+agent-create time but their addresses weren't wired into the bucket's
+`api_decryption_addresses` list. Revoke was a DB-only flag flip,
+which loses the "agent access is an on-chain capability" angle that
+makes the agents demo distinct from DigitalOcean / ChatGPT custom
+GPTs / Claude projects.
+
+**Decision:** Wire the sub-wallet end-to-end:
+
+- **Grant** — new `POST /v1/buckets/:bucketId/prepare-grant-agent {
+  agent_id }` builds a sponsored
+  `grant_api_access(bucket, agent.sub_wallet_address)` PTB. Same Move
+  call, same Enoki sponsorship plumbing, same allow-listed target as
+  the existing gateway / indexer grants — the only delta is which
+  address goes in.
+- **Per-address revoke** — `POST /v1/buckets/:id/prepare-revoke-agent
+  { agent_id }` reads the bucket's current
+  `api_decryption_addresses` from chain, filters out the agent's
+  address, emits a single PTB:
+  `revoke_all_api_access(bucket)` + one `grant_api_access(bucket, addr)`
+  per surviving principal. Same emulation pattern the
+  `prepare-revoke-indexer` flow uses, generalized to N survivors.
+- **Status query** — `GET /v1/agents/:id/grants` fans out one Sui RPC
+  per attached bucket and reports `granted_on_chain: boolean`. The
+  dashboard's Connect tab uses it to drive per-bucket Grant / Revoke
+  buttons.
+- **Dashboard Connect tab** — per-bucket row showing on-chain status
+  (Granted / Not granted pill, Suiscan link to the bucket object),
+  Grant button when not granted, Revoke button when granted. Each
+  action fires a sponsored tx via the existing `useSponsoredTx` hook,
+  toasts on success with a Suiscan tx link, then invalidates the
+  grants query so the row flips state immediately.
+- **Top-level Revoke stays DB-only.** Flipping `agent.status='revoked'`
+  fails the next chat call instantly (the chat endpoint checks the
+  DB row). The on-chain grants stay until the user explicitly revokes
+  them from the Connect tab — separate user intent: "make this agent
+  stop working right now" vs. "scrub it from the chain". The modal
+  copy points the user at the Connect tab for the cleanup.
+
+**Why read on-chain ACL state at revoke time, not from a DB shadow:**
+no indexer handler exists for `KraterionApiAccessGranted` /
+`Revoked` events — the chain is the source of truth and DB drift is
+a real risk. Reading the list right before building the PTB
+guarantees we never accidentally re-grant a principal that was just
+removed, or drop one we didn't know about (e.g. a wallet granted via
+the Sui CLI outside the dashboard's view). One extra RPC per revoke;
+acceptable cost.
+
+**Decision 1: One sponsored tx per (agent × bucket) action, not a
+batch.** Sponsored Enoki transactions cap at one Move-call target
+allow-list per tx. Bundling N bucket revokes for one agent into a
+single PTB would force one target list spanning all of them and
+become hard to reason about. Keeping each grant / revoke as its own
+sponsored tx mirrors how the existing gateway + indexer grants
+already work, and lets the user see one Suiscan link per action.
+
+**Decision 2: No DB shadow of `api_decryption_addresses`.** Adding
+an indexer handler for grant / revoke events would close the live
+"is X granted on Y" question without an RPC, but it costs a new
+indexer surface area, a new shadow table, and another consistency
+invariant to defend. The Sui RPC read takes ~200ms in steady state;
+the dashboard caches via TanStack `staleTime: 30s`. Cheap.
+
+**Decision 3: On-chain status surfaces alongside HTTP endpoint info
+on the Connect tab, not in a separate tab.** The user wants to know
+"how do I connect / how do I revoke" in one view. Splitting on-chain
+status into its own tab fragments the mental model.
+
+**Consequences:**
+
+- The demo arc the proposal pitched is now live end-to-end: create
+  agent → grant on chain per bucket (sponsored tx, Suiscan link) →
+  chat works → revoke from the Connect tab (sponsored tx, the agent's
+  address disappears from `api_decryption_addresses` on chain) →
+  re-grant idempotently. The "agent access is on-chain" claim no
+  longer needs a footnote.
+- Granting / revoking agents is independent of the gateway and
+  indexer grants — those keep working through the agent's lifecycle.
+  The per-address revoke pattern (read + filter + re-grant) handles
+  any number of co-resident principals.
+- Move package doesn't need a per-address revoke entry point for
+  agents to be safe. If we ever add it post-hackathon, the dashboard
+  flow simplifies (single Move call vs. N+1) but no migration is
+  needed.
+

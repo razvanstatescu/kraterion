@@ -4,6 +4,7 @@ import { BucketsModule } from "../buckets/buckets.module.js";
 import { KnowledgeModule } from "../knowledge/knowledge.module.js";
 import { ProjectsService } from "../projects/projects.service.js";
 import { ProvidersModule } from "../providers/providers.module.js";
+import { SuiClientModule } from "../sui/sui-client.module.js";
 import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
 
@@ -17,7 +18,7 @@ import { AgentsService } from "./agents.service.js";
  * `ProvidersModule`, and bucket ownership via `BucketsModule`.
  */
 @Module({
-  imports: [BucketsModule, KnowledgeModule, ProvidersModule],
+  imports: [BucketsModule, KnowledgeModule, ProvidersModule, SuiClientModule],
   providers: [AgentsService, ProjectsService, KeyWrappingService],
   controllers: [AgentsController],
   exports: [AgentsService],

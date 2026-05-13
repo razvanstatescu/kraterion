@@ -4,9 +4,11 @@ import { AuthGuard } from "../../auth/auth.guard.js";
 import { requireUser } from "../../auth/request-context.js";
 import { parseBody } from "../../validation/zod-pipe.js";
 import {
+  type PrepareAgentDto,
   type PrepareCreateDto,
   type PrepareGrantApiDto,
   type PrepareVisibilityDto,
+  prepareAgentSchema,
   prepareCreateSchema,
   prepareGrantApiSchema,
   prepareVisibilitySchema,
@@ -55,6 +57,32 @@ export class PrepareTxController {
   ) {
     const user = requireUser(req);
     return this.prepare.prepareRevokeAll(user.accountId, user.suiAddress, bucketId);
+  }
+
+  @Post(":bucketId/prepare-grant-agent")
+  @HttpCode(200)
+  async prepareGrantAgent(
+    @Req() req: FastifyRequest,
+    @Param("bucketId") bucketId: string,
+    @Body(parseBody(prepareAgentSchema)) dto: PrepareAgentDto,
+  ) {
+    const user = requireUser(req);
+    return this.prepare.prepareGrantAgent(user.accountId, user.suiAddress, bucketId, {
+      agentId: dto.agent_id,
+    });
+  }
+
+  @Post(":bucketId/prepare-revoke-agent")
+  @HttpCode(200)
+  async prepareRevokeAgent(
+    @Req() req: FastifyRequest,
+    @Param("bucketId") bucketId: string,
+    @Body(parseBody(prepareAgentSchema)) dto: PrepareAgentDto,
+  ) {
+    const user = requireUser(req);
+    return this.prepare.prepareRevokeAgent(user.accountId, user.suiAddress, bucketId, {
+      agentId: dto.agent_id,
+    });
   }
 
   @Post(":bucketId/prepare-revoke-indexer")

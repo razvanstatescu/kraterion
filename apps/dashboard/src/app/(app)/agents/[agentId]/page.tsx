@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { AgentChatPanel } from "@/components/agents/AgentChatPanel";
+import { AgentConnectPanel } from "@/components/agents/AgentConnectPanel";
 import { AgentSettingsForm } from "@/components/agents/AgentSettingsForm";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
@@ -235,7 +236,7 @@ export default function AgentDetailPage() {
             <AgentSettingsForm agent={agent} />
           </Card>
         ) : (
-          <ConnectPanel agent={agent} />
+          <AgentConnectPanel agent={agent} />
         )}
       </main>
 
@@ -243,11 +244,32 @@ export default function AgentDetailPage() {
         open={confirmRevoke}
         title={`Revoke "${agent.name}"?`}
         body={
-          <Banner
-            tone="warning"
-            title="Future chat calls fail immediately."
-            body="Existing chunks aren't touched; the agent's sub-wallet is preserved on chain for audit. You can delete the agent entirely from this page."
-          />
+          <>
+            <Banner
+              tone="warning"
+              title="Future chat calls fail immediately."
+              body={
+                <>
+                  Flips the agent&apos;s status to{" "}
+                  <code>revoked</code> in our system. The next
+                  <code>/chat/completions</code> request returns
+                  <code>409 PreconditionFailed</code>.
+                </>
+              }
+            />
+            <p
+              style={{
+                marginTop: 12,
+                fontSize: 13,
+                color: "var(--text-secondary)",
+              }}
+            >
+              On-chain grants stay until you revoke them explicitly.
+              Head to the <strong>Connect</strong> tab to remove the
+              agent&apos;s sub-wallet from each bucket&apos;s
+              decryption list on chain.
+            </p>
+          </>
         }
         confirmLabel={revoke.isPending ? "Revoking…" : "Revoke agent"}
         danger
@@ -279,87 +301,3 @@ export default function AgentDetailPage() {
   );
 }
 
-function ConnectPanel({ agent }: { agent: { id: string; sub_wallet_address: string } }) {
-  const endpoint = `/v1/agents/${agent.id}/chat/completions`;
-  const curl = `curl -X POST '<your-control-plane-url>${endpoint}' \\
-  -H 'Authorization: Bearer <your-session-or-api-key>' \\
-  -H 'Content-Type: application/json' \\
-  -d '{
-    "messages": [{ "role": "user", "content": "What does the latest contract say about indemnity?" }],
-    "stream": false
-  }'`;
-
-  return (
-    <Card style={{ padding: 24, maxWidth: 760 }}>
-      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>
-        OpenAI-compatible endpoint
-      </h3>
-      <p
-        className="lead"
-        style={{ fontSize: 13, marginTop: 4, color: "var(--text-secondary)" }}
-      >
-        The agent answers at the URL below using the OpenAI Chat
-        Completions wire format. Drop in any OpenAI SDK with{" "}
-        <code>base_url = &lt;your-control-plane-url&gt;/v1/agents/{agent.id}</code>{" "}
-        and an API key issued from <Link href="/keys">Access keys</Link>.
-      </p>
-
-      <div style={{ marginTop: 16 }}>
-        <div className="micro" style={{ marginBottom: 6 }}>
-          Endpoint
-        </div>
-        <div className="ks-codeline mono">
-          <span style={{ flex: 1, overflow: "auto" }}>POST {endpoint}</span>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <div className="micro" style={{ marginBottom: 6 }}>
-          Curl example
-        </div>
-        <pre
-          className="mono"
-          style={{
-            fontSize: 12,
-            padding: 14,
-            background: "var(--ink)",
-            color: "var(--cream)",
-            borderRadius: "var(--radius-md)",
-            overflow: "auto",
-            lineHeight: 1.6,
-            margin: 0,
-          }}
-        >
-          {curl}
-        </pre>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <div className="micro" style={{ marginBottom: 6 }}>
-          Sub-wallet (on-chain identity)
-        </div>
-        <div className="ks-codeline mono" style={{ cursor: "default" }}>
-          <span
-            style={{
-              flex: 1,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {agent.sub_wallet_address}
-          </span>
-        </div>
-        <div
-          className="muted"
-          style={{ fontSize: 12, marginTop: 6 }}
-        >
-          Each agent is provisioned with its own Sui sub-wallet so per-agent
-          on-chain capabilities can be granted on the bucket's
-          api_decryption_addresses list. The grant flow is a follow-up;
-          today this address is the agent's stable identity for audit.
-        </div>
-      </div>
-    </Card>
-  );
-}

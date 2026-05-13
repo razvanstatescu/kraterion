@@ -15,6 +15,7 @@ import {
   cpFetch,
   type AccountJson,
   type ActivityEventJson,
+  type AgentBucketGrantJson,
   type AgentJson,
   type ApiKeyJson,
   type BucketJson,
@@ -741,5 +742,27 @@ export function useDeleteAgent(agentId: string | undefined, projectId: string | 
         queryKey: ["v1", "agents", projectId ?? "none"],
       });
     },
+  });
+}
+
+// === Agents — on-chain grants ================================================
+
+interface AgentGrantsResponse {
+  grants: AgentBucketGrantJson[];
+}
+
+/**
+ * Per-bucket on-chain grant status for an agent's sub-wallet. The CP
+ * queries each bucket's `api_decryption_addresses` from Sui RPC — one
+ * call per bucket — so we keep this on a slower staleTime than DB
+ * reads. Refetch happens when the user fires a grant/revoke tx.
+ */
+export function useAgentGrants(agentId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "agents", "grants", agentId ?? "none"],
+    queryFn: () => cpFetch<AgentGrantsResponse>(`/v1/agents/${agentId}/grants`),
+    enabled: Boolean(session?.token && agentId),
+    staleTime: 30_000,
   });
 }

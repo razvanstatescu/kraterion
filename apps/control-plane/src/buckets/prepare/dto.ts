@@ -34,6 +34,16 @@ export const prepareGrantApiSchema = z.object({
 });
 export type PrepareGrantApiDto = z.infer<typeof prepareGrantApiSchema>;
 
+/**
+ * Agent grant/revoke takes the agent id; the CP resolves its
+ * sub-wallet address server-side so the dashboard can't accidentally
+ * (or maliciously) name a foreign principal.
+ */
+export const prepareAgentSchema = z.object({
+  agent_id: z.string().uuid(),
+});
+export type PrepareAgentDto = z.infer<typeof prepareAgentSchema>;
+
 export const prepareVisibilitySchema = z.object({
   encryption_mode: encryptionModeSchema,
 });

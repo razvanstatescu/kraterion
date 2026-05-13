@@ -9,7 +9,16 @@ import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProjectsService } from "../projects/projects.service.js";
+import { SuiClientService } from "../sui/sui-client.service.js";
 import type { AgentJson, CreateAgentDto, UpdateAgentDto } from "./dto.js";
+
+/** Per-bucket on-chain grant status for an agent. */
+export interface AgentBucketGrant {
+  bucket_id: string;
+  bucket_name: string;
+  granted_on_chain: boolean;
+  kraterion_bucket_object_id: string;
+}
 
 function redact(
   row: KraterionAgent & {
@@ -63,6 +72,7 @@ export class AgentsService {
     private readonly projects: ProjectsService,
     private readonly buckets: BucketsService,
     private readonly wrapping: KeyWrappingService,
+    private readonly sui: SuiClientService,
   ) {}
 
   async listForProject(accountId: string, projectId: string): Promise<AgentJson[]> {
@@ -278,6 +288,63 @@ export class AgentsService {
     });
     this.logger.log(`agent revoked: id=${agentId}`);
     return redact(updated);
+  }
+
+  /**
+   * Query the on-chain `api_decryption_addresses` list for each
+   * attached bucket and report whether the agent's sub-wallet is on
+   * it. One Sui RPC call per bucket — the dashboard's Connect tab
+   * pages this lazily, and TanStack staleTime gives a free cache.
+   *
+   * Falls back to `granted_on_chain: false` if a single bucket's
+   * lookup fails (network blip, unreadable object) — the user can
+   * always re-grant idempotently, so a false negative just means an
+   * extra prompt, not a broken state.
+   */
+  async listGrants(
+    accountId: string,
+    agentId: string,
+  ): Promise<AgentBucketGrant[]> {
+    const agent = await this.fetchOwned(accountId, agentId);
+    if (agent.buckets.length === 0) return [];
+    const bucketRows = await this.prisma.bucket.findMany({
+      where: {
+        id: { in: agent.buckets.map((b) => b.bucket_id) },
+      },
+      select: {
+        id: true,
+        name: true,
+        kraterion_bucket_object_id: true,
+      },
+    });
+    const targetAddr = agent.sub_wallet.sui_address.toLowerCase();
+    const results: AgentBucketGrant[] = [];
+    for (const b of bucketRows) {
+      let granted = false;
+      try {
+        const obj = await this.sui.get().getObject({
+          id: b.kraterion_bucket_object_id,
+          options: { showContent: true },
+        });
+        const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
+          ?.fields;
+        const list = fields?.["api_decryption_addresses"];
+        if (Array.isArray(list)) {
+          granted = list.some(
+            (a) => typeof a === "string" && a.toLowerCase() === targetAddr,
+          );
+        }
+      } catch {
+        // leave granted=false; UI shows "Grant" which is idempotent
+      }
+      results.push({
+        bucket_id: b.id,
+        bucket_name: b.name,
+        granted_on_chain: granted,
+        kraterion_bucket_object_id: b.kraterion_bucket_object_id,
+      });
+    }
+    return results;
   }
 
   async remove(accountId: string, agentId: string): Promise<void> {
