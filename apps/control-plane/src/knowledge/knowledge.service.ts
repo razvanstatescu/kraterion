@@ -220,7 +220,11 @@ export class KnowledgeService {
           )::float8 AS rrf_score
         FROM candidates cd
         JOIN "KnowledgeChunk" c ON c.id = cd.id
-        JOIN "S3Object" s ON s.id = c.s3_object_id
+        -- s.deleted_at IS NULL: belt-and-suspenders for chunk leaks.
+        -- Gateway DELETE and the worker's per-object wipe should make
+        -- this filter a no-op, but the join guard keeps stale chunks
+        -- out of /search if any path ever forgets to clean up.
+        JOIN "S3Object" s ON s.id = c.s3_object_id AND s.deleted_at IS NULL
         LEFT JOIN "KnowledgeManifest" m ON m.id = c.manifest_id
         LEFT JOIN vec_leg v ON v.id = c.id
         LEFT JOIN bm_leg  b ON b.id = c.id

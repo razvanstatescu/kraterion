@@ -206,15 +206,27 @@ export class EmbeddingsProcessor extends WorkerHost implements OnModuleDestroy {
       }
 
       // === Persist ===
-      // One transaction: delete any prior chunks for this manifest (the
-      // re-PUT path), insert the new chunks, finalize the manifest. The
-      // halfvec column requires raw SQL because Prisma can't serialize
-      // it, so we hand-write the INSERT with a parameterized halfvec
-      // literal: `'[0.1,0.2,...]'::halfvec(1024)`.
+      // One transaction: drop every chunk for this object (no matter
+      // which manifest version they came from), insert the new chunks
+      // under the current manifest, finalize the manifest.
+      //
+      // Why `s3_object_id` and not `manifest_id` for the delete:
+      //   - Retry on the same manifest: same effect (chunks for this
+      //     manifest get cleared either way).
+      //   - Re-upload / overwrite: the worker opens a NEW manifest at
+      //     version+1, so a `manifest_id`-scoped delete would only
+      //     touch the (empty) new manifest and leave the previous
+      //     version's chunks behind. Search would then return content
+      //     from both old and new versions of the same object. Deleting
+      //     by `s3_object_id` covers both cases and reclaims the space.
+      //
+      // The halfvec column requires raw SQL because Prisma can't
+      // serialize it, so the INSERT is hand-written with a
+      // parameterized halfvec literal: `'[0.1,0.2,...]'::halfvec(1024)`.
       const bytesIndexed = chunks.reduce((s, c) => s + Buffer.byteLength(c.content, "utf8"), 0);
       const insertedAt = new Date();
       await this.prisma.$transaction(async (tx) => {
-        await tx.knowledgeChunk.deleteMany({ where: { manifest_id: manifest.id } });
+        await tx.knowledgeChunk.deleteMany({ where: { s3_object_id: object.id } });
         for (let i = 0; i < chunks.length; i++) {
           const c = chunks[i]!;
           const v = embedded.vectors[i]!;

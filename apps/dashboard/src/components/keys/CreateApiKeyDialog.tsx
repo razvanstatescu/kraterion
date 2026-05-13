@@ -7,6 +7,7 @@ import { FormField } from "@/components/ui/FormField";
 import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
+import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { useMintApiKey, type MintedApiKey } from "@/lib/queries";
@@ -90,6 +91,7 @@ export function CreateApiKeyDialog({ open, onClose, projectId }: Props) {
   };
 
   return (
+    <Portal>
     <div className="ks-modal-scrim" onClick={busy ? undefined : onClose}>
       <div
         className="ks-modal"
@@ -193,5 +195,6 @@ export function CreateApiKeyDialog({ open, onClose, projectId }: Props) {
         )}
       </div>
     </div>
+    </Portal>
   );
 }

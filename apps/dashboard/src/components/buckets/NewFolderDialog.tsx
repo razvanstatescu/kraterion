@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/FormField";
 import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
+import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { useCreateFolder } from "@/lib/queries";
@@ -105,6 +106,7 @@ export function NewFolderDialog({
   if (!open) return null;
   const displayParent = parentPrefix || "/";
   return (
+    <Portal>
     <div className="ks-modal-scrim" onClick={submitting ? undefined : onCancel} role="dialog" aria-modal="true">
       <div className="ks-modal" onClick={(e) => e.stopPropagation()}>
         <div className="ks-modal-head">
@@ -168,5 +170,6 @@ export function NewFolderDialog({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

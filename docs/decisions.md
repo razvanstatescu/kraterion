@@ -2563,3 +2563,133 @@ as "estimate".
   same is true for the per-request ping that any future provider
   abstraction (P1) would need to add.
 
+
+## 2026-05-13 — All modal scrims render through a React portal
+
+**Status:** Accepted, shipped.
+
+**Context:** The dashboard's drawer (`.ks-drawer`) keeps
+`transform: translateX(0)` applied after its slide-in animation (CSS
+`animation-fill-mode: both`). Modals triggered from inside the drawer
+— `ConfirmModal` for "delete file" being the canonical case — rendered
+their `position: fixed` scrims pinned to the drawer's bounds instead
+of the viewport. CSS containing-block rules: a transformed ancestor
+overrides the viewport-as-containing-block default for fixed
+descendants.
+
+**Decision:** Wrap every modal scrim in a small `<Portal>` component
+that mounts children on `document.body` via `createPortal`. The
+component does an SSR-safe two-phase mount — return `null` on first
+render, upgrade to the portal after `useEffect` — matching how Radix
+and Headless UI handle the same problem.
+
+**Why this and not alternatives:**
+
+- *Drop the drawer's `transform` after the animation finishes* —
+  would need either a JS-driven class swap on animation end or
+  switching from CSS animations to React-state-driven transitions.
+  Both add complexity and reintroduce flicker. Portals are a single
+  ~15-line component that solves the same class of bug for any future
+  scrim under any future transformed ancestor.
+- *Render modals at the page-level and pass open state up* — works
+  but spreads modal lifecycle across components and breaks the
+  invariant that "the component that owns the action owns its
+  confirmation". Portals keep the modal co-located with its trigger
+  while still escaping the stacking context.
+- *Set `position: fixed` via `inset: 0` on a manually managed
+  top-level div in `RootLayout`* — same end state as a portal but
+  hand-rolled. The React API exists for this.
+
+**Consequences:**
+
+- All 8 dialogs (`ConfirmModal`, `CreateBucketDialog`,
+  `DeleteFolderDialog`, `NewFolderDialog`, `EnableKnowledgeModal`,
+  `ChangeChatModelDialog`, `AddOpenAiKeyDialog`, `CreateApiKeyDialog`)
+  go through `<Portal>`. The behavior is unchanged for modals not
+  triggered from inside a drawer.
+- Future modal scrims should always wrap in `<Portal>` — even if
+  the immediate trigger isn't inside a transformed ancestor, adding
+  one later (a drawer, an animated card, a `transform: scale(...)`
+  hover effect on a parent) silently breaks the scrim layout
+  otherwise.
+- This implicitly sets a convention: anything `position: fixed` that
+  must always be viewport-relative belongs in a portal.
+
+---
+
+## 2026-05-13 — Removing an AI provider credential always requires type-to-confirm
+
+**Status:** Accepted, shipped.
+
+**Context:** The initial cascade-disable design only required type-to-confirm
+when the project had active Knowledge-enabled buckets. With no active
+buckets, the modal showed a one-tap "Remove key" button. That created
+two UX paths for the same destructive action and inverted the usual
+heuristic — destructive actions are *more* dangerous when there's no
+visible blast radius, because the user is more likely to click through
+without reading.
+
+**Decision:** Type the literal string `remove` to confirm, always.
+The CP also `?cascade=true` is now sent on every removal — the
+transaction is a no-op for the wipe step when there are no active
+buckets, so a single code path covers both cases. The dashboard adapts
+the modal copy (destructive warning + bucket count vs. simpler
+"indexing/search will fail" copy) based on the project's
+`active_knowledge_buckets` count, which the credentials list endpoint
+now returns alongside the redacted credential rows.
+
+**Consequences:**
+
+- One code path for credential removal in the dashboard. No
+  conditional flows, no surprise UX changes when the bucket state
+  shifts.
+- The credentials list response carries `active_knowledge_buckets` so
+  the modal opens with accurate copy without a round-trip.
+- Confirm button stays disabled until the literal `remove` is typed;
+  Enter submits when valid. Consistent with Stripe, GitHub, Linear
+  remove-confirmation patterns.
+
+---
+
+## 2026-05-13 — Worker chunk delete is scoped to `s3_object_id`, not `manifest_id`
+
+**Status:** Accepted, shipped.
+
+**Context:** The embeddings worker's persist transaction was running
+`knowledgeChunk.deleteMany({ where: { manifest_id: manifest.id } })`
+before inserting new chunks. That handled retries on the same
+manifest correctly — same-manifest chunks from a prior attempt get
+cleared. But on a re-upload, the worker opens a *new* manifest at
+`version + 1`; the `manifest_id`-scoped delete becomes a no-op on the
+freshly-opened (empty) manifest, and the previous version's chunks
+survive. `/search` reads chunks by `bucket_id` with no version filter,
+so both old and new versions of the same object would surface in
+results.
+
+**Decision:** Switch the persist-tx delete to scope by `s3_object_id`
+instead. Wipes every chunk for the object regardless of which
+manifest version they came from, then inserts the fresh chunks under
+the current manifest. Same behaviour as before for retries; correct
+behaviour for re-uploads.
+
+**Why not version-filter `/search` instead:** the leak would still
+waste DB space and pgvector index churn on chunks that can never be
+returned. Cleaning up at the write site removes the problem entirely
+rather than masking it at read time. The defensive
+`AND s.deleted_at IS NULL` filter added to `/search` is for the
+*soft-delete* leak (a separate bug, see below), not for stale
+versions.
+
+**Consequences:**
+
+- One write site (the worker's persist tx) is the only place that
+  decides chunk lifetime. Audit-trail manifests stay; their chunks
+  evaporate when a new version of the object is indexed.
+- Pairs with the gateway's `deleteObject` change, which wipes chunks
+  + soft-deletes the `S3Object` atomically. Together: every code path
+  that ends an object's lifetime — overwrite or delete — removes its
+  chunks immediately.
+- Future indexers (other content types, other embedding providers)
+  inherit the convention: scope chunk deletes by `s3_object_id`, not
+  by `manifest_id`.
+

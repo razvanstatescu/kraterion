@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { IconButton } from "./IconButton";
+import { Portal } from "./Portal";
 
 interface Props {
   open: boolean;
@@ -45,31 +46,33 @@ export function ConfirmModal({
 
   if (!open) return null;
   return (
-    <div className="ks-modal-scrim" onClick={busy ? undefined : onCancel} role="dialog" aria-modal="true">
-      <div className="ks-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ks-modal-head">
-          <div style={{ fontSize: 18, fontWeight: 500 }}>{title}</div>
-          <IconButton name="x" label="Cancel" onClick={onCancel} disabled={busy} />
-        </div>
-        <div style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.55 }}>{body}</div>
-        {onchainNote ? (
-          <div className="ks-onchain-note">
-            <Icon name="link-2" size={14} />
-            <span>{onchainNote}</span>
+    <Portal>
+      <div className="ks-modal-scrim" onClick={busy ? undefined : onCancel} role="dialog" aria-modal="true">
+        <div className="ks-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="ks-modal-head">
+            <div style={{ fontSize: 18, fontWeight: 500 }}>{title}</div>
+            <IconButton name="x" label="Cancel" onClick={onCancel} disabled={busy} />
           </div>
-        ) : null}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
-          <Button
-            variant={danger ? "danger" : "primary"}
-            onClick={() => void onConfirm()}
-            loading={busy}
-            disabled={confirmDisabled || busy}
-          >
-            {confirmLabel}
-          </Button>
+          <div style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.55 }}>{body}</div>
+          {onchainNote ? (
+            <div className="ks-onchain-note">
+              <Icon name="link-2" size={14} />
+              <span>{onchainNote}</span>
+            </div>
+          ) : null}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+            <Button variant="ghost" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
+            <Button
+              variant={danger ? "danger" : "primary"}
+              onClick={() => void onConfirm()}
+              loading={busy}
+              disabled={confirmDisabled || busy}
+            >
+              {confirmLabel}
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }

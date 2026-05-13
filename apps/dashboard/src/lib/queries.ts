@@ -328,6 +328,10 @@ export function useRevokeApiKey(projectId: string | undefined) {
 
 interface ProviderCredentialsResponse {
   credentials: ProviderCredentialJson[];
+  /** Number of buckets in the project with Knowledge currently enabled.
+   *  Removing the provider credential cascades disable on each, so the
+   *  dashboard's confirmation modal pre-fills its copy from this value. */
+  active_knowledge_buckets: number;
 }
 
 interface UpsertCredentialResponse {

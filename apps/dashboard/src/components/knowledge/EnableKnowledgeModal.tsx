@@ -14,6 +14,7 @@ import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { Pill } from "@/components/ui/Pill";
+import { Portal } from "@/components/ui/Portal";
 import { formatBytes } from "@/lib/format";
 import { useMe, useProviderCredentials, type KnowledgeStatus } from "@/lib/queries";
 import type { ToggleKnowledgePayload } from "@/lib/queries";
@@ -130,6 +131,7 @@ export function EnableKnowledgeModal({
       : "Enable Knowledge";
 
   return (
+    <Portal>
     <div
       className="ks-modal-scrim"
       onClick={busy ? undefined : onCancel}
@@ -237,6 +239,7 @@ export function EnableKnowledgeModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

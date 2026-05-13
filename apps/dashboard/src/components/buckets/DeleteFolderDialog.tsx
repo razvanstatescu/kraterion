@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
+import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { useFolderPreview, usePurgeFolder } from "@/lib/queries";
@@ -101,6 +102,7 @@ export function DeleteFolderDialog({ open, bucketId, prefix, onCancel, onPurged 
 
   if (!open) return null;
   return (
+    <Portal>
     <div className="ks-modal-scrim" onClick={submitting ? undefined : onCancel} role="dialog" aria-modal="true">
       <div className="ks-modal" onClick={(e) => e.stopPropagation()}>
         <div className="ks-modal-head">
@@ -191,6 +193,7 @@ export function DeleteFolderDialog({ open, bucketId, prefix, onCancel, onPurged 
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

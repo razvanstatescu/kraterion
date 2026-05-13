@@ -3017,3 +3017,136 @@ re-index (the chat model is per-request; chunks aren't touched).
 
 All four packages `tsc --noEmit` clean.
 
+
+## 2026-05-13 — [ai-platform] Type-to-confirm is now mandatory for provider key removal
+
+Tightened the destructive remove flow so type-to-confirm is the *only*
+path to remove an OpenAI credential — previously it only kicked in when
+the project had active Knowledge buckets. Two upsides: the UX is
+consistent (no surprise "easy mode" when no buckets happen to be on),
+and the cascade behaviour is uniform.
+
+- **CP** ([`providers.controller.ts`](apps/control-plane/src/providers/providers.controller.ts))
+  — `GET /v1/projects/:id/credentials` now returns `active_knowledge_buckets`
+  alongside the redacted credential rows, so the dashboard can pre-fill
+  modal copy without a round-trip on open.
+- **Dashboard hook** — `useRemoveCredential` always sends `?cascade=true`.
+  The CP `remove()` is already a no-op for chunk / settings wipes when
+  no buckets are active, so a single code path covers both cases.
+- **`ProviderCredentialsTab`** — removed the two-stage modal logic; the
+  type-to-confirm input is part of the modal body from the first click.
+  Body copy adapts based on `active_knowledge_buckets > 0` (destructive
+  warning + cascade count) vs `== 0` (simpler indexing-and-search-will-fail
+  text). Confirm button disabled until the literal string `remove` is
+  typed; Enter submits when valid.
+
+All four packages `tsc --noEmit` clean.
+
+---
+
+## 2026-05-13 — [dashboard] Portal-based modal rendering — fixes modal-in-drawer layout bug
+
+Every modal in the dashboard renders a `position: fixed` scrim. When a
+modal was triggered from inside the Inspector drawer (e.g. clicking
+**Delete file** on an object), the scrim ended up shrunk to the
+drawer's bounds instead of covering the viewport — both visually broken
+and impossible to dismiss correctly.
+
+Root cause: `.ks-drawer` keeps `transform: translateX(0)` applied after
+its slide-in animation (the `both` fill mode in
+[`globals.css`](apps/dashboard/src/app/globals.css)). CSS containing-block
+rules: a `transform`'d ancestor pins every `position: fixed` descendant
+to its own box instead of the viewport. The modal was a descendant of
+the drawer; it inherited the drawer's box.
+
+Fix:
+
+- New [`Portal.tsx`](apps/dashboard/src/components/ui/Portal.tsx) helper —
+  SSR-safe two-phase mount (returns `null` on first render, then
+  `createPortal(children, document.body)` after `useEffect`). Mounts
+  modals at the top of the DOM so they escape any transformed
+  ancestor's stacking context.
+- Wrapped all 8 modals in `<Portal>`: `ConfirmModal`, `CreateBucketDialog`,
+  `DeleteFolderDialog`, `NewFolderDialog`, `EnableKnowledgeModal`,
+  `ChangeChatModelDialog`, `AddOpenAiKeyDialog`, `CreateApiKeyDialog`.
+
+Behavior unchanged for every other case — modals were already rendered
+at viewport top in the happy path; they just no longer break when
+triggered from inside a transformed ancestor. Same pattern Radix /
+Headless UI use for their portals.
+
+---
+
+## 2026-05-13 — [ai-platform] Knowledge index-status summary: fix double-counting from retained manifests
+
+After a few enable/disable cycles or re-indexes on the same bucket, the
+**Index status** panel showed counters like `Indexed 10 of 3, Skipped 5`
+— `indexed + pending + failed + skipped > total_objects`.
+
+Root cause: `KnowledgeManifest` rows are intentionally retained for
+audit across enable/disable cycles and re-index passes (the on-chain
+verifiability trail depends on it). The `GET /knowledge` summary was
+`groupBy(status)`-ing the manifest table without dedup, so every
+historical re-index pass piled into the counters. Secondary bug: the
+worker writes `status='indexing'` for in-flight rows, but the summary
+only knew about `indexed | pending | failed | skipped` — in-flight
+manifests silently fell out of every counter.
+
+Fix in [`knowledge.controller.ts`](apps/control-plane/src/knowledge/knowledge.controller.ts):
+
+- Start the join from `S3Object` (the source of truth for "objects in
+  this bucket") and lateral-join the latest manifest per object via
+  `LEFT JOIN LATERAL (... ORDER BY km.version DESC LIMIT 1) ON TRUE`.
+  Each non-deleted object contributes exactly one row to the GROUP BY,
+  making `indexed + pending + failed + skipped = total_objects` an
+  *arithmetic identity* — impossible to violate by construction.
+- `COALESCE(m.status, 'pending')` puts objects with no manifest yet
+  (just uploaded, worker not started) under the "Pending" counter
+  instead of dropping them.
+- Remap `indexing` → `pending` on the wire so workers-in-flight surface
+  under the dashboard's existing "Pending" label.
+- Zero all counters when Knowledge is currently off — historical
+  manifests are not user-relevant state.
+
+Runbook entry added with the symptom string so this is greppable next
+time. CP `tsc --noEmit` clean.
+
+---
+
+## 2026-05-13 — [ai-platform] Chunk lifecycle fixes — re-upload and S3 DELETE no longer leak chunks
+
+Two pre-existing chunk leaks in the Knowledge data path, both surfaced
+while verifying the index-status summary fix:
+
+1. **Re-upload of the same S3 key.** The worker opened a new
+   `KnowledgeManifest` at `version+1` for the object, then ran its
+   persist transaction's `deleteMany` scoped to the *new* manifest id
+   (a no-op for a freshly-opened manifest). Chunks from the prior
+   manifest version survived. `/search` filtered chunks only by
+   `bucket_id`, so both old and new versions of the same object would
+   surface in results.
+2. **`DELETE` via the gateway.** The handler set
+   `S3Object.deleted_at` but never touched `KnowledgeChunk`. Search
+   didn't filter on the joined `S3Object.deleted_at` either, so chunks
+   from soft-deleted files kept appearing in results.
+
+Fixes:
+
+- **Worker** ([`embeddings.processor.ts`](apps/worker/src/embeddings/embeddings.processor.ts))
+  — persist tx now does `deleteMany({ where: { s3_object_id: object.id } })`
+  before inserting new chunks. Covers both retry (same manifest) and
+  re-upload (new manifest version) cases. Audit-trail manifests stay;
+  only their chunks evaporate.
+- **Gateway** ([`objects.write.controller.ts`](apps/gateway/src/s3/objects.write.controller.ts) `deleteObject`)
+  — resolves the row first, then wraps `knowledgeChunk.deleteMany` +
+  `s3Object.update(deleted_at=now())` in one `$transaction`. Atomic
+  by design — either both writes land or neither does.
+- **Search** ([`knowledge.service.ts`](apps/control-plane/src/knowledge/knowledge.service.ts))
+  — outer join with `S3Object` carries `AND s.deleted_at IS NULL`.
+  Defense-in-depth for future code paths that might forget to clean
+  up.
+
+Existing pollution can be cleaned with a bucket-wide `/reindex` — that
+flow already wipes chunks by `bucket_id` before re-enqueueing. Runbook
+entry added.
+

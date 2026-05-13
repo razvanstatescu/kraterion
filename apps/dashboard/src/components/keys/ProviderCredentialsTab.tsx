@@ -30,21 +30,20 @@ export function ProviderCredentialsTab({ projectId }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [replacing, setReplacing] = useState<ProviderCredentialJson | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<ProviderCredentialJson | null>(null);
-  // Cascade flow: the first DELETE 409s with the active-knowledge-bucket
-  // count; we move into the type-to-confirm state, the user types
-  // "remove", and we retry with cascade=true.
-  const [cascadeBuckets, setCascadeBuckets] = useState<number | null>(null);
+  // Type-to-confirm is mandatory for every remove. The user must type
+  // "remove" exactly — the confirm button stays disabled until they do.
   const [confirmText, setConfirmText] = useState("");
 
   const openai = (data?.credentials ?? []).find((c) => c.provider === "openai") ?? null;
+  // Count of project buckets that will be cascade-disabled when the
+  // credential is removed. Comes back on the list response so the
+  // modal can pre-fill its copy without a roundtrip.
+  const activeKnowledgeBuckets = data?.active_knowledge_buckets ?? 0;
 
-  // Reset the type-to-confirm input each time the modal opens or
-  // closes — never carry a stale "remove" across attempts.
+  // Reset the type-to-confirm input each time the modal closes — never
+  // carry a stale "remove" across attempts.
   useEffect(() => {
-    if (confirmRemove === null) {
-      setCascadeBuckets(null);
-      setConfirmText("");
-    }
+    if (confirmRemove === null) setConfirmText("");
   }, [confirmRemove]);
 
   const onAdd = () => {
@@ -58,11 +57,15 @@ export function ProviderCredentialsTab({ projectId }: Props) {
 
   const onRemoveConfirm = async () => {
     if (!confirmRemove) return;
-    const cascade = cascadeBuckets !== null;
+    if (confirmText.trim() !== "remove") return;
     try {
+      // Always cascade. The CP transaction is a no-op for the chunk /
+      // settings wipes when no buckets are active, and using a single
+      // path avoids a round-trip-then-retry dance just to handle the
+      // active-knowledge case.
       const res = await remove.mutateAsync({
         provider: confirmRemove.provider,
-        cascade,
+        cascade: true,
       });
       show({
         tone: "success",
@@ -74,16 +77,6 @@ export function ProviderCredentialsTab({ projectId }: Props) {
       });
       setConfirmRemove(null);
     } catch (err) {
-      if (
-        err instanceof ControlPlaneError &&
-        err.code === "PreconditionFailed" &&
-        err.details?.["reason"] === "active_knowledge_bases"
-      ) {
-        const count = Number(err.details["buckets_with_knowledge"] ?? 0);
-        setCascadeBuckets(Number.isFinite(count) ? count : 1);
-        setConfirmText("");
-        return;
-      }
       const message =
         err instanceof ControlPlaneError
           ? err.message
@@ -207,61 +200,57 @@ export function ProviderCredentialsTab({ projectId }: Props) {
         confirmLabel={
           remove.isPending
             ? "Removing…"
-            : cascadeBuckets !== null
+            : activeKnowledgeBuckets > 0
               ? "Remove and disable Knowledge"
               : "Remove key"
         }
-        confirmDisabled={cascadeBuckets !== null && confirmText.trim() !== "remove"}
+        confirmDisabled={confirmText.trim() !== "remove"}
         title={
-          cascadeBuckets !== null
+          activeKnowledgeBuckets > 0
             ? "This will disable Knowledge on every bucket"
             : "Remove OpenAI key?"
         }
         body={
-          cascadeBuckets !== null ? (
-            <>
+          <>
+            {activeKnowledgeBuckets > 0 ? (
               <p>
                 Removing this key will disable Knowledge on{" "}
                 <strong>
-                  {cascadeBuckets} bucket{cascadeBuckets === 1 ? "" : "s"}
+                  {activeKnowledgeBuckets} bucket
+                  {activeKnowledgeBuckets === 1 ? "" : "s"}
                 </strong>{" "}
                 in this project and delete every indexed chunk. Manifests
                 stay on chain for audit, but search and ask will return
                 nothing until you re-enable Knowledge with a new key.
               </p>
-              <p style={{ marginTop: 12 }}>
-                Type <code>remove</code> below to confirm.
-              </p>
-              <Input
-                autoFocus
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder="remove"
-                disabled={remove.isPending}
-                style={{ marginTop: 8 }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !remove.isPending &&
-                    confirmText.trim() === "remove"
-                  ) {
-                    void onRemoveConfirm();
-                  }
-                }}
-              />
-            </>
-          ) : (
-            <>
+            ) : (
               <p>
-                Indexing jobs and Knowledge search will fail until you configure
-                a new key. Already-indexed chunks stay in place — only new
-                ingestion and live queries break.
+                Indexing jobs and Knowledge search will fail until you
+                configure a new key. You can add a new key any time to
+                restore both flows.
               </p>
-              <p style={{ marginTop: 8 }}>
-                You can add a new key any time to restore both flows.
-              </p>
-            </>
-          )
+            )}
+            <p style={{ marginTop: 12 }}>
+              Type <code>remove</code> below to confirm.
+            </p>
+            <Input
+              autoFocus
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="remove"
+              disabled={remove.isPending}
+              style={{ marginTop: 8 }}
+              onKeyDown={(e) => {
+                if (
+                  e.key === "Enter" &&
+                  !remove.isPending &&
+                  confirmText.trim() === "remove"
+                ) {
+                  void onRemoveConfirm();
+                }
+              }}
+            />
+          </>
         }
       />
     </>

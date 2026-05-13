@@ -27,35 +27,40 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 
 ## Status
 
-- **Current week:** W3 (Dashboard) — running ~2 weeks ahead of plan.
-  Phases 0–6 of the gateway, the indexer, all 4 phases of the control
-  plane (auth + projects + API keys + read views + sponsored PTB
-  builders + Enoki zkLogin), and Phase A of the dashboard have all
-  landed.
-- **Days to submission:** 43
-- **Last reviewed:** 2026-05-09
+- **Current week:** W5 (Dashboard) calendar-wise; functionally past W6.
+  Storage path, read path & access, renewal worker, dashboard, and the
+  full AI-platform foundation (K0–K5 + P0 of the AI platform proposal)
+  have all landed. Running ~3 weeks ahead of plan.
+- **Days to submission:** 39
+- **Last reviewed:** 2026-05-13
 - **Status (complete):**
   - **On-chain:** Move package `0x73b1…fa14`, init-spawned reserve, TS
     bindings auto-synced.
   - **Gateway:** full S3 surface, 36/36 boto3 cases green. Bucket sort
     order is byte-wise UTF-8 (Postgres `COLLATE "C"`) matching AWS.
+    DELETE now atomically wipes `KnowledgeChunk` alongside the soft-delete.
   - **Indexer (worker):** gRPC checkpoint stream, all 5 active handlers,
     sole writer for `Bucket` / `S3Object`. Lag ≤ 30 s steady-state.
+    Embedding processor + manifest archive to Walrus.
   - **Control plane:** auth / projects / API keys / bucket reads /
-    4 sponsored-tx prepare endpoints / sponsor execute / Enoki
-    zkLogin. Live Enoki sponsorship round-trip verified on testnet
-    (tx `25k2…rUdJ`).
-  - **Dashboard (Phase A):** Next.js 16 App Router, providers tree
-    (Query → Sui → Enoki register → Wallet → Toast), 14 console-kit
-    primitives ported to typed React, design tokens shipped to the
-    browser. Boots in 186 ms; `/`, `/buckets`, `/keys` all 200.
+    sponsored-tx prepare endpoints / Enoki zkLogin / Knowledge endpoints
+    (`/search`, `/ask`, `/reindex`, backfill) / MCP server (bearer + OAuth 2.1
+    + DCR + RFC 9728) / project-scoped `ProviderCredential` table with
+    KMS-wrapped keys.
+  - **Dashboard:** full console — buckets list, object browser with
+    inspector drawer, public links, sponsored writes via Enoki, keys page
+    (tabbed: S3 access keys + AI providers), per-bucket Knowledge tab
+    (enable modal with model pickers + cost estimate, separate
+    "change embedding model" and "change chat model" actions, re-index
+    flow), MCP connect panel (API key + OAuth), Activity feed.
   - **Tests / typecheck:** 33/33 Vitest in control-plane, 36/36 boto3
-    in gateway, 4/4 workspace typecheck.
-- **Next:** Dashboard Phases B–H — sign-in (Enoki Google OAuth → CP
-  session), read views, sponsored writes (gas-free via Enoki), object
-  I/O via CP-signed presigned URLs, access keys page + quickstart
-  snippets, demo twists (cancel-subscription + revoke-API), optional
-  browser-side Seal decryption.
+    in gateway, all workspace `tsc --noEmit` clean.
+- **Next:** P2 — reranker after hybrid retrieval (~+15-25% relevance
+  lift, single extra API call, fits cleanly into `/search`'s existing
+  RRF stage). Defer P3+ (Agents resource), P5 (Guardrails), P6
+  (Embeddable widget) unless time allows. From W6 onward focus shifts
+  to demo-prep — demo video, README + architecture doc, deployed demo,
+  submission form.
 
 ## Cadence
 

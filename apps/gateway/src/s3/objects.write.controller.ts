@@ -418,11 +418,30 @@ export class ObjectsWriteController {
       throw new S3Error("NoSuchBucket", "The specified bucket does not exist.");
     }
 
-    // Idempotent — DELETE on a missing key returns 204 (S3 spec).
-    await this.prisma.s3Object.updateMany({
+    // Soft-delete the row AND drop the object's Knowledge chunks in
+    // the same transaction. Chunks reference the S3Object row id, not
+    // its deleted_at, so without the explicit wipe they survive the
+    // delete and would still surface in `/search` against the bucket.
+    // We do the chunk delete unconditionally — `deleteMany` is a
+    // no-op when the object had no chunks (Knowledge off, etc.).
+    //
+    // Idempotent — DELETE on a missing key returns 204 (S3 spec); we
+    // resolve the object first so a no-match falls through cleanly.
+    const target = await this.prisma.s3Object.findFirst({
       where: { bucket_id: bucketRow.id, s3_key: s3Key, deleted_at: null },
-      data: { deleted_at: new Date() },
+      select: { id: true },
     });
+    if (target) {
+      await this.prisma.$transaction([
+        this.prisma.knowledgeChunk.deleteMany({
+          where: { s3_object_id: target.id },
+        }),
+        this.prisma.s3Object.update({
+          where: { id: target.id },
+          data: { deleted_at: new Date() },
+        }),
+      ]);
+    }
     this.logger.log(`object soft-deleted: bucket=${bucketName} key=${s3Key}`);
   }
 }

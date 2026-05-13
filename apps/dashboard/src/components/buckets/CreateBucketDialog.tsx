@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/FormField";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
+import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
@@ -97,6 +98,7 @@ export function CreateBucketDialog({ open, onClose }: Props) {
   };
 
   return (
+    <Portal>
     <div className="ks-modal-scrim" onClick={busy ? undefined : onClose}>
       <div className="ks-modal" onClick={(e) => e.stopPropagation()}>
         <div className="ks-modal-head">
@@ -170,6 +172,7 @@ export function CreateBucketDialog({ open, onClose }: Props) {
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 

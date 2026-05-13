@@ -143,24 +143,13 @@ export class KnowledgeController {
     const row = await this.prisma.knowledgeBucketSettings.findUnique({
       where: { bucket_id: bucketId },
     });
-    // Aggregate manifest counts grouped by status, plus the total
-    // non-deleted-object count, so the dashboard's status panel can
-    // render "indexed N of M" without a second round-trip. Cheap —
-    // both are indexed counts.
     // total_bytes drives the enable-modal indexing-cost preview. Same
     // query plan as the count + a SUM in one pass.
-    const [statusCounts, objectAggregate] = await Promise.all([
-      this.prisma.knowledgeManifest.groupBy({
-        by: ["status"],
-        where: { bucket_id: bucketId, deleted_at: null },
-        _count: { _all: true },
-      }),
-      this.prisma.s3Object.aggregate({
-        where: { bucket_id: bucketId, deleted_at: null },
-        _count: { _all: true },
-        _sum: { size_bytes: true },
-      }),
-    ]);
+    const objectAggregate = await this.prisma.s3Object.aggregate({
+      where: { bucket_id: bucketId, deleted_at: null },
+      _count: { _all: true },
+      _sum: { size_bytes: true },
+    });
     const summary = {
       total_objects: objectAggregate._count._all,
       // size_bytes is a BigInt; stringify on the wire for browsers
@@ -171,10 +160,53 @@ export class KnowledgeController {
       failed: 0,
       skipped: 0,
     };
-    for (const row of statusCounts) {
-      const key = row.status as keyof typeof summary;
-      if (key in summary && key !== "total_objects" && key !== "total_bytes") {
-        summary[key] = row._count._all;
+    // Index status counts: start from `S3Object` (the source of truth
+    // for "objects currently in this bucket") and lateral-join the
+    // latest manifest per object. Manifests are retained for audit
+    // across enable/disable cycles and re-index passes, but for the
+    // status panel the user cares about *one* status per current
+    // object, not per manifest version. By starting the join from
+    // S3Object the result row count is an exact arithmetic identity
+    // with `total_objects` — the dashboard can never see
+    // `indexed + pending + failed + skipped > total_objects`.
+    //
+    // Objects without any manifest yet (just uploaded, worker not
+    // started) coalesce to 'pending' so they surface as queued instead
+    // of falling out of every counter.
+    //
+    // Worker writes `status='indexing'` for in-flight rows; we map
+    // that to 'pending' on the wire so the dashboard's "Pending"
+    // label covers both states.
+    //
+    // When Knowledge is off the chunks are gone — historical manifests
+    // are not user-relevant state, so zero everything instead of
+    // projecting from them.
+    if (row) {
+      type LatestRow = { status: string; count: bigint };
+      const rows = await this.prisma.$queryRaw<LatestRow[]>`
+        SELECT
+          COALESCE(m.status, 'pending') AS status,
+          COUNT(*)::bigint AS count
+        FROM "S3Object" o
+        LEFT JOIN LATERAL (
+          SELECT km.status
+          FROM "KnowledgeManifest" km
+          WHERE km.s3_object_id = o.id
+            AND km.deleted_at IS NULL
+          ORDER BY km.version DESC
+          LIMIT 1
+        ) m ON TRUE
+        WHERE o.bucket_id = ${bucketId}::text
+          AND o.deleted_at IS NULL
+        GROUP BY COALESCE(m.status, 'pending');
+      `;
+      const countableKeys = new Set(["indexed", "pending", "failed", "skipped"]);
+      for (const r of rows) {
+        const key = r.status === "indexing" ? "pending" : r.status;
+        if (countableKeys.has(key)) {
+          summary[key as "indexed" | "pending" | "failed" | "skipped"] +=
+            Number(r.count);
+        }
       }
     }
     return {

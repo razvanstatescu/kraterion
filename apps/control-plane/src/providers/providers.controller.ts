@@ -36,8 +36,15 @@ export class ProvidersController {
   async list(@Req() req: FastifyRequest, @Param("projectId") projectId: string) {
     const user = requireUser(req);
     await this.projects.getOwned(user.accountId, projectId);
-    const credentials = await this.credentials.list(projectId);
-    return { credentials };
+    // Active-knowledge count is cheap and lives at the project scope
+    // (credentials are project-scoped). The dashboard reads it to
+    // pre-fill the destructive remove-modal copy without needing a
+    // round-trip on open.
+    const [credentials, activeKnowledgeBuckets] = await Promise.all([
+      this.credentials.list(projectId),
+      this.credentials.countActiveKnowledgeBuckets(projectId),
+    ]);
+    return { credentials, active_knowledge_buckets: activeKnowledgeBuckets };
   }
 
   @Put("projects/:projectId/credentials/:provider")

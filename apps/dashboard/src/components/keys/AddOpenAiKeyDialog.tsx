@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/FormField";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
+import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { useUpsertCredential } from "@/lib/queries";
@@ -76,6 +77,7 @@ export function AddOpenAiKeyDialog({ open, onClose, projectId, replacingLast4 }:
   };
 
   return (
+    <Portal>
     <div className="ks-modal-scrim" onClick={busy ? undefined : onClose}>
       <div
         className="ks-modal"
@@ -130,5 +132,6 @@ export function AddOpenAiKeyDialog({ open, onClose, projectId, replacingLast4 }:
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

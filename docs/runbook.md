@@ -864,3 +864,41 @@ Apply to both `bucket` and every entry in `key[]` before constructing the gatewa
 
 **If indexing fails with `error_detail = "openai_credential_missing"`:** the project has no active OpenAI credential. Configure it on `/keys?tab=providers`, then re-enable Knowledge (or call `POST /v1/buckets/:id/knowledge/backfill`) on each affected bucket.
 
+
+---
+
+## Symptom: Knowledge "Index status" shows `Indexed N of M` with N > M (e.g. "Indexed 8 of 3")
+
+**Cause:** `KnowledgeManifest` rows are retained for audit across every enable/disable cycle and re-index pass — that's intentional (the on-chain verifiability trail relies on it). The `GET /v1/buckets/:id/knowledge` summary was grouping the full manifest table by status without deduping to the latest version per object, so each historical re-indexing pass added another row to the `indexed` / `skipped` / `failed` counters.
+
+There was also a related bug: workers write `status='indexing'` for in-flight rows, but the summary expected `pending` and silently dropped `indexing` rows from every counter.
+
+**Fix:** Start the join from `S3Object` (the source of truth for "current objects in this bucket") and use a `LEFT JOIN LATERAL ... LIMIT 1` to pull the latest manifest per object. The result row count is then an exact arithmetic identity with `total_objects` — `indexed + pending + failed + skipped > total_objects` becomes impossible by construction. `COALESCE(m.status, 'pending')` puts objects with no manifest yet (just uploaded, worker not started) under the "Pending" counter instead of dropping them. Also zero all counters when Knowledge is currently off, and remap worker-side `indexing` → wire-side `pending`. See [`knowledge.controller.ts`](apps/control-plane/src/knowledge/knowledge.controller.ts) `get()`.
+
+An earlier attempt at this fix used `SELECT DISTINCT ON (m.s3_object_id) … FROM "KnowledgeManifest" m INNER JOIN "S3Object" o ON o.id = m.s3_object_id`, theoretically equivalent but in practice still showed `N > total_objects` on a bucket that had been through many enable/disable cycles. The `S3Object`-first formulation is harder to get wrong; prefer it.
+
+**Observed:** 2026-05-13 on the bucket Knowledge tab after enabling/disabling Knowledge multiple times on the same bucket.
+
+**Notes:** If you ever introduce a new manifest status (`degraded`, `partial`, etc.), update both the worker write site and the `countableKeys` set in [`knowledge.controller.ts`](apps/control-plane/src/knowledge/knowledge.controller.ts) `get()` — otherwise it'll silently disappear from the summary.
+
+
+---
+
+## Symptom: Knowledge `/search` returns chunks from a deleted file, or from the pre-overwrite version of a file
+
+**Cause:** Two pre-existing chunk leaks in the Knowledge data path:
+
+1. **Re-upload of the same S3 key.** The worker opens a new `KnowledgeManifest` at `version + 1` for the object, but its persist transaction was wiping chunks scoped to the *new* `manifest_id` (a no-op on a freshly-opened manifest). Chunks from the prior manifest version survived, and `/search` reads `KnowledgeChunk` filtered only by `bucket_id` — no version filter — so both old and new chunks for the same object would surface.
+
+2. **`DELETE` via the gateway.** The handler set `S3Object.deleted_at` but never touched `KnowledgeChunk`. The search query also didn't filter on the joined `S3Object`'s `deleted_at`, so chunks from soft-deleted files kept appearing in results.
+
+**Fix:**
+
+- **Worker** ([`apps/worker/src/embeddings/embeddings.processor.ts`](apps/worker/src/embeddings/embeddings.processor.ts)) — persist transaction now does `deleteMany({ where: { s3_object_id: object.id } })` before inserting the new chunks. Covers both the retry case and the re-upload case in one statement, since chunks for every manifest version of the object get cleared. The audit-trail manifests stay; only their chunks evaporate.
+- **Gateway** ([`apps/gateway/src/s3/objects.write.controller.ts`](apps/gateway/src/s3/objects.write.controller.ts) `deleteObject`) — resolves the target row first, then wraps `knowledgeChunk.deleteMany` + `s3Object.update(deleted_at=now())` in one Prisma `$transaction`. Atomic: either both writes land or neither does.
+- **Search** ([`apps/control-plane/src/knowledge/knowledge.service.ts`](apps/control-plane/src/knowledge/knowledge.service.ts)) — outer join with `S3Object` now carries `AND s.deleted_at IS NULL`. Belt-and-suspenders for any code path that ever forgets to clean up.
+
+**Observed:** 2026-05-13, while verifying the manifest-count summary fix.
+
+**Notes:** The existing `/reindex` and disable flows already wipe chunks scoped by `bucket_id`, so they didn't have this leak. The defensive search filter means any *future* code path that creates orphan chunks (a dev script, an aborted backfill, etc.) won't pollute results until the cleanup lands.
+

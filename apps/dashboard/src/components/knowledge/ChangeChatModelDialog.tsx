@@ -5,6 +5,7 @@ import { CHAT_MODELS, DEFAULT_CHAT_MODEL_ID } from "@kraterion/shared";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { Pill } from "@/components/ui/Pill";
+import { Portal } from "@/components/ui/Portal";
 
 interface Props {
   open: boolean;
@@ -39,6 +40,7 @@ export function ChangeChatModelDialog({
   if (!open) return null;
 
   return (
+    <Portal>
     <div
       className="ks-modal-scrim"
       onClick={busy ? undefined : onCancel}
@@ -157,5 +159,6 @@ export function ChangeChatModelDialog({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
