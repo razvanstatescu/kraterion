@@ -20,6 +20,7 @@ import {
   type ApiKeyJson,
   type BucketJson,
   type FolderMarkerJson,
+  type MintBearerResponse,
   type ProjectJson,
   type ProviderCredentialJson,
   type ProviderName,
@@ -319,6 +320,25 @@ export function useRevokeApiKey(projectId: string | undefined) {
     mutationFn: async (apiKeyId: string) =>
       cpFetch<{ id: string; revoked_at: string }>(`/v1/api-keys/${apiKeyId}/revoke`, {
         method: "POST",
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "api-keys", projectId ?? "none"] });
+    },
+  });
+}
+
+/**
+ * Mint a unified bearer token (`kr_live_…` / `kr_test_…`). The cleartext
+ * is returned once in the response body; the UI shows it behind a
+ * "shown only once" warning and forgets it on close.
+ */
+export function useMintBearerToken(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) =>
+      cpFetch<MintBearerResponse>(`/v1/projects/${projectId}/api-keys/bearer`, {
+        method: "POST",
+        body: { name },
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "api-keys", projectId ?? "none"] });

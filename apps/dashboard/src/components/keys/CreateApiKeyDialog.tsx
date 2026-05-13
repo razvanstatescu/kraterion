@@ -118,11 +118,11 @@ export function CreateApiKeyDialog({ open, onClose, projectId }: Props) {
             <FormField label="Access key id (AKIA)">
               <div className="ks-codeline mono" style={{ cursor: "default" }}>
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {minted.api_key.access_key_id}
+                  {minted.api_key.access_key_id ?? "—"}
                 </span>
                 <button
                   className="icon-btn"
-                  onClick={() => void onCopy("akia", minted.api_key.access_key_id)}
+                  onClick={() => void onCopy("akia", minted.api_key.access_key_id ?? "")}
                   title="Copy AKIA"
                   type="button"
                 >
@@ -152,7 +152,7 @@ export function CreateApiKeyDialog({ open, onClose, projectId }: Props) {
             <div>
               <div className="micro" style={{ marginBottom: 8 }}>Quickstart</div>
               <QuickstartCode
-                accessKeyId={minted.api_key.access_key_id}
+                accessKeyId={minted.api_key.access_key_id ?? ""}
                 secret={minted.secret}
               />
             </div>

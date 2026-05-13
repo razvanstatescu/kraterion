@@ -3360,3 +3360,93 @@ Captured here so the v2 round doesn't relearn them:
     lands with the function-calling work; until then the agent
     can't use tools regardless of the model's behavior.
 
+
+## 2026-05-13 [auth] Unified bearer API tokens (`kr_live_`/`kr_test_`); MCP K3a colon-format dropped
+
+Shipped the unified programmatic credential. One token now works
+across CRUD, agent chat, knowledge, and MCP — matching the Stripe /
+OpenAI / Anthropic pattern. Decision write-up:
+`docs/decisions.md` 2026-05-13.
+
+**Schema (additive migration `20260513170000_unified_bearer_tokens`).**
+`ApiKey.kind` discriminator (`"s3"` | `"bearer"`); existing rows default
+to `"s3"`. Bearer rows populate `token_hash` (sha256, unique) +
+`token_prefix` (cosmetic) + `network` + `scopes`. `access_key_id` and
+`secret_wrapped` made nullable. No data migration, no separate table.
+
+**Control plane.**
+
+- New `apps/control-plane/src/api-keys/bearer.ts` — mint
+  (`kr_<env>_<36 url-safe chars>`), hash (sha256), parse, network
+  detection from `SUI_NETWORK`. `kr_live_` for mainnet,
+  `kr_test_` for testnet/devnet. ~214 bits entropy in the body.
+- `ApiKeysService.mintBearer` + `createBearerForProject`. Stores only
+  the hash; cleartext is returned exactly once and dropped. List
+  redactor strips both `secret_wrapped` and `token_hash`.
+- New `BearerResolver` (`apps/control-plane/src/auth/bearer-resolver.ts`):
+  sha256 → `ApiKey` row → `ApiKeyPrincipal`. Rejects malformed,
+  wrong-network, unknown-hash, revoked, suspended-account tokens —
+  all return `null` so the guard renders a uniform 401 (no probing).
+- `AuthGuard` extended to dispatch by token shape: JWT (`eyJ`-prefix)
+  → existing `TokensService.verify`; `kr_<env>_…` → `BearerResolver`.
+  Both paths populate the new `req.principal` union; session path
+  also keeps `req.user` populated so legacy `requireUser` callers
+  unchanged. New `requirePrincipal` / `assertProjectAccess` /
+  `asSession` / `asApiKey` helpers in `request-context.ts`.
+- New `POST /v1/projects/:projectId/api-keys/bearer` controller
+  route. Returns `{ api_key, token, network, WARNING }` with the
+  one-time-reveal pattern the existing AKIA path already established.
+- MCP guard: deleted the `<AKIA>:<secret>` colon-parse branch.
+  Replaced with `bearer.resolve(token)` → `McpPrincipal` with
+  `scopes: ["mcp:*"]` when the row's scopes are empty (full access).
+  OAuth K3b path untouched. `McpPrincipal` doc updated.
+
+**Surfaces opened to bearer (`requirePrincipal` instead of `requireUser`).**
+agents (CRUD + chat), buckets, objects, folders, knowledge, presign,
+activity. The agent chat endpoint additionally enforces
+`principal.projectId === agent.project_id` for bearer auth — refuse
+cross-project use within the same account.
+
+**Session-only retained.** `/v1/auth/*`, `/v1/accounts/me`,
+`/v1/projects/*` (account-level), `/v1/providers/*` (account-scoped
+config), `/v1/oauth/*`, key minting itself, and prepare (Sui tx
+builders tied to the user's wallet). Gateway stays SigV4-only.
+
+**Audit.** `AgentInvocation` and `KnowledgeQuery.search` now populate
+`api_key_id` on bearer-auth requests; `user_id` on session-auth.
+
+**Dashboard.** `/keys` rebuilt into three tabs:
+- **API tokens** (default) — bearer list with token prefix preview,
+  network pill (testnet/mainnet), revoke, quickstart code.
+- **S3 access keys** — existing AKIA UI, subtitle clarifies "Use these
+  only with S3 SDKs."
+- **AI providers** — ProviderCredential, unchanged.
+
+New `CreateBearerTokenDialog` mirrors the AKIA dialog: name input →
+mint → one-time-reveal panel with copy button + Stripe-style "shown
+only once" warning + quickstart snippets. New `BearerQuickstartCode`
+covers curl, OpenAI SDK (base_url override), MCP
+`claude_desktop_config.json`, vanilla fetch. `ConnectAgentPanel` on
+the knowledge page rewritten to mint + reference bearer tokens (and
+removed the `<AKIA>:<secret>` snippet entirely).
+
+**Gateway.** `lookupApiKey` tightened to refuse rows with `kind !==
+"s3"` or null `secret_wrapped` — a bearer token presented as an AKIA
+returns `InvalidAccessKeyId` (correct).
+
+**Tested manually.** Mint kr_test_ → curl `/v1/agents` → 200.
+Mint AKIA → SigV4 against gateway → unaffected. MCP curl with old
+`<AKIA>:<secret>` → 401. MCP curl with `kr_test_` → 200, `tools/list`
+returns the expected catalog. OAuth K3b path → still works (Claude
+Desktop). Revoke bearer → 401 immediately.
+
+**Known follow-ups.**
+- Network mismatch error message could be more specific than a generic
+  401 ("this is a test token; the server is in live mode"). The
+  current text is intentional (uniform 401 prevents probing) but the
+  CLI/SDK story would benefit from a structured error code.
+- Cross-project access tightening for buckets / knowledge / objects /
+  folders (today they rely on the service-layer `account_id` check —
+  same risk profile as the existing S3 AKIA keys).
+- Per-key scopes (`ApiKey.scopes` column scaffolded; v1 mints empty =
+  full access).

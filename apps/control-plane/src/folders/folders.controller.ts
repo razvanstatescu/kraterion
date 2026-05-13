@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requireUser } from "../auth/request-context.js";
+import { requirePrincipal } from "../auth/request-context.js";
 import { parseBody, parseQuery } from "../validation/zod-pipe.js";
 import {
   type CreateFolderDto,
@@ -26,7 +26,7 @@ export class FoldersController {
     @Param("bucketId") bucketId: string,
     @Query(parseQuery(listFoldersQuerySchema)) q: ListFoldersQuery,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const rows = await this.folders.list(user.accountId, bucketId, { prefix: q.prefix });
     return {
       folders: rows.map((r) => ({
@@ -45,7 +45,7 @@ export class FoldersController {
     @Param("bucketId") bucketId: string,
     @Body(parseBody(createFolderSchema)) dto: CreateFolderDto,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const row = await this.folders.create({
       accountId: user.accountId,
       bucketId,
@@ -69,7 +69,7 @@ export class FoldersController {
     @Param("bucketId") bucketId: string,
     @Param("markerId") markerId: string,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     await this.folders.deleteById(user.accountId, bucketId, markerId);
   }
 
@@ -79,7 +79,7 @@ export class FoldersController {
     @Param("bucketId") bucketId: string,
     @Query(parseQuery(folderPreviewQuerySchema)) q: FolderPreviewQuery,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     return this.folders.previewPurge({
       accountId: user.accountId,
       bucketId,
@@ -94,7 +94,7 @@ export class FoldersController {
     @Param("bucketId") bucketId: string,
     @Body(parseBody(purgeFolderSchema)) dto: PurgeFolderDto,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     return this.folders.purge({
       accountId: user.accountId,
       bucketId,

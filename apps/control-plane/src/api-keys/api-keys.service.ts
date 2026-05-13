@@ -4,6 +4,7 @@ import { KeyWrappingService } from "../auth/key-wrapping.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { newAkia, newSecret } from "./akia.js";
+import { mintBearerToken, networkFromEnv } from "./bearer.js";
 
 export interface MintedApiKey {
   apiKey: ApiKey;
@@ -11,12 +12,22 @@ export interface MintedApiKey {
   secret: string;
 }
 
-/** Public-facing shape: secret_wrapped stripped, never serialized. */
-export type RedactedApiKey = Omit<ApiKey, "secret_wrapped">;
+export interface MintedBearer {
+  apiKey: ApiKey;
+  /** Cleartext token (`kr_live_…` / `kr_test_…`); returned once at mint time. */
+  token: string;
+}
+
+/**
+ * Public-facing shape: `secret_wrapped` and `token_hash` are both stripped.
+ * The hash isn't directly exploitable (you'd need a preimage to use it as
+ * a token) but there is no reason to ship it to the wire.
+ */
+export type RedactedApiKey = Omit<ApiKey, "secret_wrapped" | "token_hash">;
 
 function redact(row: ApiKey): RedactedApiKey {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { secret_wrapped, ...rest } = row;
+  const { secret_wrapped, token_hash, ...rest } = row;
   return rest;
 }
 
@@ -51,11 +62,49 @@ export class ApiKeysService {
       data: {
         project_id: projectId,
         name,
+        kind: "s3",
         access_key_id: akia,
         secret_wrapped: wrapped,
       },
     });
     return { apiKey, secret };
+  }
+
+  /**
+   * Mint a unified bearer token (`kr_live_…` / `kr_test_…`). The prefix
+   * reflects `SUI_NETWORK` at mint time; the bearer guard later refuses
+   * cross-network use the same way Stripe refuses `sk_test_` in live mode.
+   */
+  async mintBearer(
+    projectId: string,
+    name: string,
+    scopes: string[] = [],
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<MintedBearer> {
+    const network = networkFromEnv();
+    const { token, hash, display } = mintBearerToken(network);
+    const apiKey = await tx.apiKey.create({
+      data: {
+        project_id: projectId,
+        name,
+        kind: "bearer",
+        token_hash: hash,
+        token_prefix: display,
+        network,
+        scopes,
+      },
+    });
+    return { apiKey, token };
+  }
+
+  async createBearerForProject(
+    accountId: string,
+    projectId: string,
+    name: string,
+    scopes: string[] = [],
+  ): Promise<MintedBearer> {
+    await this.assertProjectOwned(accountId, projectId);
+    return this.mintBearer(projectId, name, scopes);
   }
 
   /**

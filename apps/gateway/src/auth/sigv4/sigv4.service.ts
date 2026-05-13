@@ -227,10 +227,18 @@ export class Sigv4VerificationService {
       where: { access_key_id: accessKeyId },
       include: { project: true },
     });
-    if (!row || row.revoked_at !== null) {
+    // `kind="bearer"` rows live in the same table but have no signing
+    // material. They should never reach SigV4 (no AKIA in `Credential=`)
+    // but we guard anyway: refuse cross-protocol use as InvalidAccessKeyId.
+    if (
+      !row ||
+      row.revoked_at !== null ||
+      row.kind !== "s3" ||
+      !row.secret_wrapped
+    ) {
       throw new S3Error("InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records.");
     }
-    return row;
+    return row as typeof row & { secret_wrapped: Buffer };
   }
 
   private unwrapSecret(wrapped: Buffer | Uint8Array): string {

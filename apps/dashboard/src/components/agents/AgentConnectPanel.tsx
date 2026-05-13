@@ -131,12 +131,16 @@ export function AgentConnectPanel({ agent }: Props) {
 
   const endpoint = `/v1/agents/${agent.id}/chat/completions`;
   const curl = `curl -X POST '<your-control-plane-url>${endpoint}' \\
-  -H 'Authorization: Bearer <your-session-or-api-key>' \\
+  -H 'Authorization: Bearer kr_test_<your-token>' \\
   -H 'Content-Type: application/json' \\
   -d '{
     "messages": [{ "role": "user", "content": "What does the latest contract say about indemnity?" }],
     "stream": false
-  }'`;
+  }'
+
+# Mint a token from /keys → "API tokens". One token works across the
+# CRUD API, agent chat, knowledge search, and MCP — same as Stripe's
+# sk_live_/sk_test_ pattern.`;
 
   const allGranted =
     data &&

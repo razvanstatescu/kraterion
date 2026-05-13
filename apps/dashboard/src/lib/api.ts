@@ -141,10 +141,25 @@ export interface ApiKeyJson {
   id: string;
   project_id: string;
   name: string;
-  access_key_id: string;
+  /** "s3" (AKIA SigV4 keys) or "bearer" (kr_live_/kr_test_ tokens). */
+  kind: "s3" | "bearer";
+  // S3-only fields:
+  access_key_id: string | null;
+  // Bearer-only fields:
+  token_prefix: string | null;
+  network: "testnet" | "mainnet" | null;
+  scopes: string[];
   last_used_at: string | null;
   created_at: string;
   revoked_at: string | null;
+}
+
+export interface MintBearerResponse {
+  api_key: ApiKeyJson;
+  /** Cleartext token — shown to the user exactly once. */
+  token: string;
+  network: "testnet" | "mainnet";
+  WARNING: string;
 }
 
 /**

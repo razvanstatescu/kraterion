@@ -1,6 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { timingSafeEqual } from "node:crypto";
-import { KeyWrappingService } from "../auth/key-wrapping.service.js";
+import { BearerResolver } from "../auth/bearer-resolver.js";
 import { OAuthService } from "../oauth/oauth.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { McpPrincipal, McpScope } from "./mcp.types.js";
@@ -8,33 +7,32 @@ import type { McpPrincipal, McpScope } from "./mcp.types.js";
 /**
  * Pluggable MCP auth guard.
  *
- * K3a implements only the **bearer/API-key** branch. The `eyJ`-prefixed
- * detection + OAuth-JWT branch is wired in K3b without touching tool
- * handlers (per `docs/ai-features-plan.md` §6.4.0 — same guard, two
- * resolution paths, one `McpPrincipal` contract).
+ * Two resolution paths, one `McpPrincipal` contract — tool handlers
+ * never branch on which path produced the principal:
  *
- * Why not a Nest `@UseGuards(...)` decorator on the controller:
+ *   1. **OAuth 2.1 + PKCE (RFC 6749 / 7591 / 9728)**. Caller sends an
+ *      `eyJ`-prefixed JWT minted by `/oauth/token`. We validate the
+ *      signature + `aud` (RFC 8707) + `exp`. The granted scope list is
+ *      taken verbatim from the JWT. This is the path the MCP spec
+ *      mandates for remote servers and the one Claude Desktop / Cursor
+ *      use via DCR + browser-consent.
  *
- *   The MCP Streamable HTTP transport hijacks the
- *   request/response cycle inside `handleRequest(req, res)` —
- *   Nest's interceptor pipeline never sees the JSON-RPC envelope.
- *   So this guard is invoked **manually** at the top of
- *   `POST /mcp` before the transport gets the request. On failure
- *   we write a `401 WWW-Authenticate: Bearer realm="kraterion-mcp"`
- *   response ourselves (K3b extends with `resource_metadata=...`).
+ *   2. **Bearer API token (`kr_live_…` / `kr_test_…`)**. Caller sends an
+ *      opaque token minted by the dashboard. The same `BearerResolver`
+ *      that powers the control plane's CRUD auth resolves it here, so
+ *      one token works across CRUD, agent chat, knowledge, and MCP.
  *
- * Bearer format: `<AKIA>:<secret>`. We pick AKIA-prefixed because:
- *   - existing Kraterion API keys already render as that pair in the
- *     dashboard's keys page,
- *   - AKIA is uniquely indexed on `ApiKey.access_key_id` so the
- *     lookup is O(1) — no scan,
- *   - the secret is in a uniformly-wrapped DB column, unwrap +
- *     `timingSafeEqual` is the same pattern the SigV4 verifier uses.
+ * The legacy `<AKIA>:<secret>` colon-format (K3a, pre-2026-05-13) is
+ * gone — S3 access keys never reach this guard. See `docs/decisions.md`
+ * for the rationale (drop the colon-format; unify on prefixed bearer
+ * tokens à la Stripe/OpenAI/Anthropic).
  *
- * A cleaner "single-token" variant (just the secret, with an HMAC
- * fingerprint column on `ApiKey` for O(1) lookup) is a follow-up; the
- * AKIA-prefixed form is fine for hackathon scope and matches what the
- * dashboard already shows the user.
+ * Why not a Nest `@UseGuards(...)` decorator on the controller: the MCP
+ * Streamable HTTP transport hijacks the request/response cycle inside
+ * `handleRequest(req, res)`, so Nest's interceptor pipeline never sees
+ * the JSON-RPC envelope. This guard is invoked manually at the top of
+ * `POST /mcp`; on failure the controller writes a
+ * `401 WWW-Authenticate: Bearer realm="kraterion-mcp"` directly.
  */
 @Injectable()
 export class McpAuthGuard {
@@ -42,22 +40,16 @@ export class McpAuthGuard {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly keyWrapping: KeyWrappingService,
     private readonly oauth: OAuthService,
+    private readonly bearer: BearerResolver,
   ) {}
 
   /**
    * Resolve the principal for an MCP request, or return null if the
    * `Authorization` header is missing / malformed / invalid.
    *
-   * Dispatch:
-   *   - JWT (`eyJ`-prefixed) → K3b OAuth branch. Validates signature,
-   *     `aud` against the live MCP URL (RFC 8707), and `exp`.
-   *   - Anything else → K3a API-key branch (`<AKIA>:<secret>`).
-   *
    * Returning null instead of throwing keeps the controller's 401
-   * response handling in one place (auth guard branch in the
-   * controller's `handle()` early-return).
+   * response handling in one place.
    */
   async authenticate(
     authorizationHeader: string | undefined,
@@ -70,12 +62,12 @@ export class McpAuthGuard {
     if (!token) return null;
 
     // JWTs always start with the base64url of `{"alg":...}` which is
-    // `eyJ`. Detection is cheap; if the parse / verify fails we
-    // return null and the controller serves 401.
+    // `eyJ`. Detection is cheap; if parse / verify fails we return null
+    // and the controller serves 401.
     if (token.startsWith("eyJ") && token.split(".").length === 3) {
       return this.authenticateOAuth(token, expectedAudience);
     }
-    return this.authenticateApiKey(token);
+    return this.authenticateBearer(token);
   }
 
   private async authenticateOAuth(
@@ -102,79 +94,32 @@ export class McpAuthGuard {
     }
   }
 
-  private async authenticateApiKey(token: string): Promise<McpPrincipal | null> {
-    const colon = token.indexOf(":");
-    if (colon < 0) {
-      this.logger.debug("bearer token missing AKIA:secret separator");
-      return null;
-    }
-    const akia = token.slice(0, colon);
-    const presented = token.slice(colon + 1);
-    if (!akia || !presented) return null;
-
-    const apiKey = await this.prisma.apiKey.findUnique({
-      where: { access_key_id: akia },
-      include: {
-        project: {
-          select: {
-            id: true,
-            account_id: true,
-            account: { select: { status: true } },
-          },
-        },
-      },
-    });
-    if (!apiKey || apiKey.revoked_at !== null) {
-      this.logger.debug(`unknown or revoked AKIA: ${akia}`);
-      return null;
-    }
-    if (apiKey.project.account.status !== "active") {
-      // Cancel-subscription (twist 1) flips status to "cancelled". The
-      // MCP surface must follow the same "account is over" semantics as
-      // the gateway's SDK paths — without this, connected agents keep
-      // working until the API key is manually revoked.
-      this.logger.debug(
-        `API-key auth: account ${apiKey.project.account_id} is ${apiKey.project.account.status}`,
-      );
-      return null;
-    }
-
-    let actualSecret: string;
-    try {
-      actualSecret = this.keyWrapping.unwrap(apiKey.secret_wrapped).toString("utf8");
-    } catch (err) {
-      this.logger.error(`secret unwrap failed for ${akia}: ${(err as Error).message}`);
-      return null;
-    }
-
-    const presentedBuf = Buffer.from(presented, "utf8");
-    const actualBuf = Buffer.from(actualSecret, "utf8");
-    if (
-      presentedBuf.length !== actualBuf.length ||
-      !timingSafeEqual(presentedBuf, actualBuf)
-    ) {
-      this.logger.debug(`secret mismatch for ${akia}`);
-      return null;
-    }
-
+  private async authenticateBearer(token: string): Promise<McpPrincipal | null> {
+    const resolved = await this.bearer.resolve(token);
+    if (!resolved) return null;
+    // Bearer tokens currently mint with empty `scopes` (full project
+    // access); we map that to ['mcp:*'] so `principalSatisfies` keeps
+    // working unchanged. When per-key scoping ships, narrow this to
+    // the intersection of granted scopes ∩ KNOWN_MCP_SCOPES.
+    const scopes: McpScope[] =
+      resolved.scopes.length === 0
+        ? ["mcp:*"]
+        : resolved.scopes.filter((s): s is McpScope =>
+            KNOWN_MCP_SCOPES.has(s as McpScope),
+          );
+    if (scopes.length === 0) return null;
     return {
-      account_id: apiKey.project.account_id,
-      project_id: apiKey.project.id,
-      api_key_id: apiKey.id,
-      scopes: ["mcp:*"],
+      account_id: resolved.accountId,
+      project_id: resolved.projectId,
+      api_key_id: resolved.apiKeyId,
+      scopes,
     };
   }
 
   /**
-   * Single-row lookup on `Account.status`. Called from both auth
-   * branches so cancel-subscription (twist 1) cuts MCP access too — not
-   * just gateway SDK access. Fail-closed on missing or non-"active"
-   * accounts.
-   *
-   * Cost: one indexed PK lookup per MCP request. At hackathon traffic
-   * this is sub-millisecond. If MCP load grows past low-100s req/s, the
-   * right fix is a 30-second Redis cache keyed by `account:<id>:status`
-   * with invalidation on the cancel-subscription endpoint.
+   * Single-row lookup on `Account.status`. Called from the OAuth path
+   * so cancel-subscription cuts MCP access too. The bearer path already
+   * checks account status inside `BearerResolver.resolve`.
    */
   private async isAccountActive(accountId: string): Promise<boolean> {
     const account = await this.prisma.account.findUnique({

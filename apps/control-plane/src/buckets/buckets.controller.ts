@@ -1,7 +1,7 @@
 import { Controller, Get, Logger, Param, Query, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requireUser } from "../auth/request-context.js";
+import { requirePrincipal } from "../auth/request-context.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SuiClientService } from "../sui/sui-client.service.js";
 import { parseQuery } from "../validation/zod-pipe.js";
@@ -30,7 +30,7 @@ export class BucketsController {
     @Req() req: FastifyRequest,
     @Query(parseQuery(listBucketsQuerySchema)) q: ListBucketsQuery,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const page = await this.buckets.listForAccount(user.accountId, {
       projectId: q.project_id,
       includeDeleted: q.include_deleted,
@@ -82,7 +82,7 @@ export class BucketsController {
 
   @Get(":bucketId")
   async get(@Req() req: FastifyRequest, @Param("bucketId") bucketId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const bucket = await this.buckets.getOwned(user.accountId, bucketId);
     const [k, stat, chain] = await Promise.all([
       this.prisma.knowledgeBucketSettings.findUnique({
@@ -153,7 +153,7 @@ export class BucketsController {
     @Param("bucketId") bucketId: string,
     @Query(parseQuery(listObjectsQuerySchema)) q: ListObjectsQuery,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const page = await this.buckets.listObjects(user.accountId, bucketId, {
       prefix: q.prefix,
       includeDeleted: q.include_deleted,

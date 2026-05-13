@@ -102,14 +102,23 @@ export class PresignService {
     akia: string;
     secret: string;
   }> {
+    // Only S3 SigV4 keys can sign gateway requests. Bearer tokens
+    // (`kr_live_…` / `kr_test_…`) coexist in this table but don't carry
+    // an AKIA/secret pair.
     const key = await this.prisma.apiKey.findFirst({
-      where: { project_id: projectId, revoked_at: null },
+      where: {
+        project_id: projectId,
+        revoked_at: null,
+        kind: "s3",
+        access_key_id: { not: null },
+        secret_wrapped: { not: null },
+      },
       orderBy: { created_at: "desc" },
     });
-    if (!key) {
+    if (!key || !key.access_key_id || !key.secret_wrapped) {
       throw new ControlPlaneError(
         "Conflict",
-        "No usable API key for this project. Mint one on /keys first.",
+        "No usable S3 access key for this project. Mint one on /keys first.",
         { project_id: projectId },
       );
     }

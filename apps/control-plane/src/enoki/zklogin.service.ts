@@ -143,7 +143,9 @@ export class ZkLoginService {
         project: { id: result.project.id, name: result.project.name },
         bootstrap_api_key: {
           id: result.minted.apiKey.id,
-          access_key_id: result.minted.apiKey.access_key_id,
+          // `mint()` always populates `access_key_id` for kind="s3", so
+          // the nullable column type is overly cautious here.
+          access_key_id: result.minted.apiKey.access_key_id!,
           secret: result.minted.secret,
         },
         created: true,

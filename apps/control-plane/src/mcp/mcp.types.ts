@@ -2,19 +2,19 @@
  * `McpPrincipal` — the resolved identity of an authenticated MCP
  * request, returned by the auth guard and consumed by tool handlers.
  *
- * Two authentication paths produce a principal (per
- * `docs/ai-features-plan.md` §6.4.0):
+ * Two authentication paths produce a principal:
  *
- *   - **API-key Bearer (K3a, this phase).** Caller sends
- *     `Authorization: Bearer <AKIA>:<secret>`. We look up the
- *     `ApiKey` row by `access_key_id`, KMS-unwrap the secret,
- *     constant-time compare. Resolves to `project_id` + `api_key_id`.
- *     `scopes` is `['mcp:*']` (API-key auth gets the full surface).
+ *   - **Bearer API token (`kr_live_…` / `kr_test_…`).** Resolved via the
+ *     shared `BearerResolver` against `ApiKey.token_hash`. Resolves to
+ *     `project_id` + `api_key_id`. `scopes` is `['mcp:*']` while
+ *     per-key scoping remains a future feature (empty scopes column =
+ *     full project access).
  *
- *   - **OAuth 2.1 + PKCE (K3b, future).** Caller sends an `eyJ`-prefixed
- *     JWT. We validate signature + `aud` + Redis denylist. Resolves to
- *     `project_id` + `user_id` + the granted `scopes`. Tools enforce
- *     per-scope authorization at the top of each handler.
+ *   - **OAuth 2.1 + PKCE (RFC 6749 / 7591 / 9728).** Caller sends an
+ *     `eyJ`-prefixed JWT minted by `/oauth/token`. We validate signature
+ *     + `aud` + `exp`. Resolves to `project_id` + `user_id` + the
+ *     granted `scopes`. Tools enforce per-scope authorization at the
+ *     top of each handler.
  *
  * Tool handlers consume `McpPrincipal` and never branch on which path
  * produced it — that's the entire point of the pluggable guard.

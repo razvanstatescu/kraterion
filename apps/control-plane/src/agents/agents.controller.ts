@@ -16,7 +16,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_CHAT_MODEL_ID, isKnownChatModel } from "@kraterion/shared";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requireUser } from "../auth/request-context.js";
+import { requirePrincipal } from "../auth/request-context.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { KnowledgeService } from "../knowledge/knowledge.service.js";
@@ -61,7 +61,7 @@ export class AgentsController {
 
   @Get("agents")
   async list(@Req() req: FastifyRequest, @Query("project_id") projectId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     if (!projectId) {
       throw new ControlPlaneError(
         "InvalidArgument",
@@ -78,14 +78,14 @@ export class AgentsController {
     @Param("projectId") projectId: string,
     @Body(parseBody(createAgentSchema)) dto: CreateAgentDto,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const agent = await this.agents.create(user.accountId, projectId, dto);
     return { agent };
   }
 
   @Get("agents/:agentId")
   async read(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const agent = await this.agents.getOwned(user.accountId, agentId);
     return { agent };
   }
@@ -96,14 +96,14 @@ export class AgentsController {
     @Param("agentId") agentId: string,
     @Body(parseBody(updateAgentSchema)) dto: UpdateAgentDto,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const agent = await this.agents.update(user.accountId, agentId, dto);
     return { agent };
   }
 
   @Post("agents/:agentId/revoke")
   async revoke(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const agent = await this.agents.revoke(user.accountId, agentId);
     return { agent };
   }
@@ -115,7 +115,7 @@ export class AgentsController {
    */
   @Get("agents/:agentId/grants")
   async grants(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const grants = await this.agents.listGrants(user.accountId, agentId);
     return { grants };
   }
@@ -123,7 +123,7 @@ export class AgentsController {
   @Delete("agents/:agentId")
   @HttpCode(204)
   async remove(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     await this.agents.remove(user.accountId, agentId);
   }
 
@@ -140,8 +140,15 @@ export class AgentsController {
     @Param("agentId") agentId: string,
     @Body(parseBody(chatCompletionsSchema)) dto: ChatCompletionsDto,
   ) {
-    const user = requireUser(req);
+    const user = requirePrincipal(req);
     const agent = await this.agents.getOwnedRow(user.accountId, agentId);
+
+    // Bearer tokens are project-scoped — refuse cross-project use even
+    // when the underlying account owns both projects. Session principals
+    // are account-scoped and pass through.
+    if (user.kind === "api_key" && user.projectId !== agent.project_id) {
+      throw new ControlPlaneError("NotFound", "Agent not found");
+    }
 
     if (agent.status !== "active") {
       throw new ControlPlaneError(
@@ -194,14 +201,16 @@ export class AgentsController {
     // Audit row up-front so credential / provider failures still
     // produce a trace. The row starts `pending`; we patch it to
     // 'completed' or 'failed' before returning / on error.
+    //
+    // Auth-method bookkeeping:
+    //   - session → user_id = accountId, api_key_id = null
+    //   - bearer  → api_key_id = the token's row id, user_id = null
     const invocation = await this.prisma.agentInvocation.create({
       data: {
         agent_id: agent.id,
         project_id: agent.project_id,
-        // Session JWT carries `accountId` — one principal per account
-        // for the v1 submission, so we denormalize that here. API-key /
-        // OAuth-authed invocations (future) populate the other columns.
-        user_id: user.accountId,
+        user_id: user.kind === "session" ? user.accountId : null,
+        api_key_id: user.kind === "api_key" ? user.apiKeyId : null,
         input,
         model: requestedModel,
         bucket_ids: agent.buckets.map((b) => b.bucket_id),

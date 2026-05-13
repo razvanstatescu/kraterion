@@ -943,3 +943,61 @@ This is intentional — sponsored txes need the user to sign, so we can't auto-f
 
 **Notes:** Per-address revoke uses the `revoke_all + grant(survivors)` pattern from `prepare-revoke-indexer` — reads the bucket's current `api_decryption_addresses` from chain at PTB build time so it never accidentally drops a wallet that was granted outside our dashboard. See `decisions.md` 2026-05-13 ("Agent sub-wallet goes fully on-chain…").
 
+
+## Symptom: `401 Unauthorized` calling `/v1/...` with a `kr_live_…` or `kr_test_…` token that was working yesterday
+
+**Cause:** Network mismatch between the token's prefix and the control
+plane's `SUI_NETWORK`. The bearer guard rejects `kr_live_` on a testnet
+deployment and `kr_test_` on a mainnet deployment — same property as
+Stripe's `sk_live_/sk_test_` mode boundary. The response is a uniform
+401 (no leaky discriminator); check your env, not your token.
+
+**Fix:**
+
+1. `echo $SUI_NETWORK` on the control-plane host (defaults to `testnet`
+   when unset, which means the server expects `kr_test_…`).
+2. Match the token to the env: tokens minted while the server was on
+   `SUI_NETWORK=mainnet` are `kr_live_…`; everything else is `kr_test_…`.
+3. If the env changed legitimately (a real testnet → mainnet promotion),
+   re-mint a fresh token from the dashboard's **API tokens** tab. The
+   new token's prefix will match the current env automatically.
+
+**Observed:** 2026-05-13, control-plane.
+
+**Notes:** The dashboard's create-token dialog shows a "Testnet" /
+"Mainnet" pill so the user can verify the prefix they're about to
+receive. The decision rationale lives in `docs/decisions.md`
+2026-05-13 "Unified bearer API tokens…".
+
+## Symptom: `MCP server returned 401` after upgrading; the existing `Authorization: Bearer <AKIA>:<secret>` worked before
+
+**Cause:** The MCP `<AKIA>:<secret>` colon-format (K3a) was retired on
+2026-05-13. MCP servers now accept exactly two credentials: a unified
+`kr_live_…` / `kr_test_…` bearer token, or an OAuth 2.1 JWT
+(`kraterion.mcp+jwt`). The colon-format was off-pattern (looked like
+HTTP Basic auth, leaked the S3 shape onto a non-S3 surface) and is
+gone.
+
+**Fix:**
+
+1. Mint a bearer token from the dashboard's **API tokens** tab.
+2. Update the client config — for Claude Desktop:
+   ```json
+   {
+     "mcpServers": {
+       "kraterion": {
+         "url": "https://<host>/mcp",
+         "headers": { "Authorization": "Bearer kr_test_…" }
+       }
+     }
+   }
+   ```
+3. For zero-config (Claude Desktop / Cursor's "Add MCP server" flow),
+   use OAuth instead — paste only the MCP URL; the client picks up the
+   discovery + consent flow from the 401 response.
+
+**Observed:** 2026-05-13, control-plane MCP guard.
+
+**Notes:** S3 AKIA keys still work on the gateway (SigV4 mandates them);
+they were never accepted as bearer on the control plane and the failure
+mode is unchanged for that path.

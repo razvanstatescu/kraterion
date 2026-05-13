@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { AgentsModule } from "../agents/agents.module.js";
-import { KeyWrappingService } from "../auth/key-wrapping.service.js";
 import { BucketsModule } from "../buckets/buckets.module.js";
 import { KnowledgeModule } from "../knowledge/knowledge.module.js";
 import { ObjectsModule } from "../objects/presign.module.js";
@@ -11,7 +10,7 @@ import { McpController } from "./mcp.controller.js";
 import { McpToolsService } from "./mcp.tools.js";
 
 /**
- * MCP host module (K3a).
+ * MCP host module.
  *
  * Imports the services the tools call:
  *   - `BucketsModule` — bucket + object listings, ownership checks.
@@ -20,14 +19,9 @@ import { McpToolsService } from "./mcp.tools.js";
  *   - `ObjectsModule` — `PresignService` for read/write_object
  *     gateway-proxied I/O.
  *
- * `KeyWrappingService` is registered locally (the same pattern
- * `api-keys.module.ts` uses) — it's just an `EnvKeyWrapper`
- * thin-wrapper, no DI dependencies of its own, so providing it
- * per-module is fine.
- *
- * The `McpAuthGuard` is provided here rather than `@Global` because
- * it's only consumed by the MCP controller; K3b will extend the same
- * guard with the OAuth JWT branch.
+ * `McpAuthGuard` resolves principals via the globally-exported
+ * `BearerResolver` (`AuthCoreModule`) and `OAuthService`; the legacy
+ * `<AKIA>:<secret>` colon-format is gone.
  */
 @Module({
   imports: [
@@ -38,7 +32,7 @@ import { McpToolsService } from "./mcp.tools.js";
     ProvidersModule,
     AgentsModule,
   ],
-  providers: [KeyWrappingService, McpAuthGuard, McpToolsService],
+  providers: [McpAuthGuard, McpToolsService],
   controllers: [McpController],
 })
 export class McpModule {}

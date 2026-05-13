@@ -2996,3 +2996,117 @@ status into its own tab fragments the mental model.
   flow simplifies (single Move call vs. N+1) but no migration is
   needed.
 
+
+## 2026-05-13 — Unified bearer API tokens (`kr_live_…` / `kr_test_…`); drop the MCP `<AKIA>:<secret>` colon-format
+
+**Status:** Shipped.
+
+**Context.** Programmatic auth across the platform was fragmented:
+
+- **Gateway (S3)** — AWS SigV4 with `AKIA…` + KMS-wrapped secret. Universal,
+  every S3 SDK speaks it. Stays.
+- **CRUD / agent chat / knowledge** — session JWT only. A dev could not
+  script against `/v1/agents/:id/chat/completions` without scraping a
+  browser cookie. No documented programmatic path.
+- **MCP K3a** — `Authorization: Bearer <AKIA>:<secret>` (the S3 key reused
+  as a colon-separated bearer). Functional, but off-pattern: the
+  colon-separator looks like HTTP Basic auth (`base64(user:password)`),
+  and stamping the S3 secret onto a non-S3 surface created the wrong
+  mental model ("am I sending my S3 secret in plaintext?"). The
+  K3a docstring already flagged the single-token form as a follow-up.
+- **MCP K3b** — OAuth 2.1 + DCR (RFC 7591) + PRM (RFC 9728) + PKCE.
+  Spec-compliant. Stays.
+
+**What every industry reference does.** Stripe, OpenAI, Anthropic,
+Cohere, Pinecone, Voyage, and DigitalOcean Gradient AI all expose
+**one opaque bearer token kind** with a network-encoding prefix:
+`sk_live_…` / `sk_test_…` (Stripe), `sk-…` (OpenAI), `sk-ant-…`
+(Anthropic). One token works across CRUD, AI, and (where it exists)
+MCP. SigV4 keys are kept separate **only** because S3 protocol mandates
+an id+secret pair.
+
+**Decision.** Introduce `kr_live_…` (mainnet) and `kr_test_…` (testnet +
+devnet) bearer tokens as the unified programmatic credential for the
+control plane. Replace MCP K3a entirely — `<AKIA>:<secret>` is gone.
+Keep SigV4 keys on the gateway because the protocol forces an
+id+secret pair. Two credential kinds total, distinguished by
+**protocol**, not by **surface**:
+
+| Kind          | Format                | Consumer                                                              |
+|---------------|-----------------------|-----------------------------------------------------------------------|
+| S3 SigV4 key  | `AKIA…` + secret      | Gateway only (SigV4 protocol-mandated)                                |
+| Bearer token  | `kr_live_…` / `kr_test_…` | Control plane CRUD, agent chat, knowledge, MCP (replaces K3a)     |
+| OAuth JWT     | `kraterion.mcp+jwt`   | Third-party MCP clients (Claude Desktop, Cursor) — unchanged          |
+
+**Why the prefix encodes the network, not the surface.** Stripe's
+killer UX moment is "you can't accidentally fire a live transaction
+from your test deployment." We get the same property for free: a
+`kr_test_…` token presented to a `SUI_NETWORK=mainnet` control plane
+is rejected with a 401, and vice-versa. Encoding the surface (e.g.,
+`kr_mcp_…` + `kr_api_…`) would have been the wrong axis — devs want
+one token everywhere, scoped at issuance, not three tokens to keep
+straight per env file.
+
+**Why hash, not KMS-wrap, the bearer token.** Unlike SigV4 secrets
+(which the gateway needs to recover to recompute HMACs), the bearer
+token is never used to sign anything — the auth path is just "look
+up the row by `sha256(token)`." Storing only the hash means a DB
+compromise cannot reveal active tokens; the cleartext exists exactly
+once, in the mint response, then in the user's clipboard. Stripe and
+GitHub PATs do the same. We keep `EnvKeyWrapper` for the SigV4 path
+where it's actually load-bearing.
+
+**Why drop K3a entirely instead of supporting both formats.** The
+colon-separated form taught devs the wrong shape and made the docs
+example confusing ("is the colon a separator or part of the token?").
+With OAuth (K3b) as the spec-mandated remote-MCP path and the new
+bearer covering local/CLI/CI use, there is no use case left for
+`<AKIA>:<secret>` that isn't already covered. Hackathon-stage —
+breaking the old format costs nothing.
+
+**Why open the bearer to more surfaces than MCP.** A token that only
+works on `/mcp` doesn't help the dev who wants to curl
+`/v1/agents/:id/chat/completions` or list buckets from a CI job. The
+plan + this ship extend `AuthGuard` (the foundational CRUD guard) to
+accept the bearer in addition to the session JWT, so one token works
+on CRUD, agent chat, knowledge, MCP. Session-only stays: account
+settings, key minting, OAuth consent, gateway SigV4.
+
+**Schema decision.** Reuse the existing `ApiKey` table with an
+additive `kind` discriminator (`"s3"` | `"bearer"`). Bearer rows
+populate `token_hash` (unique) + `token_prefix` (cosmetic preview
+for the dashboard) + `network` + `scopes`; S3 rows keep populating
+`access_key_id` + `secret_wrapped`. Both column groups become
+nullable. No data migration, no separate table — same revocation
+story, same project ownership, same audit trail.
+
+**Consequences.**
+
+- **Dev experience.** Curl examples now read like every other AI
+  provider: `Authorization: Bearer kr_test_…`. The `/keys` dashboard
+  page has three tabs: **API tokens** (default, bearer), **S3 access
+  keys** (AKIA), **AI providers** (ProviderCredential, unchanged).
+- **MCP migration.** Existing MCP clients using `<AKIA>:<secret>`
+  break and must re-mint. Hackathon scope — no production users,
+  and the OAuth flow (Claude Desktop / Cursor) was always the
+  recommended path anyway.
+- **Audit.** `AgentInvocation.api_key_id` and
+  `KnowledgeQuery.api_key_id` are populated when the request
+  authenticated with a bearer; `user_id` is populated on session
+  JWT. Easy to grep "what did the bot do" vs. "what did the user do"
+  in any one project.
+- **Per-key scoping.** `ApiKey.scopes` column is scaffolded but
+  empty for all v1-minted tokens (= full project access). Layering
+  scopes onto `kr_*` tokens is post-hackathon; the column being
+  there now means we won't need a schema change later.
+- **Cross-project access within an account.** Bearer tokens are
+  project-scoped at the type level (`ApiKeyPrincipal.projectId`).
+  The agent chat endpoint enforces this — a token for project A
+  cannot invoke an agent in project B even when both belong to the
+  same account. Buckets / knowledge / objects / folders rely on the
+  service-layer `account_id` check today (same risk profile as the
+  S3 AKIA keys). Tightening the rest is a hardening follow-up.
+- **Network gating.** A `kr_test_…` token presented to a
+  `SUI_NETWORK=mainnet` control plane returns 401 — Stripe-style.
+  The dashboard creation dialog shows a "Testnet" / "Mainnet" pill
+  so the dev knows what prefix they're about to receive.

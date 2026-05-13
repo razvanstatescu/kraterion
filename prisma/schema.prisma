@@ -55,21 +55,49 @@ model Project {
 }
 
 model ApiKey {
-  id             String    @id @default(uuid())
-  project_id     String
-  name           String
+  id         String @id @default(uuid())
+  project_id String
+  name       String
+  // "s3"     → AWS SigV4 keys consumed by the gateway. Populates
+  //            access_key_id + secret_wrapped.
+  // "bearer" → kr_live_/kr_test_ tokens consumed by the control plane
+  //            (CRUD, agent chat, knowledge, MCP). Populates
+  //            token_hash + token_prefix + network.
+  kind       String @default("s3")
+
+  // === S3 SigV4 keys (kind="s3") ===
   // Public, AWS-style "AKIA..." identifier returned to the user.
-  access_key_id  String    @unique
+  // Nullable so bearer rows can coexist in the same table.
+  access_key_id  String? @unique
   // KMS-wrapped secret bytes; never persisted in plaintext.
-  secret_wrapped Bytes
-  last_used_at   DateTime?
-  created_at     DateTime  @default(now())
-  revoked_at     DateTime?
+  secret_wrapped Bytes?
+
+  // === Bearer tokens (kind="bearer") ===
+  // sha256(token) — O(1) lookup at auth time. Hash-only storage means a
+  // DB compromise cannot reveal the actual tokens; the cleartext is
+  // returned exactly once at mint time and thrown away.
+  token_hash   String? @unique
+  // Cosmetic preview shown in the dashboard ("kr_test_aB3…X9Z"). Safe
+  // to display; not enough to authenticate.
+  token_prefix String?
+  // "testnet" | "mainnet" — the SUI_NETWORK the control-plane was
+  // running on when the token was minted. The bearer guard rejects
+  // cross-network use (kr_live_ on a testnet server, etc.) the same
+  // way Stripe rejects sk_test_ in live mode.
+  network      String?
+  // Per-key scope list. Empty = full project access. Future-facing —
+  // v1 leaves this empty for all minted tokens.
+  scopes       String[] @default([])
+
+  last_used_at DateTime?
+  created_at   DateTime  @default(now())
+  revoked_at   DateTime?
 
   project Project @relation(fields: [project_id], references: [id])
 
   @@index([project_id])
   @@index([access_key_id])
+  @@index([token_hash])
 }
 
 // === Buckets & objects ===

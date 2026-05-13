@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CreateApiKeyDialog } from "@/components/keys/CreateApiKeyDialog";
+import { CreateBearerTokenDialog } from "@/components/keys/CreateBearerTokenDialog";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -10,7 +10,7 @@ import { TabbedCode } from "@/components/ui/TabbedCode";
 import { env } from "@/lib/env";
 import { useApiKeys, useMe } from "@/lib/queries";
 
-const PLACEHOLDER_SECRET = "<your-secret-shown-once-at-key-creation>";
+const PLACEHOLDER_TOKEN = "<your-kr-token-shown-once-at-creation>";
 
 interface Props {
   bucketName: string;
@@ -19,17 +19,18 @@ interface Props {
 /**
  * Connect-an-agent panel. Two methods side by side:
  *
- *   1. Bearer (API key) — copy-paste snippets for Claude Desktop, Cursor,
- *      and ad-hoc curl. AKIA is pre-filled; secret stays a placeholder
- *      unless the user mints a fresh key inline via the dialog.
+ *   1. Bearer (`kr_live_…` / `kr_test_…`) — copy-paste snippets for
+ *      Claude Desktop, Cursor, and ad-hoc curl. The token prefix from
+ *      the most-recent active bearer token is shown as a reference;
+ *      the body stays a placeholder unless the user mints a fresh
+ *      token inline via the dialog.
  *   2. OAuth (zero-config) — for clients that walk the "Add MCP server"
  *      flow (Claude Desktop's catalog onboarding, Cursor's MCP picker).
  *      No credential needed in the snippet — the consent screen prompts
- *      the user at connect time. Drops a discovery URL the user can
- *      paste verbatim.
+ *      the user at connect time.
  *
  * Both methods point at the same /mcp endpoint; the auth guard branches
- * by token shape (K3a vs K3b — see `docs/decisions.md`).
+ * by token shape (bearer vs OAuth JWT — see `docs/decisions.md`).
  */
 export function ConnectAgentPanel({ bucketName }: Props) {
   const { data: me } = useMe();
@@ -38,12 +39,12 @@ export function ConnectAgentPanel({ bucketName }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [method, setMethod] = useState<"bearer" | "oauth">("bearer");
 
-  const activeKey = (keysData?.api_keys ?? []).find((k) => !k.revoked_at);
-  const akia = activeKey?.access_key_id;
+  const activeToken = (keysData?.api_keys ?? []).find(
+    (k) => k.kind === "bearer" && !k.revoked_at,
+  );
 
   const mcpUrl = `${env.controlPlaneUrl}/mcp`;
   const discoveryUrl = `${env.controlPlaneUrl}/.well-known/oauth-protected-resource`;
-  const bearer = akia ? `${akia}:${PLACEHOLDER_SECRET}` : "<AKIA>:<your-secret>";
 
   return (
     <>
@@ -67,7 +68,7 @@ export function ConnectAgentPanel({ bucketName }: Props) {
             >
               <span className="ks-method-title">
                 <Icon name="key" size={14} />
-                API key
+                API token
               </span>
               <span className="ks-method-hint">
                 Static credential — best for scripts and CI.
@@ -92,8 +93,7 @@ export function ConnectAgentPanel({ bucketName }: Props) {
 
           {method === "bearer" ? (
             <BearerMethod
-              akia={akia}
-              bearer={bearer}
+              tokenPrefix={activeToken?.token_prefix ?? undefined}
               mcpUrl={mcpUrl}
               bucketName={bucketName}
               onMintClick={() => setCreateOpen(true)}
@@ -104,7 +104,7 @@ export function ConnectAgentPanel({ bucketName }: Props) {
         </div>
       </div>
 
-      <CreateApiKeyDialog
+      <CreateBearerTokenDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         projectId={projectId}
@@ -114,55 +114,54 @@ export function ConnectAgentPanel({ bucketName }: Props) {
 }
 
 function BearerMethod({
-  akia,
-  bearer,
+  tokenPrefix,
   mcpUrl,
   bucketName,
   onMintClick,
 }: {
-  akia: string | undefined;
-  bearer: string;
+  tokenPrefix: string | undefined;
   mcpUrl: string;
   bucketName: string;
   onMintClick: () => void;
 }) {
+  const display = tokenPrefix ?? PLACEHOLDER_TOKEN;
   return (
     <>
-      {akia ? null : (
+      {tokenPrefix ? null : (
         <div style={{ marginBottom: 16 }}>
           <Banner
             tone="warning"
-            title="No active API key for this project"
-            body="Mint a key first — Kraterion never stores the secret, so you'll only see it once."
+            title="No active API token for this project"
+            body="Mint a token first — Kraterion never stores the cleartext, so you'll only see it once."
           />
         </div>
       )}
 
       <div className="ks-section-label">Snippets</div>
       <TabbedCode tabs={["claude desktop", "cursor", "curl"]}>
-        {(active) => bearerSnippet(active, mcpUrl, bearer, bucketName)}
+        {(active) => bearerSnippet(active, mcpUrl, display, bucketName)}
       </TabbedCode>
 
       <div className="ks-card-row">
         <div className="ks-card-row-label">
           <Icon name="key" size={14} />
           <span>
-            {akia ? (
+            {tokenPrefix ? (
               <>
-                Using key <code>{akia}</code>. The secret in the snippets is a
-                placeholder — replace it with the secret you saved when the
-                key was created, or mint a new key here.
+                Using token <code>{tokenPrefix}</code>. The body in the
+                snippets is a placeholder — paste the full token you saved
+                when it was created, or mint a fresh one here.
               </>
             ) : (
               <>
-                There&apos;s no active key for this project. Generate one to
-                fill in the snippets.
+                There&apos;s no active token for this project. Generate one
+                to fill in the snippets.
               </>
             )}
           </span>
         </div>
         <Button variant="secondary" icon="plus" onClick={onMintClick}>
-          Generate a new key
+          Generate a new token
         </Button>
       </div>
     </>
@@ -236,7 +235,7 @@ function FlowStep({ n, title, body }: { n: number; title: string; body: string }
 function bearerSnippet(
   active: string,
   mcpUrl: string,
-  bearer: string,
+  token: string,
   bucketName: string,
 ): string {
   switch (active) {
@@ -247,7 +246,7 @@ function bearerSnippet(
     "kraterion": {
       "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer ${bearer}"
+        "Authorization": "Bearer ${token}"
       }
     }
   }
@@ -262,7 +261,7 @@ function bearerSnippet(
     "kraterion": {
       "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer ${bearer}"
+        "Authorization": "Bearer ${token}"
       }
     }
   }
@@ -271,7 +270,7 @@ function bearerSnippet(
     case "curl":
       return `# JSON-RPC tools/list — verifies auth + transport in one shot.
 curl -sS "${mcpUrl}" \\
-  -H "Authorization: Bearer ${bearer}" \\
+  -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
 
