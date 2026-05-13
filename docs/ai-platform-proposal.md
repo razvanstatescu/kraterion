@@ -9,6 +9,62 @@
 
 ---
 
+## Hackathon scope (2026-05-13)
+
+This proposal was written as the full 30-day platform shape. For the Sui
+Overflow 2026 submission (deadline **Jun 21, 2026** — 39 days from this
+note) we are explicitly cutting scope. The plan from here to submission:
+
+**Shipping:**
+- **P0** (project credentials, multi-step enable modal, model pickers, cost
+  estimate, destructive re-index) — done.
+- **P3** (Agents) + **P4** (Function calling) — the demo-defining surface.
+  Plan to land both before the final demo cut.
+- **P6** (Embeddable widget) — stretch; the demo lands harder if we ship it.
+
+**Deferred past the hackathon (will not ship for the submission):**
+- **P1 — Multi-provider abstraction.** OpenAI-only at submission. Adding
+  Anthropic/Cohere/Llama is a clean future move on top of P0's
+  provider-tagged schema, but doing it now buys no demo value and
+  risks the wrong seams. Revisit when a real second-provider customer
+  ask exists.
+- **P2 — Reranker.** Investigated end-to-end — see
+  [`docs/p2-reranker-research.md`](p2-reranker-research.md) for the
+  provider comparison (Cohere Rerank 3.5 wins for our flow), the
+  three-stage `search()` decomposition, and the ~3.5-day effort
+  breakdown. Cut because (a) it adds a second credential surface
+  (Cohere) — i.e. effectively triggers P1 scaffolding before P1's
+  own deferral, (b) the demo's wow factor is the on-chain Verify
+  trail + Agents, not retrieval precision tweaks, and (c) the ~3.5
+  day budget is better spent on P3 + P4 polish. Kept prominently on
+  the post-hackathon backlog — it's the cheapest precision-per-
+  engineering-hour move and the natural next round.
+- **P5 — Guardrails.** PII / jailbreak / content moderation are
+  production-shipping concerns; the hackathon judges aren't a
+  regulator. Stub in P3 with `guardrails_id?` on the agent model so
+  P5 plugs in cleanly later, but don't build the middleware.
+- **The 1536d / 3072d embedding options.** The `KnowledgeChunk.embedding`
+  column is `halfvec(1024)`. Surfacing the other dims requires either a
+  schema-level change (per-dim shadow table or column) or breaking the
+  pgvector contract. Not worth the migration risk before the demo;
+  the picker shows the choices as "Coming soon" instead.
+- **Transactional swap during re-index.** Re-index is destructive
+  today — search returns empty between the chunk wipe and the worker
+  draining. The transactional swap-over (`pending_embedding_*` shadow
+  columns + manifest-spec-tagged chunks + cutover) is ~1.5 days of
+  schema + query work for a behaviour that only matters at production
+  traffic levels.
+- **"Test connection" affordance** in the Add-OpenAI-key modal. The CP
+  already validates via `GET /v1/models` on Save and rejects bad keys
+  with a 400 — same outcome as a separate test button, one fewer
+  click.
+
+When these decisions land in `decisions.md` (2026-05-13 entry) they
+become committed scope for the submission. After Jun 21, this proposal
+becomes the post-hackathon roadmap.
+
+---
+
 ## 1. What we have today
 
 This proposal is grounded in the current Kraterion AI surface (see workstreams K0–K5 in `/docs/ai-features-plan.md`):
@@ -63,7 +119,16 @@ Comprehensive feature-by-feature inventory in §Appendix A. Headline capabilitie
 
 I am proposing seven features, ordered by ratio of **product impact** to **engineering cost** in the context of a hackathon-shipping startup. Each proposal explicitly states what we adopt vs. what we deliberately *don't* adopt. **P0 is foundational** — every other feature in this list depends on it.
 
-### P0 — Project-scoped provider credentials & enable-knowledge flow (foundational)
+### P0 — Project-scoped provider credentials & enable-knowledge flow (foundational) — [Partial — hackathon cut documented inline]
+
+> **Hackathon status (2026-05-13):** shipped end-to-end with three documented
+> deviations — only the 1024d embedding option is selectable (§Step 2),
+> re-index is destructive rather than transactional (§Re-indexing flow),
+> and the Add-key modal validates implicitly on Save instead of via a
+> dedicated "Test connection" button (§Step 1). See `decisions.md`
+> 2026-05-13 ("Hackathon scope cuts…") for the rationale and the
+> top-level "Hackathon scope" block above for the full deferred list.
+
 
 **What:** A single new resource, **ProviderCredential**, owned by a **project** and reused across every bucket and every LLM-touching feature inside that project. Enabling Knowledge on the first bucket of a project requires configuring this credential; subsequent buckets reuse it.
 
@@ -104,6 +169,14 @@ When the user clicks "Enable Knowledge" on a bucket that doesn't yet have it:
 1. **Step 1 — Credential check.**
    - If the project has no active OpenAI `ProviderCredential` → modal asks for a key. Inline help: "Stored encrypted with our KMS. Used for embeddings on this bucket and any LLM features you configure (Ask, Agents). You can rotate or remove it from Project Settings."
    - "Test connection" button runs the validation ping before allowing save.
+
+     > _Hackathon cut (2026-05-13):_ The separate "Test connection"
+     > affordance is **deferred past Jun 21**. The CP validates the key
+     > via `GET https://api.openai.com/v1/models` on Save — same call
+     > the button would have triggered — and rejects bad keys with a
+     > 400 that the modal surfaces inline. One fewer click, same
+     > guarantee. The button comes back post-hackathon if user
+     > research shows the implicit validation feels surprising.
    - If the project already has an active credential → step 1 is skipped; the modal opens directly on step 2 with the key fingerprint shown ("Using OpenAI key …{last_4} (Project default)").
 
 2. **Step 2 — Embedding model choice.** A radio list, with a prominent warning above:
@@ -113,6 +186,16 @@ When the user clicks "Enable Knowledge" on a bucket that doesn't yet have it:
    - **`text-embedding-3-small` @ 1024d** (default) — fast, ~$0.02 / M tokens, recommended for most buckets.
    - **`text-embedding-3-small` @ 1536d** — full dim, +50% storage, marginal recall lift.
    - **`text-embedding-3-large` @ 3072d** — higher quality, ~$0.13 / M tokens, ~3× storage, recommended for highly technical or multilingual corpora.
+
+   > _Hackathon cut (2026-05-13):_ Only the **1024d** option is
+   > selectable at submission. 1536d and 3072d are rendered as "Coming
+   > soon" rows in the picker so the trade-off stays discoverable.
+   > Reason: `KnowledgeChunk.embedding` is `Unsupported("halfvec(1024)")`
+   > — pgvector fixes dimension at the column level, and adding 1536d /
+   > 3072d needs either a per-dim shadow column or a `(chunk, model)`-
+   > keyed shadow table. Both are real migrations with index-rebuild
+   > cost; not worth the risk before the demo. See `decisions.md`
+   > 2026-05-13 ("Embedding-model picker only exposes 1024d").
 
 3. **Step 3 — Default chat model for `/ask` (optional, with skip).** Dropdown:
    - `gpt-4o-mini` (default — cheap, fast)
@@ -132,6 +215,17 @@ A separate "Re-index with new embedding model" action under bucket settings, gat
 - Verification trail (K5 manifest hashes) is **invalidated** — any pre-existing on-chain manifests no longer match the new chunks. New manifests will be archived to Walrus once re-indexing completes.
 - During re-index, `/search` and `/ask` continue to return results from the old chunks until the new pass completes (a transactional swap-over at the end).
 
+> _Hackathon cut (2026-05-13):_ Re-index is **destructive** at
+> submission, not the transactional swap-over described in the last
+> bullet. Chunks are dropped and `/search` returns empty for the bucket
+> until the worker drains the new pass. The confirmation modal copy is
+> honest about this. Reason: transactional swap needs `pending_embedding_*`
+> shadow columns on `KnowledgeBucketSettings`, per-manifest embedding-
+> spec tagging, and a spec-filtered chunk query — ~1.5 days of schema +
+> query work for a property that only matters at production traffic
+> levels. Pencilled as P0.5 follow-up. See `decisions.md` 2026-05-13
+> ("Embedding-model picker only exposes 1024d; re-index is destructive").
+
 **Why now:** This is the unblocker for every other proposal in this doc. Without stored credentials we cannot run background re-indexing, scheduled jobs, agent flows that wake without a user, or an embeddable widget — all of those need access to an LLM key when no human is in the request.
 
 **Out of scope (deliberate):**
@@ -143,7 +237,17 @@ A separate "Re-index with new embedding model" action under bucket settings, gat
 
 ---
 
-### P1 — Multi-provider model abstraction (small, deferred)
+### P1 — Multi-provider model abstraction (small, deferred) — [Deferred — post-hackathon]
+
+> **Hackathon status (2026-05-13):** **not shipping for the Jun 21
+> submission.** OpenAI-only at the demo. P0's schema is already
+> provider-tagged (`@@unique([project_id, provider])`), so adding
+> Anthropic / Cohere / Llama later is additive — no migration to
+> retrofit. We're deferring per the proposal's own rationale: "defer
+> until P0 is shipped and we have at least one user asking for
+> Anthropic." Building the abstraction speculatively risks the wrong
+> seams. The rest of this section reads as the post-hackathon plan.
+
 
 **What:** Generalize `ProviderCredential` to accept a second provider (Anthropic first; then Llama via DO Inference, Mistral, etc.). Introduce a thin adapter package (`packages/llm-client`) with a uniform `complete(messages, {provider, model, max_tokens, citations: true})` signature; same shape for `embed()`. The enable-knowledge modal gains a "Provider" step before the embedding-model step.
 
@@ -157,7 +261,25 @@ A separate "Re-index with new embedding model" action under bucket settings, gat
 
 ---
 
-### P2 — Reranker after hybrid retrieval (small, very high quality lift)
+### P2 — Reranker after hybrid retrieval (small, very high quality lift) — [Deferred — post-hackathon]
+
+> **Hackathon status (2026-05-13):** **not shipping for the Jun 21
+> submission**, despite being the cheapest precision lift on the list.
+> Research summary: OpenAI has no native rerank endpoint as of May
+> 2026, so launching means adding **Cohere Rerank 3.5** (or Voyage
+> rerank-2.5, or self-hosted BGE-reranker-v2-m3). Cohere is the
+> strongest commercial option for our flow ($2 / 1k queries, sub-200ms
+> US-East, multilingual). Estimated effort ~3.5 days end-to-end:
+> `packages/reranker-client`, `RerankerOption` catalog, three-stage
+> `KnowledgeService.search()` refactor with silent RRF fallback,
+> `reranker_model` + `reranker_latency_ms` audit fields, dashboard
+> picker + Cohere credential surface on `/keys`. Cut because it adds a
+> second credential surface (effectively triggering P1 scaffolding
+> before P1's own deferral) and the demo's wow factor is the on-chain
+> Verify trail + Agents, not retrieval precision tweaks. Stays
+> prominent on the post-hackathon backlog. The rest of this section
+> reads as the post-hackathon plan.
+
 
 **What:** Optional post-retrieval reranking stage. Hybrid returns top-50 candidates today; pipe them through a reranker that scores each chunk against the original query and returns top-`k`. Two implementations behind the same interface:
 - **OpenAI rerank** (when added to their catalog) — uses the project's stored OpenAI credential. Zero extra config for users on the happy path.
@@ -214,7 +336,15 @@ Off by default; toggleable per-bucket in `KnowledgeBucketSettings.reranker_model
 
 ---
 
-### P5 — Guardrails (small, regulatory affordance)
+### P5 — Guardrails (small, regulatory affordance) — [Deferred — post-hackathon]
+
+> **Hackathon status (2026-05-13):** **not shipping for the Jun 21
+> submission.** PII / jailbreak / content-moderation middleware is a
+> production-shipping concern, not a hackathon-judging concern. P3
+> (Agents) will stub `guardrails_id?` on the agent model so P5 plugs
+> in later without a schema break, but no middleware lands before
+> Jun 21. The rest of this section reads as the post-hackathon plan.
+
 
 **What:** Per-agent guardrails configured as a triple of toggles:
 

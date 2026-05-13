@@ -2693,3 +2693,108 @@ versions.
   inherit the convention: scope chunk deletes by `s3_object_id`, not
   by `manifest_id`.
 
+
+## 2026-05-13 — Hackathon scope cuts: skip P1, P5, and three P0 deviations for the Sui Overflow 2026 submission
+
+**Status:** Committed for the Jun 21, 2026 submission.
+
+**Context:** `docs/ai-platform-proposal.md` was written as a full 30-day
+platform shape (P0–P6 + appendices). With 39 days to the submission
+deadline and parallel Walrus-track demands (deploy infra, demo video,
+README rewrite, deployed demo, submission form), we cannot honestly
+ship the full proposal. Time-boxing the AI surface protects the demo
+quality on the parts we do ship.
+
+**Decision:** Lock the AI-platform shipping queue for the submission as:
+
+1. **P0** — done.
+2. **P2 — Reranker** — next; highest-precision-per-engineering-hour move
+   on the list.
+3. **P3 — Agents** + **P4 — Function calling** — the demo-defining
+   surface; ship both before the final cut.
+4. **P6 — Embeddable widget** — stretch; lands harder if it ships, fine
+   to drop if W6 budget tightens.
+
+**Explicitly deferred past Jun 21:**
+
+- **P1 — Multi-provider model abstraction.** OpenAI-only at the demo.
+  P0's schema is already provider-tagged, so this is a clean additive
+  move later. No demo value without a second-provider user behind it.
+- **P5 — Guardrails.** Production-shipping concern, not a hackathon-
+  judging concern. P3 will stub `guardrails_id?` on the agent model so
+  P5 plugs in later without a schema break, but no middleware ships.
+- **1536d / 3072d embedding picker enablement.** Surfaced as "Coming
+  soon" in the modal. Enabling them needs a per-dim shadow column or
+  shadow table — real migration cost, no demo lift.
+- **Transactional swap during re-index.** Current re-index is
+  destructive (search returns empty during the worker pass). The
+  swap-over needs `pending_embedding_*` shadow columns + per-manifest
+  spec tagging + spec-filtered chunk queries. ~1.5 days for a
+  property that only matters at production traffic levels.
+- **"Test connection" button** in the Add-OpenAI-key modal. Validation
+  happens implicitly on Save — same `GET /v1/models` ping, one fewer
+  click, same outcome.
+
+**Consequences:**
+
+- The embedding picker stays single-option through the submission. P0
+  is correctly described as "Partial — hackathon cut documented inline"
+  in the proposal.
+- Search returns empty for a few seconds during re-index. The
+  confirmation copy is honest about this; it's the expected behaviour,
+  not a bug.
+- Anyone reading the proposal sees per-section status badges + a
+  top-level "Hackathon scope" block + this decisions entry. No
+  surprises during demo-prep.
+- On Jun 22 (post-submission), the proposal becomes the post-hackathon
+  roadmap. The deferred items become candidates for the next round.
+
+
+## 2026-05-13 — Hackathon scope amendment: P2 (reranker) also deferred
+
+**Status:** Committed for the Jun 21, 2026 submission. Amends the earlier
+2026-05-13 entry ("Hackathon scope cuts: skip P1, P5, and three P0
+deviations").
+
+**Context:** P2 was originally in the shipping queue (called out as the
+cheapest precision-per-engineering-hour move on the list). After
+researching the actual integration path — see
+[`docs/p2-reranker-research.md`](p2-reranker-research.md) for the
+provider comparison and three-stage `search()` decomposition — we are
+also cutting P2 from the submission.
+
+**Decision:** P2 ships post-hackathon. Updated shipping queue:
+
+1. **P0** — done.
+2. **P3 — Agents** + **P4 — Function calling** — the demo-defining
+   surface; both still in scope.
+3. **P6 — Embeddable widget** — still stretch.
+
+**Why:**
+
+- **No native OpenAI reranker as of May 2026** — launching P2 means
+  adding **Cohere** (or Voyage / BGE) as the provider. That's a second
+  credential surface on `/keys?tab=providers`, effectively triggering
+  P1 scaffolding before P1's own deferral.
+- **The demo's wow factor is the on-chain Verify trail + Agents**, not
+  retrieval precision tweaks. A reranker improves search recall@k but
+  is invisible to a 60-second demo audience.
+- **The ~3.5-day budget is better spent on P3 + P4 polish.** Agents
+  with function calling is the resource users compare to ChatGPT
+  custom GPTs and Claude projects; it's the unit every product manager
+  understands. Reranker is an optimization on top of an already-good
+  retrieval story.
+
+**Consequences:**
+
+- Search continues to use RRF-only (BM25 + vector + Reciprocal Rank
+  Fusion). Recall@10 ~91%, which is already strong for the demo.
+- The proposal's `KnowledgeBucketSettings.reranker_model` column is
+  not added. Adding it later remains a single additive migration on
+  top of the existing schema.
+- Research is preserved in `docs/p2-reranker-research.md` so the
+  post-hackathon round doesn't repeat the provider comparison or
+  re-derive the architecture plan.
+- The post-hackathon backlog has P2 as the first item — it's the
+  cheapest quality lift on the list.
+
