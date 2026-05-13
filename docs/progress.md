@@ -3276,3 +3276,87 @@ dashboard.
 
 **Verification:** all five packages `tsc --noEmit` clean.
 
+
+## 2026-05-13 — [ai-platform] Multi-turn chat enabled in the agent endpoint
+
+Replaces the single-turn behavior we shipped with P3. The dashboard
+chat panel now sends the full conversation history on every turn; the
+backend forwards it to OpenAI in order, with the server-built system
+prompt + retrieval block prepended.
+
+**Code paths:**
+- Dashboard ([`AgentChatPanel.tsx`](apps/dashboard/src/components/agents/AgentChatPanel.tsx))
+  — `send()` snapshots the prior turns (skipping pending/errored/empty),
+  appends the new user message, and POSTs the array as `messages`.
+- Backend chat schema
+  ([`agents/dto.ts`](apps/control-plane/src/agents/dto.ts)) — rejects
+  `role: "system"` from clients. Server owns the system prompt.
+- Backend chat handler
+  ([`agents/agents.controller.ts`](apps/control-plane/src/agents/agents.controller.ts))
+  — validates the last message is a user turn, retrieves chunks
+  against the last user content, passes the whole `messages` array
+  through to `answerWithAgent` / `streamWithAgent`.
+- Backend answer helpers
+  ([`agents/answer.ts`](apps/control-plane/src/agents/answer.ts)) —
+  `buildMessages` produces
+  `[{ system + retrieval block }, ...history]`.
+- MCP `kraterion_invoke_agent` stays single-shot — the tool schema
+  carries one `input` string, so we wrap it in a length-1 messages
+  array.
+
+## Multi-turn known issues (post-hackathon backlog)
+
+Captured here so the v2 round doesn't relearn them:
+
+1. **No context compaction.** Every turn re-sends the full history +
+   retrieval block. Token cost grows linearly per turn; long
+   conversations will hit the model's context window cap. Fix:
+   adopt an OpenAI Responses-style "compaction" loop, or summarize
+   older turns into a single system note when the running token
+   budget exceeds a threshold (e.g. 70% of context).
+2. **Retrieval runs against the latest user message only.** A
+   follow-up like *"explain that further"* retrieves chunks for
+   *"explain that further"* — not for the topic the user was
+   actually exploring. The retrieval block on the resulting prompt
+   is often useless or actively misleading. Fix: a one-pass query
+   rewriter (small/cheap LLM call) that synthesizes a retrieval
+   query from the last N turns, or HyDE-style hypothetical answer
+   generation.
+3. **Retrieval block is re-sent every turn.** Even when the latest
+   user message would retrieve the same chunks as the previous
+   turn, we burn tokens re-sending them. Fix: cache retrieval per
+   conversation thread keyed by the chunk-hash set, only resend
+   when the set changes.
+4. **No conversation persistence.** Each `AgentInvocation` row is
+   one input/output pair. Refreshing the dashboard loses the
+   conversation. Fix: introduce a `Conversation` entity with an
+   ordered set of `AgentInvocation` children; the chat panel
+   restores history on mount. Also unlocks "share a conversation"
+   demo affordances.
+5. **Audit row doesn't snapshot the system prompt.** If a user
+   edits `agent.system_prompt` after a conversation, prior
+   invocations can't be reproduced. Fix: copy `system_prompt` and
+   `model` into the `AgentInvocation` row at write time.
+6. **No conversation cap.** A pathological client could grow the
+   `messages[]` array indefinitely (or until OpenAI rejects).
+   Fix: server-side cap (e.g. last N=40 user+assistant pairs), with
+   the trimming policy documented and surfaced to the client.
+7. **Prompt-injection persistence.** If a user pastes adversarial
+   content in turn 3, it's baked into the prompt for every
+   subsequent turn. Fix: per-turn output moderation (P5) +
+   per-message provenance tags in the system prompt.
+8. **No streaming usage tokens before completion.** OpenAI emits
+   `usage` only on the final chunk; we patch the audit row at the
+   end of the stream. If the client aborts mid-stream, the audit
+   row's token counts stay null. Fix: heuristic estimate at abort
+   time (1 token ≈ 4 chars on the accumulated string).
+9. **MCP `kraterion_invoke_agent` is single-shot.** The tool
+   schema accepts one `input` string, so external MCP clients
+   can't carry on a conversation through the tool. Fix: add a
+   `conversation_id` argument that the CP threads server-side
+   (requires the Conversation entity from #4).
+10. **Tool calls (P4) not handled.** When the assistant emits
+    `tool_calls`, our streaming reader currently ignores them. Fix
+    lands with the function-calling work; until then the agent
+    can't use tools regardless of the model's behavior.
+

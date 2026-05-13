@@ -41,9 +41,16 @@ export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
 // Chat payload — strict subset of OpenAI Chat Completions. Additive
 // `include_*` flags mirror DigitalOcean's agent API for parity with
 // any agent-aware tooling out there.
+//
+// `role: "system"` is intentionally rejected: the agent's system
+// prompt is server-built from `agent.system_prompt` plus the
+// retrieval block, and accepting a client-supplied system message
+// would let any caller rewrite the agent's identity per request
+// (defeating the agent abstraction). OpenAI's wire format allows
+// it; we don't.
 export const chatMessageSchema = z.object({
-  role: z.enum(["system", "user", "assistant"]),
-  content: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1),
 });
 
 export const chatCompletionsSchema = z.object({

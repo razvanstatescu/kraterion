@@ -151,17 +151,33 @@ export class AgentsController {
       );
     }
 
-    // Resolve the user's most recent message — agents are single-turn
-    // for the v1 submission. Multi-turn (conversation history) is
-    // pencilled as a follow-up.
-    const userTurn = [...dto.messages].reverse().find((m) => m.role === "user");
-    if (!userTurn) {
+    // Multi-turn: forward the full conversation history to the LLM.
+    // The schema already restricts roles to `user | assistant` and
+    // bans `system` (server owns the system prompt). We additionally
+    // require:
+    //   - at least one message
+    //   - the LAST message is from the user (the agent answers it)
+    // Retrieval is run against the last user message only; using the
+    // whole history for retrieval needs query rewriting (see
+    // `docs/progress.md` "multi-turn known issues").
+    if (dto.messages.length === 0) {
       throw new ControlPlaneError(
         "InvalidArgument",
         "messages must include at least one user message.",
       );
     }
-    const input = userTurn.content;
+    const lastMessage = dto.messages[dto.messages.length - 1]!;
+    if (lastMessage.role !== "user") {
+      throw new ControlPlaneError(
+        "InvalidArgument",
+        "The last message must be from the user.",
+      );
+    }
+    const input = lastMessage.content;
+    const conversationHistory = dto.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     // Per-request model override > agent default. Validated.
     const requestedModel = dto.model ?? agent.model;
@@ -246,7 +262,7 @@ export class AgentsController {
           agentId,
           invocationId: invocation.id,
           requestedModel,
-          input,
+          messages: conversationHistory,
           systemPrompt: agent.system_prompt,
           temperature,
           maxTokens,
@@ -268,7 +284,7 @@ export class AgentsController {
             apiKey,
             model: requestedModel,
             systemPrompt: agent.system_prompt,
-            userMessage: input,
+            messages: conversationHistory,
             hits: topHits,
             temperature,
             maxTokens,
@@ -398,7 +414,7 @@ export class AgentsController {
     agentId: string;
     invocationId: string;
     requestedModel: string;
-    input: string;
+    messages: Array<{ role: "user" | "assistant"; content: string }>;
     systemPrompt: string;
     temperature: number;
     maxTokens: number;
@@ -463,7 +479,7 @@ export class AgentsController {
             apiKey,
             model: args.requestedModel,
             systemPrompt: args.systemPrompt,
-            userMessage: args.input,
+            messages: args.messages,
             hits: args.hits,
             temperature: args.temperature,
             maxTokens: args.maxTokens,

@@ -13,11 +13,23 @@ import type { ChunkHit } from "../knowledge/knowledge.service.js";
  * returning the response.
  */
 
+/**
+ * One turn in the conversation history forwarded to OpenAI. The server
+ * appends the system prompt + retrieval block ahead of these; clients
+ * never send `role: "system"` (the chat DTO refuses it).
+ */
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface AnswerNonStreamRequest {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  userMessage: string;
+  /** Ordered history: every previously-completed turn followed by the
+   *  new user message. Length-1 is the single-turn case. */
+  messages: ChatHistoryMessage[];
   hits: ChunkHit[];
   temperature: number;
   maxTokens: number;
@@ -47,13 +59,20 @@ function buildContext(hits: readonly ChunkHit[]): string {
 
 function buildMessages(req: {
   systemPrompt: string;
-  userMessage: string;
+  messages: readonly ChatHistoryMessage[];
   hits: readonly ChunkHit[];
 }): OpenAI.ChatCompletionMessageParam[] {
+  // Retrieval block lives on the system prompt for now. Known
+  // limitation: this means every turn re-sends the full retrieval
+  // payload, even on follow-ups where retrieval against the latest
+  // user message returned the same chunks (or nothing useful). See
+  // `docs/progress.md` "multi-turn known issues" for the post-
+  // hackathon fix (move retrieval to a per-turn tool message, or
+  // skip retrieval on contextual follow-ups).
   const retrievalBlock = `\n\n---\nRetrieval context:\n${buildContext(req.hits)}\n\n${CITATION_INSTRUCTIONS}`;
   return [
     { role: "system", content: `${req.systemPrompt}${retrievalBlock}` },
-    { role: "user", content: req.userMessage },
+    ...req.messages.map((m) => ({ role: m.role, content: m.content })),
   ];
 }
 
@@ -65,15 +84,12 @@ export async function answerWithAgent(
   req: AnswerNonStreamRequest,
 ): Promise<AnswerResult> {
   const client = new OpenAI({ apiKey: req.apiKey, maxRetries: 0 });
-  if (req.hits.length === 0) {
-    return {
-      answer: "The supplied chunks don't cover this question.",
-      citations: [],
-      model: req.model,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-    };
-  }
+  // Empty retrieval => stub a "no context" response. We previously
+  // short-circuited here; with multi-turn we still want to surface
+  // the model output (it may legitimately answer from prior turns
+  // or pure conversation, not retrieval). Leave the empty
+  // retrieval block in the prompt — `buildContext` writes
+  // "(No retrieval results.)" — and let the model decide.
   const completion = await client.chat.completions.create({
     model: req.model,
     messages: buildMessages(req),

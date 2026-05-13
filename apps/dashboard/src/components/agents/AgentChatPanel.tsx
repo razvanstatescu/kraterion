@@ -59,6 +59,19 @@ export function AgentChatPanel({ agent }: Props) {
   const send = async () => {
     const message = input.trim();
     if (!message || streaming || disabled) return;
+    // Build the conversation history we'll send on this turn: every
+    // previously-completed turn in order, plus the new user message.
+    // Pending / errored turns are excluded — there's no useful content
+    // there, and including a pending row would race with the
+    // setState below. We capture this BEFORE setTurns so we don't
+    // depend on stale closure references.
+    const messageHistory: Array<{ role: "user" | "assistant"; content: string }> = [
+      ...turns
+        .filter((t) => !t.pending && !t.errored && t.content.length > 0)
+        .map((t) => ({ role: t.role, content: t.content })),
+      { role: "user", content: message },
+    ];
+
     const userTurn: ChatTurn = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -87,7 +100,7 @@ export function AgentChatPanel({ agent }: Props) {
             Authorization: `Bearer ${session!.token}`,
           },
           body: JSON.stringify({
-            messages: [{ role: "user", content: message }],
+            messages: messageHistory,
             stream: true,
             include_retrieval_info: true,
             include_citations: true,

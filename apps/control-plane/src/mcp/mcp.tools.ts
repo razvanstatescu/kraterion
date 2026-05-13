@@ -271,7 +271,11 @@ export class McpToolsService {
                 apiKey,
                 model: chosenModel,
                 systemPrompt: agent.system_prompt,
-                userMessage: input,
+                // MCP `kraterion_invoke_agent` is single-shot — the
+                // caller (LLM agent) supplies one input string and
+                // expects one answer back. Multi-turn would need a
+                // conversation-id field in the tool schema.
+                messages: [{ role: "user", content: input }],
                 hits: topHits,
                 temperature: agent.temperature,
                 maxTokens: agent.max_tokens,
