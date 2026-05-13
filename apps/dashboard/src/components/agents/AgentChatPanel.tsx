@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import { Pill } from "@/components/ui/Pill";
 import type { AgentCitationJson, AgentJson } from "@/lib/api";
 import { useCpSession } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { walruscanUrl } from "@/lib/format";
+import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
 
 interface Props {
   agent: AgentJson;
@@ -277,18 +277,32 @@ export function AgentChatPanel({ agent }: Props) {
 
 function Turn({ turn }: { turn: ChatTurn }) {
   const isUser = turn.role === "user";
+  const cited = turn.citations?.filter((c) => c.cited) ?? [];
+  // Stable ids per-turn so multiple turns in the same conversation
+  // don't collide when the inline badges scroll/expand the panel.
+  const sourceDomId = (index: number) => `src-${turn.id}-${index}`;
+  const panelDomId = `srcpanel-${turn.id}`;
+
+  // Index → citation map for the inline badge resolver. The model's
+  // `[chunk N]` numbers use the citation's `index` field (1-based
+  // position in the retrieved top-K), so this lookup matches what
+  // the model actually wrote.
+  const citationByIndex = new Map<number, AgentCitationJson>();
+  for (const c of cited) citationByIndex.set(c.index, c);
+
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 6,
-        alignItems: isUser ? "flex-end" : "flex-start",
+        gap: 8,
+        alignItems: isUser ? "flex-end" : "stretch",
       }}
     >
       <div
         style={{
-          maxWidth: "82%",
+          maxWidth: isUser ? "82%" : "100%",
+          alignSelf: isUser ? "flex-end" : "flex-start",
           padding: "10px 14px",
           borderRadius: "var(--radius-md)",
           background: isUser
@@ -303,16 +317,257 @@ function Turn({ turn }: { turn: ChatTurn }) {
               : "var(--text-primary)",
           border: isUser ? "none" : "1px solid var(--border)",
           fontSize: 14,
-          lineHeight: 1.55,
+          lineHeight: 1.6,
           whiteSpace: "pre-wrap",
           overflowWrap: "anywhere",
         }}
       >
-        {turn.content || (turn.pending ? <Typing /> : null)}
+        {turn.content
+          ? renderAssistantContent(
+              turn.content,
+              citationByIndex,
+              sourceDomId,
+              panelDomId,
+            )
+          : turn.pending
+            ? <Typing />
+            : null}
       </div>
-      {turn.citations && turn.citations.some((c) => c.cited) ? (
-        <CitationStrip citations={turn.citations.filter((c) => c.cited)} />
+      {cited.length > 0 ? (
+        <SourcesCard
+          citations={cited}
+          sourceDomId={sourceDomId}
+          panelDomId={panelDomId}
+        />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Parse assistant text for `[chunk N]` citation markers and replace
+ * each with a clickable inline badge that scrolls to the matching
+ * source row below. Plain text segments render unchanged.
+ *
+ * The model is instructed (in the agent's system prompt prelude) to
+ * cite using `[chunk N]` markers, where `N` is the 1-indexed position
+ * in the retrieval block. The same `N` appears as `index` on the
+ * citation row, so we can map markers → sources without ambiguity.
+ *
+ * Unresolvable markers (out-of-range, hallucinated) render as plain
+ * text — the model lying about which chunk it used shouldn't crash
+ * the renderer. Same defensive policy as the citation resolver on
+ * the backend.
+ */
+function renderAssistantContent(
+  text: string,
+  citationByIndex: Map<number, AgentCitationJson>,
+  sourceDomId: (index: number) => string,
+  panelDomId: string,
+): ReactNode[] {
+  const re = /\[chunk\s+(\d+)\]/gi;
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  let nodeKey = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > cursor) {
+      out.push(<span key={`t-${nodeKey++}`}>{text.slice(cursor, m.index)}</span>);
+    }
+    const n = Number(m[1]);
+    const citation = citationByIndex.get(n);
+    if (citation) {
+      out.push(
+        <CitationBadge
+          key={`b-${nodeKey++}`}
+          n={n}
+          targetId={sourceDomId(citation.index)}
+          panelId={panelDomId}
+        />,
+      );
+    } else {
+      // Drop the marker entirely if it doesn't resolve — printing
+      // `[chunk 7]` raw is the noise that prompted this whole change.
+      // The space we ate from the surrounding text is preserved by
+      // the slice above.
+    }
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) {
+    out.push(<span key={`t-${nodeKey++}`}>{text.slice(cursor)}</span>);
+  }
+  return out;
+}
+
+function CitationBadge({
+  n,
+  targetId,
+  panelId,
+}: {
+  n: number;
+  targetId: string;
+  panelId: string;
+}) {
+  const onClick = () => {
+    // Force-open the collapsible Sources panel so the row is visible
+    // before we scroll to it. Native <details> exposes `.open` and
+    // re-rendering React state on click would race the scroll.
+    const panel = document.getElementById(panelId);
+    if (panel instanceof HTMLDetailsElement && !panel.open) panel.open = true;
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ks-source-row-flash");
+    window.setTimeout(() => el.classList.remove("ks-source-row-flash"), 1400);
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Jump to source ${n}`}
+      className="ks-citation-badge"
+    >
+      {n}
+    </button>
+  );
+}
+
+function SourcesCard({
+  citations,
+  sourceDomId,
+  panelDomId,
+}: {
+  citations: AgentCitationJson[];
+  sourceDomId: (index: number) => string;
+  panelDomId: string;
+}) {
+  return (
+    <details
+      id={panelDomId}
+      className="ks-sources-details"
+      style={{ alignSelf: "flex-start", width: "100%", maxWidth: 720 }}
+    >
+      <summary className="ks-sources-summary">
+        <Icon
+          name="chevron"
+          size={14}
+          className="ks-sources-chevron"
+          aria-hidden="true"
+        />
+        <span>Sources</span>
+        <span className="ks-sources-count">{citations.length}</span>
+      </summary>
+      <div className="ks-sources-list">
+        {citations.map((c, i) => (
+          <SourceRow
+            key={c.chunk_hash}
+            citation={c}
+            id={sourceDomId(c.index)}
+            divider={i > 0}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function SourceRow({
+  citation,
+  id,
+  divider,
+}: {
+  citation: AgentCitationJson;
+  id: string;
+  divider: boolean;
+}) {
+  return (
+    <div
+      id={id}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "20px minmax(0, 1fr) auto",
+        columnGap: 10,
+        alignItems: "center",
+        padding: "6px 10px",
+        borderTop: divider ? "1px solid var(--border)" : "none",
+        transition: "background var(--dur-base) var(--ease)",
+      }}
+    >
+      <span className="ks-source-num" aria-hidden="true">
+        {citation.index}
+      </span>
+      <div
+        style={{
+          minWidth: 0,
+          display: "flex",
+          alignItems: "baseline",
+          gap: 6,
+        }}
+      >
+        <span
+          className="mono"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {citation.s3_key}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+            flexShrink: 0,
+          }}
+        >
+          · #{citation.ordinal}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 2 }}>
+        <Link
+          href={`/buckets/${citation.bucket_id}`}
+          aria-label="Open in bucket"
+          title="Open in bucket"
+          className="ks-source-action"
+        >
+          <Icon name="folder" size={14} />
+        </Link>
+        <a
+          href={walruscanUrl(citation.source_walrus_blob_id)}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Source blob on Walruscan"
+          title="View on Walrus"
+          className="ks-source-action"
+        >
+          <Icon name="database" size={14} />
+        </a>
+        {citation.manifest_walrus_blob_id ? (
+          <a
+            href={walruscanUrl(citation.manifest_walrus_blob_id)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Indexing manifest on Walruscan"
+            title="On-chain manifest"
+            className="ks-source-action"
+          >
+            <Icon name="check" size={14} />
+          </a>
+        ) : null}
+        <a
+          href={suiscanObjectUrl(citation.source_shared_blob_object_id, env.network)}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="SharedBlob on Suiscan"
+          title="On Sui"
+          className="ks-source-action"
+        >
+          <Icon name="link-2" size={14} />
+        </a>
+      </div>
     </div>
   );
 }
@@ -339,47 +594,3 @@ function Typing() {
   );
 }
 
-function CitationStrip({ citations }: { citations: AgentCitationJson[] }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 6,
-        marginTop: 4,
-      }}
-    >
-      {citations.map((c) => (
-        <a
-          key={`${c.chunk_hash}`}
-          href={walruscanUrl(c.source_walrus_blob_id)}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            textDecoration: "none",
-            color: "inherit",
-          }}
-        >
-          <Pill>
-            <Icon name="link-2" size={14} />
-            <span
-              className="mono"
-              style={{
-                fontSize: 11,
-                marginLeft: 4,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                maxWidth: 220,
-                display: "inline-block",
-                verticalAlign: "middle",
-              }}
-            >
-              {c.s3_key}#{c.ordinal}
-            </span>
-          </Pill>
-        </a>
-      ))}
-    </div>
-  );
-}

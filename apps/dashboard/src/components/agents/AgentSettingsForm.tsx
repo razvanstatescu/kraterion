@@ -267,7 +267,7 @@ export function AgentSettingsForm({ agent }: Props) {
 
       <FormField
         label="Attached buckets"
-        helper="The agent retrieves from these buckets at chat time."
+        helper="The agent retrieves from these buckets at chat time. Only Knowledge-enabled buckets contribute retrieval; a bucket with Knowledge off stays attached but is silently skipped during chat."
       >
         {allBuckets.length === 0 ? (
           <div className="muted" style={{ fontSize: 13 }}>
@@ -284,28 +284,51 @@ export function AgentSettingsForm({ agent }: Props) {
               padding: 8,
             }}
           >
-            {allBuckets.map((b) => {
+            {[...allBuckets]
+              .sort((a, b) => {
+                const aOn = a.knowledge_enabled ? 1 : 0;
+                const bOn = b.knowledge_enabled ? 1 : 0;
+                if (aOn !== bOn) return bOn - aOn;
+                return a.name.localeCompare(b.name);
+              })
+              .map((b) => {
               const checked = selectedBuckets.has(b.id);
+              const knowledgeOn = Boolean(b.knowledge_enabled);
+              const lockedForAttach = !knowledgeOn && !checked;
               return (
                 <label
                   key={b.id}
+                  title={
+                    lockedForAttach
+                      ? "Knowledge is off on this bucket. Enable it from the bucket's Knowledge tab to attach."
+                      : !knowledgeOn && checked
+                        ? "Knowledge is off; the agent silently skips this bucket. Detach if no longer needed."
+                        : undefined
+                  }
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
                     padding: "6px 8px",
                     borderRadius: "var(--radius-sm)",
-                    cursor: readonly ? "not-allowed" : "pointer",
+                    cursor:
+                      readonly || lockedForAttach ? "not-allowed" : "pointer",
                     background: checked ? "var(--bg-elevated)" : "transparent",
+                    opacity: knowledgeOn ? 1 : 0.7,
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleBucket(b.id)}
-                    disabled={busy || readonly}
+                    disabled={busy || readonly || lockedForAttach}
                   />
                   <span style={{ fontSize: 13 }}>{b.name}</span>
+                  {!knowledgeOn ? (
+                    <Pill tone={checked ? "warning" : "neutral"}>
+                      Knowledge off
+                    </Pill>
+                  ) : null}
                   <span
                     className="muted"
                     style={{ fontSize: 12, marginLeft: "auto" }}

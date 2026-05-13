@@ -2375,3 +2375,152 @@ code, kbd, samp {
 @media (prefers-reduced-motion: reduce) {
   .ks-typing-dot { animation: none; opacity: 0.55; }
 }
+
+/* === Agent chat — inline citation badges + source rows ====================
+   The model writes `[chunk N]` markers; we render them as small krater-toned
+   buttons that scroll to the matching source row in the SourcesCard. Same
+   numbered token shows up in the row's leading slot so the inline→list
+   connection is visual and obvious. */
+.ks-citation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin: 0 2px;
+  border: 1px solid var(--krater);
+  background: transparent;
+  color: var(--krater);
+  border-radius: 9px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ks-citation-badge:hover,
+.ks-citation-badge:focus-visible {
+  background: var(--krater);
+  color: var(--cream);
+  outline: none;
+}
+
+/* Collapsible Sources panel under each assistant turn. Collapsed by
+   default so the chat stays dense; one click (or any inline citation
+   badge) opens it. Native <details>/<summary> for keyboard a11y +
+   no JS state to sync. */
+.ks-sources-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  margin-top: 4px;
+  overflow: hidden;
+}
+.ks-sources-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  list-style: none;
+  user-select: none;
+}
+.ks-sources-summary::-webkit-details-marker { display: none; }
+.ks-sources-summary::marker { content: ""; }
+.ks-sources-summary:hover,
+.ks-sources-summary:focus-visible {
+  color: var(--text-secondary);
+  outline: none;
+}
+.ks-sources-chevron {
+  color: var(--text-tertiary);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ks-sources-details[open] .ks-sources-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-sources-chevron { transition: none; }
+}
+.ks-sources-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--stone-100);
+  color: var(--text-secondary);
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: auto;
+}
+.ks-sources-list {
+  border-top: 1px solid var(--border);
+}
+
+/* Numbered slot at the start of each source row. Same shape as the
+   inline badge but filled, so the badge↔row relationship reads as a
+   pair. Sized down (20px) to match the denser row. */
+.ks-source-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--krater);
+  color: var(--cream);
+  font-family: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Compact icon-button at the end of each source row. */
+.ks-source-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.ks-source-action:hover,
+.ks-source-action:focus-visible {
+  background: var(--stone-100);
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* One-shot flash applied when an inline badge scrolls to a row. */
+.ks-source-row-flash {
+  animation: ks-source-row-flash 1.4s var(--ease);
+}
+@keyframes ks-source-row-flash {
+  0%   { background: var(--bg-elevated); }
+  20%  { background: rgba(196, 91, 54, 0.16); }
+  100% { background: var(--bg-elevated); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-source-row-flash { animation: none; }
+}

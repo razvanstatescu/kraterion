@@ -192,6 +192,19 @@ export class KnowledgeController {
         }
       }
     }
+    // Surface every agent currently attached to this bucket. The
+    // dashboard renders this in the disable-Knowledge confirmation so
+    // the user knows which agents will be silently skipped if they
+    // turn Knowledge off. Cheap join; the table is small.
+    const attachedAgents = await this.prisma.kraterionAgent.findMany({
+      where: {
+        buckets: { some: { bucket_id: bucketId } },
+        status: "active",
+      },
+      select: { id: true, name: true },
+      orderBy: { created_at: "asc" },
+    });
+
     return {
       enabled: !!row,
       settings: row
@@ -204,6 +217,7 @@ export class KnowledgeController {
           }
         : null,
       summary,
+      attached_agents: attachedAgents,
     };
   }
 

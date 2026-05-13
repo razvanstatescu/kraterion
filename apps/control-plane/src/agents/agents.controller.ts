@@ -241,6 +241,7 @@ export class AgentsController {
       // === LLM ===
       if (dto.stream) {
         return await this.streamResponse({
+          req,
           reply,
           agentId,
           invocationId: invocation.id,
@@ -392,6 +393,7 @@ export class AgentsController {
   }
 
   private async streamResponse(args: {
+    req: FastifyRequest;
     reply: FastifyReply;
     agentId: string;
     invocationId: string;
@@ -407,13 +409,31 @@ export class AgentsController {
     includeRetrievalInfo: boolean;
     includeCitations: boolean;
   }) {
-    const { reply } = args;
-    // SSE prelude. Fastify's raw stream lets us flush as chunks land.
+    const { req, reply } = args;
+
+    // SSE prelude. Going through `reply.raw` lets us flush chunks as
+    // they land, but bypasses Fastify's CORS plugin — the `Access-
+    // Control-Allow-*` headers it normally injects on the reply object
+    // never reach the wire. The browser sees a CORS-failed response and
+    // throws "TypeError: failed to fetch" with the body invisible to JS.
+    // We echo the request's Origin (which has already cleared the CORS
+    // preflight check by the time we get here) and the credentials flag
+    // to match the global CORS config in `main.ts`. Cheap, safe — the
+    // preflight is still the authoritative gate.
+    const origin = req.headers.origin;
+    const corsHeaders: Record<string, string> = origin
+      ? {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Credentials": "true",
+          Vary: "Origin",
+        }
+      : {};
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      ...corsHeaders,
     });
 
     const sseSend = (payload: unknown) => {

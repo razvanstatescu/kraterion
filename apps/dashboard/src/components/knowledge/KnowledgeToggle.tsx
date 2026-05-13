@@ -480,11 +480,50 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
         open={confirmDisable}
         title="Disable Knowledge on this bucket?"
         body={
-          <Banner
-            tone="warning"
-            title="This removes every chunk for this bucket."
-            body="Search and ask requests against this bucket will return empty results until you re-enable. Re-enabling kicks off a full backfill."
-          />
+          <>
+            <Banner
+              tone="warning"
+              title="This removes every chunk for this bucket."
+              body="Search and ask requests against this bucket will return empty results until you re-enable. Re-enabling kicks off a full backfill."
+            />
+            {status.attached_agents && status.attached_agents.length > 0 ? (
+              <div style={{ marginTop: 12 }}>
+                <Banner
+                  tone="warning"
+                  icon="alert"
+                  title={`${status.attached_agents.length} agent${status.attached_agents.length === 1 ? " is" : "s are"} attached`}
+                  body={
+                    <>
+                      <p style={{ margin: 0 }}>
+                        While Knowledge is off, the agent
+                        {status.attached_agents.length === 1 ? "" : "s"} below
+                        will silently skip this bucket during chat — answers
+                        will come from any other attached buckets, or fall
+                        back to &quot;no context&quot; if this is their only
+                        attachment. Detach the bucket from these agents
+                        first if you want them to stop using it entirely.
+                      </p>
+                      <ul
+                        style={{
+                          margin: "8px 0 0 0",
+                          paddingLeft: 18,
+                          fontSize: 13,
+                        }}
+                      >
+                        {status.attached_agents.map((a) => (
+                          <li key={a.id} style={{ marginTop: 2 }}>
+                            <Link href={`/agents/${a.id}?tab=settings`}>
+                              {a.name}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  }
+                />
+              </div>
+            ) : null}
+          </>
         }
         confirmLabel="Disable Knowledge"
         danger

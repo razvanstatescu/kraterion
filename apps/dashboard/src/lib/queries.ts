@@ -417,10 +417,19 @@ export interface KnowledgeSettings {
   updated_at: string;
 }
 
+/** Minimal agent reference for the Knowledge tab's disable warning. */
+export interface AttachedAgentSummary {
+  id: string;
+  name: string;
+}
+
 export interface KnowledgeStatus {
   enabled: boolean;
   settings: KnowledgeSettings | null;
   summary: KnowledgeSummary;
+  /** Active agents attached to this bucket. Drives the disable-Knowledge
+   *  confirmation modal — listing them keeps destruction intentional. */
+  attached_agents?: AttachedAgentSummary[];
 }
 
 export function useKnowledgeStatus(bucketId: string | undefined) {
