@@ -1001,3 +1001,68 @@ gone.
 **Notes:** S3 AKIA keys still work on the gateway (SigV4 mandates them);
 they were never accepted as bearer on the control plane and the failure
 mode is unchanged for that path.
+
+---
+
+## Symptom: "Session expired" banner shows on the login page after a clean sign-out
+
+**Cause:** `useCpSession` only listened for the cross-tab `storage` event,
+which (by spec) does not fire in the tab that called `localStorage.setItem`
+/ `removeItem`. So after `useSignOut` cleared the CP JWT and redirected to
+`/login`, the still-mounted `RequireAuth` re-rendered with a *stale-cached*
+`session` object. Its second effect saw `(session && !isConnected &&
+autoConnectStatus === "attempted")` — the exact signature of a stale Enoki
+session — and overwrote the navigation with `/login?reason=stale`, which
+triggers the banner.
+
+**Fix:** Make `sessionStorage.write/clear` dispatch a same-tab
+`CustomEvent("kraterion:cp_session_change")`, and have `useCpSession`
+subscribe to it in addition to `storage`. Now same-tab consumers update
+synchronously when the session is mutated, so `RequireAuth` sees
+`!session` and bails out of the stale path. See
+[apps/dashboard/src/lib/api.ts](../apps/dashboard/src/lib/api.ts) and
+[apps/dashboard/src/lib/auth.ts](../apps/dashboard/src/lib/auth.ts).
+
+**Observed:** 2026-05-14, dashboard sign-out flow.
+
+**Notes:** Standard `localStorage` gotcha. Any future hook that derives
+state from localStorage and is mutated within the same tab needs the same
+custom-event pattern (or a Zustand/Jotai store, but that's overkill here).
+
+---
+
+## Symptom: indexer worker OOMs after a few hours; preceded by `MaxListenersExceededWarning: Possible EventTarget memory leak detected. 65 abort listeners added to [AbortSignal]`
+
+**Cause:** `@protobuf-ts/grpc-transport@2.11.1` attaches a permanent
+listener on every gRPC call's abort signal (`opt.abort.addEventListener('abort', …)`
+at lines 43-46 / 76-79 / 129-132 / 149-152 of its `grpc-transport.js`)
+and **never removes it**. The original `run-loop.ts` passed a single
+iteration-scoped `AbortController.signal` to every `getCheckpoint`
+during backfill, so each call left a closure pinned on that signal
+holding a reference to the underlying `gCall`. Over a 100k+
+checkpoint initial backfill (or a few hours of live streaming),
+the closures accumulate past the V8 4 GB heap ceiling and the worker
+dies with `FATAL ERROR: Ineffective mark-compacts near heap limit`.
+The pre-fix code papered over the symptom with
+`setMaxListeners(64, ac.signal)`, which silences the warning but
+does not stop the underlying leak.
+
+**Fix:** introduce an `AbortPool` in
+[apps/worker/src/indexer/run-loop.ts](../apps/worker/src/indexer/run-loop.ts)
+that keeps exactly ONE listener on the long-lived parent signal and
+hands out fresh per-call `AbortController`s. Each gRPC call gets its
+own child signal; when the call returns, the controller is dropped
+from the inflight set and GC'd along with the leaked closure. The
+parent signal aborting walks the inflight set and cancels everything.
+All `fetchCheckpoint` / subscribe callsites in the run loop now go
+through `pool.run(...)` or `pool.acquire()`. Memory now stays flat
+at ~190 MB through long backfills instead of climbing toward 4 GB.
+
+**Observed:** 2026-05-14, worker OOM at ~3 hours uptime mid-backfill.
+
+**Notes:** Bug is in `@protobuf-ts/grpc-transport` and would recur on
+any new gRPC callsite that reuses a long-lived abort signal across
+many calls. **Rule of thumb:** never pass the same `AbortSignal` to
+more than a handful of `client.*Service.*(..., { abort: signal })`
+calls. Use the `AbortPool` helper or create per-call controllers
+manually. Worth revisiting if/when protobuf-ts patches the leak.

@@ -47,10 +47,42 @@ export function requirePrincipal(req: FastifyRequest): Principal {
 }
 
 /**
- * Convenience: the account_id behind the request (works for both kinds).
+ * Convenience: the account_id behind the request. Throws Forbidden if
+ * the request authenticated with a share-token principal (those have
+ * no account identity by design — they're for anonymous embed-widget
+ * traffic and only authorize the agent chat endpoint).
  */
 export function requireAccountId(req: FastifyRequest): string {
-  return requirePrincipal(req).accountId;
+  const p = requirePrincipal(req);
+  if (p.kind === "share_token") {
+    throw new ControlPlaneError(
+      "Forbidden",
+      "Share tokens cannot access account-scoped resources.",
+    );
+  }
+  return p.accountId;
+}
+
+/**
+ * Returns the principal narrowed to session/api-key — the two account-
+ * scoped kinds. Use this in controllers where the route is NOT the
+ * agent chat endpoint; everywhere else, share-token principals are
+ * refused with Forbidden.
+ *
+ * The chat endpoint uses `requirePrincipal` directly and branches on
+ * `kind` itself — it's the one route that accepts share tokens.
+ */
+export function requireAccountPrincipal(
+  req: FastifyRequest,
+): SessionPrincipal | ApiKeyPrincipal {
+  const p = requirePrincipal(req);
+  if (p.kind === "share_token") {
+    throw new ControlPlaneError(
+      "Forbidden",
+      "Share tokens cannot access this endpoint.",
+    );
+  }
+  return p;
 }
 
 /**
@@ -70,6 +102,11 @@ export function assertProjectAccess(
 ): void {
   if (principal.kind === "api_key" && principal.projectId !== projectId) {
     throw new ControlPlaneError("NotFound", "Project not found");
+  }
+  // Share-token principals are intentionally rejected — they only
+  // authorize the agent chat endpoint and have no project scope.
+  if (principal.kind === "share_token") {
+    throw new ControlPlaneError("Forbidden", "Share tokens cannot access project resources");
   }
 }
 

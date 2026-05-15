@@ -396,7 +396,28 @@ Implementation: route both legs through OpenAI's `omni-moderation-latest` endpoi
 
 ---
 
-### P6 — Embeddable chat widget (medium, distribution play)
+### P6 — Embeddable chat widget (medium, distribution play) — [Shipped 2026-05-15]
+
+**Hackathon scope landed:** Vanilla-JS loader (~6 KB) at
+`/embed/v1.js` mounts a Shadow-DOM launcher; first click lazy-loads
+an iframe at the dashboard's `/embed/chat/[agentId]?t=<share-token>`
+route. Share token format `kr_share_<env>_<36 chars>` mirrors the
+bearer token pattern (hash-stored, one-time reveal, network-prefixed).
+Anonymous-traffic protections live in the chat handler: origin
+allowlist, daily request cap, daily USD spend cap rolled at UTC
+midnight via `ShareTokenUsageDay`. New Share tab on the agent detail
+page mints / lists / revokes; mint dialog reveals the cleartext token
+once with the one-line install snippet pre-filled. `Principal` union
+extended with `ShareTokenPrincipal`; non-chat endpoints reject it via
+`requireAccountPrincipal`. See `docs/decisions.md` 2026-05-15 P6 for
+the full write-up; session log in `docs/progress.md`.
+
+**Deferred from this scope:** published `packages/ui-embed` npm
+artifact, theming customization, pre-filled end-user identity,
+dynamic iframe sizing, per-visitor analytics, Redis migration for
+the daily counters.
+
+
 
 **What:** A `<script>` snippet a user pastes on their site that mounts a chat panel against a specific Kraterion agent. Token auth via short-lived agent share token (HMAC-signed, optional domain pinning, optional rate limit per IP). Each request hits `/v1/agents/{id}/chat`, which uses the project's stored `ProviderCredential` — the widget is only feasible *because* of P0; without stored creds there's no way for an anonymous site visitor to drive an LLM call.
 

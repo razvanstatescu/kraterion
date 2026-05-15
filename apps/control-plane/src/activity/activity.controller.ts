@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requirePrincipal } from "../auth/request-context.js";
+import { requireAccountPrincipal } from "../auth/request-context.js";
 import { parseQuery } from "../validation/zod-pipe.js";
 import { ActivityService } from "./activity.service.js";
 import { type ListActivityQuery, listActivityQuerySchema } from "./dto.js";
@@ -16,7 +16,7 @@ export class ActivityController {
     @Req() req: FastifyRequest,
     @Query(parseQuery(listActivityQuerySchema)) q: ListActivityQuery,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const events = await this.activity.list(user.accountId, { limit: q.limit });
     return { events };
   }

@@ -7,6 +7,7 @@ import { SignOutButton } from "@/components/auth/SignOutButton";
 import { AgentChatPanel } from "@/components/agents/AgentChatPanel";
 import { AgentConnectPanel } from "@/components/agents/AgentConnectPanel";
 import { AgentSettingsForm } from "@/components/agents/AgentSettingsForm";
+import { AgentSharePanel } from "@/components/agents/AgentSharePanel";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -19,7 +20,7 @@ import { ControlPlaneError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { useAgent, useDeleteAgent, useRevokeAgent } from "@/lib/queries";
 
-type Tab = "chat" | "settings" | "connect";
+type Tab = "chat" | "settings" | "connect" | "share";
 
 export default function AgentDetailPage() {
   const params = useParams<{ agentId: string }>();
@@ -206,6 +207,16 @@ export default function AgentDetailPage() {
             <Icon name="link" size={14} />
             Connect
           </button>
+          <button
+            role="tab"
+            aria-selected={tab === "share"}
+            className={`ks-subtab${tab === "share" ? " is-active" : ""}`}
+            onClick={() => setTab("share")}
+            type="button"
+          >
+            <Icon name="link-2" size={14} />
+            Share
+          </button>
         </div>
 
         {tab === "chat" ? (
@@ -239,8 +250,10 @@ export default function AgentDetailPage() {
           <Card style={{ padding: 24, maxWidth: 760 }}>
             <AgentSettingsForm agent={agent} />
           </Card>
-        ) : (
+        ) : tab === "connect" ? (
           <AgentConnectPanel agent={agent} />
+        ) : (
+          <AgentSharePanel agent={agent} />
         )}
       </main>
 

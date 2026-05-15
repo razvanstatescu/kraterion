@@ -100,13 +100,18 @@ export function useCpSession(): CpSessionState {
     setSession(cpSessionStore.read());
     setMounted(true);
 
+    const onChange = () => setSession(cpSessionStore.read());
     const onStorage = (e: StorageEvent) => {
       if (e.key === cpSessionStore.key) {
         setSession(cpSessionStore.read());
       }
     };
+    window.addEventListener(cpSessionStore.event, onChange);
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(cpSessionStore.event, onChange);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   return { mounted, session };

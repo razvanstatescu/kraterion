@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Param, Post, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requirePrincipal } from "../auth/request-context.js";
+import { requireAccountPrincipal } from "../auth/request-context.js";
 import { parseBody } from "../validation/zod-pipe.js";
 import {
   type PrepareDownloadDto,
@@ -31,7 +31,7 @@ export class PresignController {
     @Req() req: FastifyRequest,
     @Body(parseBody(prepareUploadSchema)) dto: PrepareUploadDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     return this.presign.signUpload({
       accountId: user.accountId,
       bucketId: dto.bucket_id,
@@ -47,7 +47,7 @@ export class PresignController {
     @Param("objectId") objectId: string,
     @Body(parseBody(prepareDownloadSchema.optional().default({ share: false }))) dto: PrepareDownloadDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     return this.presign.signDownload({
       accountId: user.accountId,
       objectId,
@@ -61,7 +61,7 @@ export class PresignController {
     @Req() req: FastifyRequest,
     @Param("objectId") objectId: string,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     return this.presign.signDelete({ accountId: user.accountId, objectId });
   }
 }

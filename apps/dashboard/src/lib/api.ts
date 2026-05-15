@@ -37,6 +37,12 @@ export class ControlPlaneError extends Error {
 }
 
 const SESSION_KEY = "kraterion.cp_session";
+const SESSION_EVENT = "kraterion:cp_session_change";
+
+function emitSessionChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(SESSION_EVENT));
+}
 
 interface StoredSession {
   token: string;
@@ -59,6 +65,7 @@ function readSession(): StoredSession | null {
 function clearSession() {
   if (typeof window !== "undefined") {
     window.localStorage.removeItem(SESSION_KEY);
+    emitSessionChange();
   }
 }
 
@@ -230,6 +237,35 @@ export interface AgentBucketGrantJson {
   kraterion_bucket_object_id: string;
 }
 
+/** P6 — Share token row returned by the agent share-tokens endpoints. */
+export interface ShareTokenJson {
+  id: string;
+  agent_id: string;
+  name: string;
+  /** Cosmetic preview ("kr_share_test_aB3…X9Z"). Cleartext is shown
+   *  only once at mint time and never returned again. */
+  token_prefix: string;
+  network: "testnet" | "mainnet";
+  allowed_origins: string[];
+  max_requests_per_day: number | null;
+  /** Dollars, not micros — converted on the wire. */
+  max_spend_usd_per_day: number | null;
+  /** When false, the chat suppresses source citations + retrieval
+   *  info on both the prompt and response side. */
+  cite_sources: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface MintShareTokenResponse {
+  share_token: ShareTokenJson;
+  /** Cleartext token — shown to the user exactly once at mint. */
+  token: string;
+  network: "testnet" | "mainnet";
+  WARNING: string;
+}
+
 /** Citation row attached to a chat completion response (kraterion ext). */
 export interface AgentCitationJson {
   index: number;
@@ -347,10 +383,12 @@ export interface PrepareTxResponse {
 
 export const sessionStorage = {
   key: SESSION_KEY,
+  event: SESSION_EVENT,
   read: readSession,
   write(session: StoredSession) {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      emitSessionChange();
     }
   },
   clear: clearSession,

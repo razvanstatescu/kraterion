@@ -36,12 +36,32 @@ async function bootstrap() {
 
   // CORS allowlist — defaults to localhost dashboard. Multiple origins via
   // comma-separated env (`CORS_ORIGINS=https://a,https://b`).
+  //
+  // P6 — the agent chat endpoint also accepts traffic from arbitrary
+  // origins when authed via a `kr_share_*` token. We can't enumerate
+  // those origins at boot (they live in `AgentShareToken.allowed_origins`
+  // and change every time a customer mints a token), so we delegate the
+  // origin check to a per-request function. The share-token branch in
+  // the chat controller does its own DB-backed origin allowlist check
+  // before the LLM call; this CORS hook just lets the browser
+  // preflight succeed for non-dashboard origins on the chat path.
   const corsOrigins = (process.env["CORS_ORIGINS"] ?? process.env["DASHBOARD_ORIGIN"] ?? "http://localhost:3001")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   await app.register(fastifyCors, {
-    origin: corsOrigins,
+    origin: (origin, cb) => {
+      // Same-origin / curl / server-to-server → no Origin header → allow.
+      if (!origin) return cb(null, true);
+      // Dashboard allowlist hit.
+      if (corsOrigins.includes(origin)) return cb(null, true);
+      // Otherwise allow the preflight through. The actual authorization
+      // happens inside the chat handler against the share token's
+      // per-token allowed_origins list. Non-chat endpoints fall through
+      // their own auth guard, which rejects bad tokens regardless of
+      // origin.
+      return cb(null, true);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   });

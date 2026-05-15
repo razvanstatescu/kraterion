@@ -1,9 +1,11 @@
 import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { looksLikeBearer } from "../api-keys/bearer.js";
+import { looksLikeShareToken } from "../agents/share-token.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { cpAuthFailuresTotal } from "../metrics.js";
 import { BearerResolver } from "./bearer-resolver.js";
+import { ShareTokenResolver } from "./share-token-resolver.js";
 import { TokensService } from "./tokens.service.js";
 
 /**
@@ -31,6 +33,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private readonly tokens: TokensService,
     private readonly bearer: BearerResolver,
+    private readonly shareTokens: ShareTokenResolver,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -65,6 +68,20 @@ export class AuthGuard implements CanActivate {
         cpAuthFailuresTotal.inc({ reason: "invalid-token" });
         throw err;
       }
+    }
+
+    if (looksLikeShareToken(token)) {
+      // P6 — embed widget. The principal authorizes ONLY the agent
+      // chat endpoint; non-chat handlers branch on `principal.kind`
+      // and refuse this kind (same posture as `requireUser` rejecting
+      // api-key principals).
+      const resolved = await this.shareTokens.resolve(token);
+      if (!resolved) {
+        cpAuthFailuresTotal.inc({ reason: "invalid-share-token" });
+        throw new ControlPlaneError("Unauthorized", "Invalid or revoked share token");
+      }
+      req.principal = resolved;
+      return true;
     }
 
     if (looksLikeBearer(token)) {

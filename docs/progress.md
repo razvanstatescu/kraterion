@@ -3557,3 +3557,185 @@ principal, the agent's `sub_wallet` is *not* in the write path.
   buffer at the moment we detect `finish_reason="tool_calls"`; that's
   the full string. No issue today, just worth noting if we move to
   earlier emit on the first delta.
+
+## 2026-05-14 — [worker] Indexer abort-listener leak fixed; backfill rate bumped to 10 rps
+
+The worker OOMed mid-morning after silently leaking abort-signal
+listeners for hours. Caught it because three `aws s3 cp` retries
+timed out on `waitForS3Object` — gateway wrote SharedBlobs on-chain
+but the indexer (dead) never produced the `S3Object` rows.
+
+**Root cause.** `@protobuf-ts/grpc-transport@2.11.1` registers a
+listener on every gRPC call's `opt.abort` signal and **never
+removes it** (lines 43–46 / 76–79 / 129–132 / 149–152 of its
+`grpc-transport.js`). The previous `run-loop.ts` reused a single
+iteration-scoped `AbortController.signal` across the entire
+backfill, so each `getCheckpoint` left a closure permanently
+pinned on that signal, holding a reference to the underlying
+`gCall`. Over a 100k+ checkpoint initial backfill the closures
+piled up past the V8 4 GB heap ceiling →
+`FATAL ERROR: Ineffective mark-compacts near heap limit`. The
+prior `setMaxListeners(64, ac.signal)` was a Band-Aid that
+silenced the warning without stopping the underlying leak.
+
+**Fix.** Introduced an `AbortPool` class in
+[apps/worker/src/indexer/run-loop.ts](../apps/worker/src/indexer/run-loop.ts).
+It keeps exactly ONE listener on the long-lived parent signal and
+hands out fresh per-call `AbortController`s. Each gRPC call gets
+its own child signal; when the call returns, the controller is
+dropped from the inflight set and GC'd along with the leaked
+closure. Parent abort walks the inflight set and cancels all
+children. All `fetchCheckpoint` / subscribe callsites in the run
+loop now go through `pool.run(...)` or `pool.acquire()`.
+
+**Verified.** After the fix the worker runs through mixed
+backfill + live streaming with RSS holding at ~155 MB (was
+climbing past 400 MB and OOMing within hours). Zero
+`MaxListenersExceededWarning` since boot.
+
+**Rate-limit bump.** Set `INDEXER_BACKFILL_INTERVAL_MS=100` in
+root `.env` (was hardcoded default 125). With `BACKFILL_CONCURRENCY=2`
+that's ~10 rps target = public testnet's documented cap. Drops
+backfill drain from ~8 cps to ~9–10 cps. Lower values risk 429s
+from the public fullnode; existing retry path handles them fine.
+
+**Forensic cleanup.** Fast-forwarded the cursor past a ~124k
+checkpoint gap accumulated during the OOM downtime via
+`pnpm -F @kraterion/worker indexer:fast-forward`. The three
+orphan SharedBlobs from this morning's failed `aws s3 cp` retries
+live in the skipped window and won't surface in the dashboard;
+acceptable because they were test-driven and the on-chain
+SharedBlobs remain user-owned regardless.
+
+**Runbook entry added** at
+[docs/runbook.md](runbook.md) under "Symptom: indexer worker
+OOMs after a few hours; preceded by `MaxListenersExceededWarning`".
+Includes a rule of thumb: never pass the same `AbortSignal` to
+more than a handful of `client.*Service.*(..., { abort: signal })`
+calls — use the `AbortPool` helper.
+
+**Operational footgun caught.** First fast-forward attempt was a
+no-op because the worker was still running and immediately
+overwrote the seeded cursor on its next checkpoint commit.
+`fast-forward.ts` already documents "restart the worker to take
+effect" in its docstring; worth highlighting that the sequence
+is **kill worker → seed cursor → restart**, in that order.
+
+**Files touched.**
+- `apps/worker/src/indexer/run-loop.ts` — `AbortPool` class, all
+  gRPC abort plumbing rerouted through it; `setMaxListeners`
+  workaround removed.
+- `.env` — added `INDEXER_BACKFILL_INTERVAL_MS=100`.
+- `docs/runbook.md` — new entry.
+
+**Known follow-ups.**
+
+- **Upstream the bug.** `@protobuf-ts/grpc-transport` should
+  `removeEventListener` on call settlement. PR-worthy if the
+  project is alive; otherwise the `AbortPool` pattern is now our
+  permanent workaround.
+- **Homebrew-pnpm regression.** Discovered while restarting
+  services: `brew` is on pnpm 11.1.0 which requires Node 22+
+  (`node:sqlite`). Local Node is 20.19, so the Homebrew shim
+  crashes immediately. Pin pnpm via Homebrew or upgrade Node;
+  meantime everything launches via the pnpm 9.12.0 binary at
+  `~/Library/pnpm/.tools/pnpm/9.12.0/bin/pnpm`.
+
+## 2026-05-15 [agents] P6 ships: embeddable chat widget
+
+Last untouched flagship feature from the AI platform roadmap. One-line
+script tag on the customer's site → floating chat widget powered by
+their Kraterion agent, with origin allowlisting + daily request/spend
+caps. Decision write-up: `docs/decisions.md` 2026-05-15 P6.
+
+**Schema (additive migration `20260515090000_p6_share_tokens`).**
+- `AgentShareToken` — one per "deployment surface." Cleartext returned
+  once at mint, SHA-256 hash for lookup. `agent_id` (cascade-delete),
+  `name`, `token_hash` (unique), `token_prefix` (cosmetic), `network`,
+  `allowed_origins: string[]`, `max_requests_per_day`,
+  `max_spend_usd_micros_per_day`, `revoked_at`.
+- `ShareTokenUsageDay` — rolling (token, UTC-day) counter for caps.
+  Upserted on every successful turn; cap-check reads before issuing
+  the LLM call.
+- `AgentInvocation.share_token_id` — fourth discriminator alongside
+  `user_id` / `api_key_id` / `oauth_client_id`.
+
+**Control plane.**
+- `apps/control-plane/src/agents/share-token.ts` — `mintShareToken`,
+  `hashShareToken`, `looksLikeShareToken`, `networkOfShareToken`,
+  `utcDay`. Format `kr_share_<env>_<36 chars>`. Same alphabet +
+  entropy as `kr_test_/kr_live_` bearer tokens.
+- `apps/control-plane/src/auth/share-token-resolver.ts` —
+  authentication. Hash → row → principal. Rejects malformed, wrong-
+  network, unknown, revoked, agent-not-active tokens. Origin + caps
+  enforced at the chat endpoint, not here.
+- `apps/control-plane/src/auth/principal.ts` — new
+  `ShareTokenPrincipal` variant (no `accountId`, has `agentId` +
+  `allowedOrigins` + caps). `requireAccountPrincipal` helper narrows
+  away share-token kind for non-chat endpoints; `assertProjectAccess`
+  refuses share-token principals.
+- `apps/control-plane/src/auth/auth.guard.ts` — three-way dispatch by
+  token shape: JWT → session, `kr_share_*` → share-token resolver,
+  `kr_*` → bearer resolver, otherwise 401.
+- `agents.controller.ts` chat method — branches on `principal.kind`.
+  Share-token branch: refuse cross-agent use, refuse non-allowlisted
+  Origin, refuse over-cap. After a clean call, bump
+  `ShareTokenUsageDay` counters. `getByIdForShareToken` on
+  `AgentsService` fetches without the account-ownership check.
+- `apps/control-plane/src/agents/share-token-usage.ts` — Prisma-based
+  cap enforcement (`assertWithinCaps` + `record`) and
+  `computeSpendUsdMicros(completion_tokens, modelId)`. Spend tracked
+  in micros (1e-6 USD) to stay precise at billion-micro scale.
+- `apps/control-plane/src/agents/share-tokens.service.ts` — mint /
+  list / revoke. Owner check via agent → project → account.
+- Three new routes on `AgentsController`:
+  `GET /v1/agents/:agentId/share-tokens`,
+  `POST /v1/agents/:agentId/share-tokens`,
+  `POST /v1/share-tokens/:tokenId/revoke`.
+- `main.ts` CORS now uses a per-request origin function that
+  permissively lets the preflight through. The real origin gate is
+  the share-token allowlist enforced inside the chat handler.
+
+**Dashboard.**
+- `apps/dashboard/src/app/embed/chat/[agentId]/page.tsx` — iframe
+  page. Sibling to `(app)/` so it inherits only the root layout
+  (no Shell, no RequireAuth). Reuses `AgentChatPanel` with
+  `authTokenOverride` (the share token from `?t=`) +
+  `hideHeader` (the launcher already owns the close affordance).
+  Three earth-tone-ring brand mark in the iframe header matches
+  `design-system/assets/kraterion-light.svg`.
+- `apps/dashboard/public/embed/v1.js` — loader. ~6 KB unminified.
+  Vanilla JS, closed Shadow DOM around the launcher button. Lazy-
+  mounts the iframe on first click. Handles `kraterion:close`
+  postMessage from inside the iframe.
+- `AgentChatPanel` extended with two optional props
+  (`authTokenOverride`, `hideHeader`) so the embed iframe can drive
+  it without forking the chat UI.
+- `apps/dashboard/src/components/agents/AgentSharePanel.tsx` — new
+  Share tab on the agent detail page. Lists tokens, install-snippet
+  card preview, revoke action. Matches the 4-tab pattern
+  (Chat / Settings / Connect / Share).
+- `apps/dashboard/src/components/agents/CreateShareTokenDialog.tsx` —
+  mint dialog. Form → reveal panel with the cleartext token + the
+  one-line install snippet pre-filled, single copy button. Closing
+  the dialog drops the cleartext from state.
+- API client extended: `ShareTokenJson` + `MintShareTokenResponse`
+  types, `useShareTokens` / `useMintShareToken` / `useRevokeShareToken`
+  React Query hooks.
+
+**Known follow-ups.**
+- **`packages/ui-embed` published npm artifact.** Today the dashboard
+  hosts both loader + iframe; publishing the loader as an
+  installable script wins for CDN caching but isn't on the demo path.
+- **Custom theming** via `data-theme` / `data-accent-color`. Pinned
+  to brand palette for v1.
+- **Pre-filled end-user identity** (signed JWT with end-user claims
+  for "in-app help" personalization).
+- **Dynamic iframe size / postMessage resize events.** Fixed
+  380×580 desktop / full-screen mobile today.
+- **Per-visitor analytics.** `AgentInvocation.share_token_id` is the
+  only source of usage data; a per-visitor session id would be a
+  natural future addition.
+- **Redis migration** for `ShareTokenUsageDay` if traffic justifies
+  it. The shape doesn't change — same per-(token, day) counter, just
+  with a faster atomic increment path.

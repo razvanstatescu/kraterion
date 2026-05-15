@@ -20,10 +20,8 @@ export default function Home() {
   }, [mounted, session, router]);
 
   return (
-    <main className="ks-login">
-      <div className="ks-login-card">
-        <Mark size={56} variant="light" animate="iris" />
-      </div>
+    <main className="ks-splash">
+      <Mark size={64} variant="light" animate="pulse" />
     </main>
   );
 }

@@ -346,6 +346,93 @@ export function useMintBearerToken(projectId: string | undefined) {
   });
 }
 
+// === P6 — Embed widget share tokens =========================================
+
+import type { MintShareTokenResponse, ShareTokenJson } from "./api";
+
+export function useShareTokens(agentId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "agents", agentId ?? "none", "share-tokens"],
+    queryFn: () =>
+      cpFetch<{ share_tokens: ShareTokenJson[] }>(
+        `/v1/agents/${agentId}/share-tokens`,
+      ),
+    enabled: Boolean(session?.token && agentId),
+    staleTime: 30_000,
+  });
+}
+
+export interface MintShareTokenInput {
+  name: string;
+  allowed_origins: string[];
+  max_requests_per_day: number | null;
+  max_spend_usd_per_day: number | null;
+  cite_sources: boolean;
+}
+
+export function useMintShareToken(agentId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: MintShareTokenInput) =>
+      cpFetch<MintShareTokenResponse>(`/v1/agents/${agentId}/share-tokens`, {
+        method: "POST",
+        body: input,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", agentId ?? "none", "share-tokens"],
+      });
+    },
+  });
+}
+
+export interface UpdateShareTokenInput {
+  name?: string;
+  allowed_origins?: string[];
+  max_requests_per_day?: number | null;
+  max_spend_usd_per_day?: number | null;
+  cite_sources?: boolean;
+}
+
+export function useUpdateShareToken(agentId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tokenId,
+      input,
+    }: {
+      tokenId: string;
+      input: UpdateShareTokenInput;
+    }) =>
+      cpFetch<{ share_token: ShareTokenJson }>(`/v1/share-tokens/${tokenId}`, {
+        method: "PATCH",
+        body: input,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", agentId ?? "none", "share-tokens"],
+      });
+    },
+  });
+}
+
+export function useRevokeShareToken(agentId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (tokenId: string) =>
+      cpFetch<{ id: string; revoked_at: string }>(
+        `/v1/share-tokens/${tokenId}/revoke`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "agents", agentId ?? "none", "share-tokens"],
+      });
+    },
+  });
+}
+
 // === Provider credentials ====================================================
 
 interface ProviderCredentialsResponse {

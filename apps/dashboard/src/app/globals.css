@@ -973,6 +973,16 @@ code, kbd, samp {
 .ks-toast a { color: var(--krater); text-decoration: none; }
 .ks-toast a:hover { text-decoration: underline; }
 
+/* Splash — pre-auth hydration screen (root page, route gates).
+   Just the Mark, dead-centered, pulsing. */
+.ks-splash {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
 /* ============================================================
    Login surface — two-pane editorial split
    Left (Ink): rotating story panel of differentiators.

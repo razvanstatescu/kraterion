@@ -10,7 +10,7 @@ import {
   isKnownChatModel,
 } from "@kraterion/shared";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requirePrincipal } from "../auth/request-context.js";
+import { requireAccountPrincipal } from "../auth/request-context.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -121,7 +121,7 @@ export class KnowledgeController {
 
   @Get()
   async get(@Req() req: FastifyRequest, @Param("bucketId") bucketId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     await this.buckets.getOwned(user.accountId, bucketId);
     const row = await this.prisma.knowledgeBucketSettings.findUnique({
       where: { bucket_id: bucketId },
@@ -228,7 +228,7 @@ export class KnowledgeController {
     @Param("bucketId") bucketId: string,
     @Body(parseBody(enableKnowledgeSchema)) dto: EnableKnowledgeDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const bucket = await this.buckets.getOwned(user.accountId, bucketId);
 
     if (!dto.enabled) {
@@ -380,7 +380,7 @@ export class KnowledgeController {
   @Post("backfill")
   @HttpCode(200)
   async backfill(@Req() req: FastifyRequest, @Param("bucketId") bucketId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     await this.buckets.getOwned(user.accountId, bucketId);
     const settings = await this.prisma.knowledgeBucketSettings.findUnique({
       where: { bucket_id: bucketId },
@@ -419,7 +419,7 @@ export class KnowledgeController {
     @Param("bucketId") bucketId: string,
     @Body(parseBody(reindexKnowledgeSchema)) dto: ReindexKnowledgeDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const bucket = await this.buckets.getOwned(user.accountId, bucketId);
     const settings = await this.prisma.knowledgeBucketSettings.findUnique({
       where: { bucket_id: bucketId },
@@ -494,7 +494,7 @@ export class KnowledgeController {
     @Param("bucketId") bucketId: string,
     @Body(parseBody(searchSchema)) dto: SearchDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const bucket = await this.buckets.getOwned(user.accountId, bucketId);
     const result = await this.knowledge.search({
       accountId: user.accountId,

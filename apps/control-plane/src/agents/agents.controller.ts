@@ -16,7 +16,11 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_CHAT_MODEL_ID, isKnownChatModel } from "@kraterion/shared";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requirePrincipal } from "../auth/request-context.js";
+import {
+  requireAccountPrincipal,
+  requirePrincipal,
+  requireUser,
+} from "../auth/request-context.js";
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { KnowledgeService } from "../knowledge/knowledge.service.js";
@@ -28,11 +32,17 @@ import { answerWithAgent, resolveCitations, streamWithAgent } from "./answer.js"
 import {
   chatCompletionsSchema,
   createAgentSchema,
+  createShareTokenSchema,
   updateAgentSchema,
+  updateShareTokenSchema,
   type ChatCompletionsDto,
   type CreateAgentDto,
+  type CreateShareTokenDto,
+  type ShareTokenJson,
   type UpdateAgentDto,
+  type UpdateShareTokenDto,
 } from "./dto.js";
+import { ShareTokensService, type RedactedShareToken } from "./share-tokens.service.js";
 import { AgentToolRegistry } from "./tools/registry.js";
 import type { ToolContext } from "./tools/types.js";
 import {
@@ -42,6 +52,10 @@ import {
   type PartialToolCall,
   type ToolCallFrame,
 } from "./tool-runner.js";
+import {
+  ShareTokenUsageService,
+  computeSpendUsdMicros,
+} from "./share-token-usage.js";
 import type OpenAI from "openai";
 import { PresignService } from "../objects/presign.service.js";
 
@@ -70,6 +84,8 @@ export class AgentsController {
     private readonly prisma: PrismaService,
     private readonly toolRegistry: AgentToolRegistry,
     private readonly presign: PresignService,
+    private readonly shareTokenUsage: ShareTokenUsageService,
+    private readonly shareTokens: ShareTokensService,
   ) {}
 
   /** Build a ToolContext for the current chat invocation. Pure object —
@@ -94,7 +110,7 @@ export class AgentsController {
 
   @Get("agents")
   async list(@Req() req: FastifyRequest, @Query("project_id") projectId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     if (!projectId) {
       throw new ControlPlaneError(
         "InvalidArgument",
@@ -111,14 +127,14 @@ export class AgentsController {
     @Param("projectId") projectId: string,
     @Body(parseBody(createAgentSchema)) dto: CreateAgentDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const agent = await this.agents.create(user.accountId, projectId, dto);
     return { agent };
   }
 
   @Get("agents/:agentId")
   async read(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const agent = await this.agents.getOwned(user.accountId, agentId);
     return { agent };
   }
@@ -129,14 +145,14 @@ export class AgentsController {
     @Param("agentId") agentId: string,
     @Body(parseBody(updateAgentSchema)) dto: UpdateAgentDto,
   ) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const agent = await this.agents.update(user.accountId, agentId, dto);
     return { agent };
   }
 
   @Post("agents/:agentId/revoke")
   async revoke(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const agent = await this.agents.revoke(user.accountId, agentId);
     return { agent };
   }
@@ -148,15 +164,69 @@ export class AgentsController {
    */
   @Get("agents/:agentId/grants")
   async grants(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const grants = await this.agents.listGrants(user.accountId, agentId);
     return { grants };
+  }
+
+  // === P6 — Embed widget share tokens ===
+
+  @Get("agents/:agentId/share-tokens")
+  async listShareTokens(
+    @Req() req: FastifyRequest,
+    @Param("agentId") agentId: string,
+  ) {
+    const user = requireUser(req);
+    const rows = await this.shareTokens.listForAgent(user.accountId, agentId);
+    return { share_tokens: rows.map(serializeShareToken) };
+  }
+
+  /**
+   * Mint a new share token. Returns the cleartext token exactly once —
+   * the user pastes it into a `<script data-token=...>` tag on their
+   * site and it cannot be retrieved again.
+   */
+  @Post("agents/:agentId/share-tokens")
+  async createShareToken(
+    @Req() req: FastifyRequest,
+    @Param("agentId") agentId: string,
+    @Body(parseBody(createShareTokenSchema)) dto: CreateShareTokenDto,
+  ) {
+    const user = requireUser(req);
+    const minted = await this.shareTokens.create(user.accountId, agentId, dto);
+    return {
+      share_token: serializeShareToken(minted.share_token),
+      token: minted.token,
+      network: minted.network,
+      WARNING: minted.WARNING,
+    };
+  }
+
+  @Patch("share-tokens/:tokenId")
+  async updateShareToken(
+    @Req() req: FastifyRequest,
+    @Param("tokenId") tokenId: string,
+    @Body(parseBody(updateShareTokenSchema)) dto: UpdateShareTokenDto,
+  ) {
+    const user = requireUser(req);
+    const updated = await this.shareTokens.update(user.accountId, tokenId, dto);
+    return { share_token: serializeShareToken(updated) };
+  }
+
+  @Post("share-tokens/:tokenId/revoke")
+  async revokeShareToken(
+    @Req() req: FastifyRequest,
+    @Param("tokenId") tokenId: string,
+  ) {
+    const user = requireUser(req);
+    const revoked = await this.shareTokens.revoke(user.accountId, tokenId);
+    return { id: revoked.id, revoked_at: revoked.revoked_at };
   }
 
   @Delete("agents/:agentId")
   @HttpCode(204)
   async remove(@Req() req: FastifyRequest, @Param("agentId") agentId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     await this.agents.remove(user.accountId, agentId);
   }
 
@@ -174,13 +244,58 @@ export class AgentsController {
     @Body(parseBody(chatCompletionsSchema)) dto: ChatCompletionsDto,
   ) {
     const user = requirePrincipal(req);
-    const agent = await this.agents.getOwnedRow(user.accountId, agentId);
 
-    // Bearer tokens are project-scoped — refuse cross-project use even
-    // when the underlying account owns both projects. Session principals
-    // are account-scoped and pass through.
-    if (user.kind === "api_key" && user.projectId !== agent.project_id) {
-      throw new ControlPlaneError("NotFound", "Agent not found");
+    // Three authentication paths reach this endpoint:
+    //   - session JWT  → dashboard / `requireUser`-style flows
+    //   - kr_* bearer  → CRUD / scripted / Claude Desktop bearer
+    //   - kr_share_*   → P6 embed widget (anonymous public traffic)
+    //
+    // Share-token principals carry no accountId, so we fetch the
+    // agent by id directly (the token is bound to this specific agent
+    // and the resolver already confirmed the agent is active) and
+    // pull account_id off the agent row for knowledge retrieval. For
+    // session + bearer we go through the ownership-checked path and
+    // use the principal's accountId.
+    let agent;
+    let accountId: string;
+    if (user.kind === "share_token") {
+      if (user.agentId !== agentId) {
+        // The token was minted for a different agent — refuse and
+        // surface NotFound so the client can't probe which agent ids
+        // exist by attempting cross-agent calls.
+        throw new ControlPlaneError("NotFound", "Agent not found");
+      }
+      // Origin allowlist gate. Empty list = dormant token (mint default).
+      const origin = req.headers.origin;
+      if (
+        user.allowedOrigins.length === 0 ||
+        typeof origin !== "string" ||
+        !user.allowedOrigins.includes(origin)
+      ) {
+        throw new ControlPlaneError(
+          "Forbidden",
+          "This share token isn't authorized for the request origin.",
+          { origin: origin ?? "(none)" },
+        );
+      }
+      // Daily-cap gate. Either limit being null = unlimited.
+      await this.shareTokenUsage.assertWithinCaps(
+        user.shareTokenId,
+        user.maxRequestsPerDay,
+        user.maxSpendUsdMicrosPerDay,
+      );
+      const fetched = await this.agents.getByIdForShareToken(agentId);
+      agent = fetched;
+      accountId = fetched.account_id;
+    } else {
+      agent = await this.agents.getOwnedRow(user.accountId, agentId);
+      accountId = user.accountId;
+      // Bearer tokens are project-scoped — refuse cross-project use even
+      // when the underlying account owns both projects. Session principals
+      // are account-scoped and pass through.
+      if (user.kind === "api_key" && user.projectId !== agent.project_id) {
+        throw new ControlPlaneError("NotFound", "Agent not found");
+      }
     }
 
     if (agent.status !== "active") {
@@ -244,6 +359,7 @@ export class AgentsController {
         project_id: agent.project_id,
         user_id: user.kind === "session" ? user.accountId : null,
         api_key_id: user.kind === "api_key" ? user.apiKeyId : null,
+        share_token_id: user.kind === "share_token" ? user.shareTokenId : null,
         input,
         model: requestedModel,
         bucket_ids: agent.buckets.map((b) => b.bucket_id),
@@ -266,7 +382,7 @@ export class AgentsController {
       for (const bucketId of bucketIds) {
         try {
           const res = await this.knowledge.search({
-            accountId: user.accountId,
+            accountId,
             bucketId,
             query: input,
             topK: agent.top_k,
@@ -300,11 +416,23 @@ export class AgentsController {
       const toolNames = agent.tools.map((t) => t.tool_name);
       const tools = this.toolRegistry.openAiToolsParam(toolNames);
       const toolCtx = this.toolContext({
-        accountId: user.accountId,
+        accountId,
         projectId: agent.project_id,
         apiKeyId: user.kind === "api_key" ? user.apiKeyId : null,
         invocationId: invocation.id,
       });
+
+      // P6 — share tokens own a per-deployment "cite sources" flag.
+      // When false: strip the `[chunk N]` contract from the system
+      // prompt AND force-disable the response-side citations +
+      // retrieval-info extensions, so a public widget can never leak
+      // internal source paths or chunk numbers to visitors.
+      const suppressCitations =
+        user.kind === "share_token" && !user.citeSources;
+      const effectiveIncludeCitations =
+        dto.include_citations && !suppressCitations;
+      const effectiveIncludeRetrievalInfo =
+        dto.include_retrieval_info && !suppressCitations;
 
       if (dto.stream) {
         return await this.streamResponse({
@@ -321,10 +449,14 @@ export class AgentsController {
           bucketIds,
           retrievalLatencyMs,
           wallStart,
-          includeRetrievalInfo: dto.include_retrieval_info,
-          includeCitations: dto.include_citations,
+          includeRetrievalInfo: effectiveIncludeRetrievalInfo,
+          includeCitations: effectiveIncludeCitations,
+          omitCitationInstructions: suppressCitations,
           tools,
           toolCtx,
+          ...(user.kind === "share_token"
+            ? { shareTokenId: user.shareTokenId }
+            : {}),
         });
       }
 
@@ -346,6 +478,7 @@ export class AgentsController {
               hits: topHits,
               temperature,
               maxTokens,
+              ...(suppressCitations ? { omitCitationInstructions: true } : {}),
               ...(tools ? { tools, extraMessages } : { extraMessages }),
             }),
         );
@@ -411,6 +544,20 @@ export class AgentsController {
         },
       });
 
+      // P6 — bump the share token's daily counters AFTER a successful
+      // turn (failures don't count toward caps).
+      //
+      // NB: pass `requestedModel` (canonical catalog id, e.g.
+      // "gpt-4o-mini"), not `answered.model` — OpenAI returns the
+      // versioned id ("gpt-4o-mini-2024-07-18") which doesn't match
+      // our price catalog and would charge zero.
+      if (user.kind === "share_token") {
+        await this.shareTokenUsage.record(
+          user.shareTokenId,
+          computeSpendUsdMicros(answered.completion_tokens, requestedModel),
+        );
+      }
+
       // Pull the audit children we just wrote so the response includes
       // the tool-call summary alongside citations.
       const toolCallRows = await this.prisma.agentToolCall.findMany({
@@ -431,8 +578,8 @@ export class AgentsController {
         hits: topHits,
         bucketIds,
         citations: answered.citations,
-        includeRetrievalInfo: dto.include_retrieval_info,
-        includeCitations: dto.include_citations,
+        includeRetrievalInfo: effectiveIncludeRetrievalInfo,
+        includeCitations: effectiveIncludeCitations,
         toolCalls: toolCallRows,
       });
       void reply.status(200).send(payload);
@@ -562,8 +709,16 @@ export class AgentsController {
     wallStart: number;
     includeRetrievalInfo: boolean;
     includeCitations: boolean;
+    /** P6 — share-token `cite_sources=false` strips the `[chunk N]`
+     *  contract from the system prompt so the model emits clean prose
+     *  (in addition to suppressing the citations + retrieval extension
+     *  on the response side). */
+    omitCitationInstructions?: boolean;
     tools: OpenAI.ChatCompletionTool[] | undefined;
     toolCtx: ToolContext;
+    /** P6 — when the chat was authed via a share token, the token id
+     *  used to bump `ShareTokenUsageDay` after a successful stream. */
+    shareTokenId?: string | undefined;
   }) {
     const { req, reply } = args;
 
@@ -644,6 +799,9 @@ export class AgentsController {
               temperature: args.temperature,
               maxTokens: args.maxTokens,
               stream: true,
+              ...(args.omitCitationInstructions
+                ? { omitCitationInstructions: true }
+                : {}),
               ...(args.tools ? { tools: args.tools, extraMessages } : { extraMessages }),
             }),
         );
@@ -809,6 +967,14 @@ export class AgentsController {
           finished_at: new Date(),
         },
       });
+
+      // P6 — bump share-token daily counters after a clean stream.
+      if (args.shareTokenId) {
+        await this.shareTokenUsage.record(
+          args.shareTokenId,
+          computeSpendUsdMicros(completionTokens, args.requestedModel),
+        );
+      }
     } catch (err) {
       // SSE error frame for clients that follow OpenAI's pattern.
       const message = err instanceof Error ? err.message : String(err);
@@ -832,4 +998,30 @@ function safeJson(raw: string): unknown {
   } catch {
     return raw;
   }
+}
+
+/**
+ * Wire-shape serializer for `AgentShareToken`. Converts the BigInt
+ * `max_spend_usd_micros_per_day` back to dollars so the dashboard's
+ * cap field reads naturally (and matches the value the user typed at
+ * mint time).
+ */
+function serializeShareToken(row: RedactedShareToken): ShareTokenJson {
+  return {
+    id: row.id,
+    agent_id: row.agent_id,
+    name: row.name,
+    token_prefix: row.token_prefix,
+    network: row.network as "testnet" | "mainnet",
+    allowed_origins: row.allowed_origins,
+    max_requests_per_day: row.max_requests_per_day,
+    max_spend_usd_per_day:
+      row.max_spend_usd_micros_per_day === null
+        ? null
+        : Number(row.max_spend_usd_micros_per_day) / 1_000_000,
+    cite_sources: row.cite_sources,
+    last_used_at: row.last_used_at?.toISOString() ?? null,
+    created_at: row.created_at.toISOString(),
+    revoked_at: row.revoked_at?.toISOString() ?? null,
+  };
 }

@@ -2,6 +2,7 @@ import { Global, Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { AuthGuard } from "./auth.guard.js";
 import { BearerResolver } from "./bearer-resolver.js";
+import { ShareTokenResolver } from "./share-token-resolver.js";
 import { TokensService } from "./tokens.service.js";
 
 /**
@@ -33,7 +34,7 @@ function jwtSecret(): string {
       signOptions: { algorithm: "HS256", expiresIn: "7d" },
     }),
   ],
-  providers: [TokensService, AuthGuard, BearerResolver],
-  exports: [TokensService, AuthGuard, BearerResolver, JwtModule],
+  providers: [TokensService, AuthGuard, BearerResolver, ShareTokenResolver],
+  exports: [TokensService, AuthGuard, BearerResolver, ShareTokenResolver, JwtModule],
 })
 export class AuthCoreModule {}

@@ -91,3 +91,70 @@ export interface AgentJson {
   updated_at: string;
   revoked_at: string | null;
 }
+
+// === P6 — Embed widget share tokens ===
+
+// Accept either bare https URLs or wildcards is over-engineering for v1.
+// Plain URL match against `Origin` header. We strip trailing slash to be
+// kind to humans copying values from address bars.
+const ORIGIN_REGEX = /^https?:\/\/[^\/\s]+$/;
+
+export const createShareTokenSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .describe("Human-readable label, e.g. 'marketing site widget'."),
+  allowed_origins: z
+    .array(z.string().regex(ORIGIN_REGEX, "Use https://host or http://host (no trailing path)."))
+    .min(1, "At least one origin is required.")
+    .max(20),
+  max_requests_per_day: z.number().int().min(1).max(1_000_000).nullable().default(1000),
+  max_spend_usd_per_day: z.number().min(0).max(1_000).nullable().default(5),
+  /** When false, the model's system prompt drops the citation
+   *  contract and the response omits source/retrieval info. Default
+   *  true preserves the dashboard-style chat experience. */
+  cite_sources: z.boolean().default(true),
+});
+export type CreateShareTokenDto = z.infer<typeof createShareTokenSchema>;
+
+/**
+ * P6 — Edit an existing share token. Every field is optional; only
+ * provided fields are updated. Token material (`token_hash`,
+ * `token_prefix`, `network`, `agent_id`) is intentionally immutable —
+ * editing one of those would mean issuing a new credential, which the
+ * mint endpoint already covers.
+ */
+export const updateShareTokenSchema = z.object({
+  name: z.string().regex(/^[A-Za-z0-9 _.\-]{1,64}$/).optional(),
+  allowed_origins: z
+    .array(z.string().regex(ORIGIN_REGEX))
+    .min(1)
+    .max(20)
+    .optional(),
+  max_requests_per_day: z
+    .number()
+    .int()
+    .min(1)
+    .max(1_000_000)
+    .nullable()
+    .optional(),
+  max_spend_usd_per_day: z.number().min(0).max(1_000).nullable().optional(),
+  cite_sources: z.boolean().optional(),
+});
+export type UpdateShareTokenDto = z.infer<typeof updateShareTokenSchema>;
+
+export interface ShareTokenJson {
+  id: string;
+  agent_id: string;
+  name: string;
+  token_prefix: string;
+  network: "testnet" | "mainnet";
+  allowed_origins: string[];
+  max_requests_per_day: number | null;
+  max_spend_usd_per_day: number | null; // dollars, not micros, on the wire
+  cite_sources: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}

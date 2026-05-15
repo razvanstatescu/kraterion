@@ -119,6 +119,34 @@ export class AgentsService {
     return this.fetchOwned(accountId, agentId);
   }
 
+  /**
+   * P6 — fetch an agent by id without the account-ownership check,
+   * surfacing the owning account_id so the chat handler can drive
+   * knowledge retrieval (which is account-scoped at the service
+   * layer).
+   *
+   * The share token is proof of authority — it was minted against
+   * exactly this agent — so re-checking account ownership here would
+   * be redundant (and impossible: share-token principals carry no
+   * accountId). The return shape matches `fetchOwned` plus an extra
+   * `account_id` field; the chat handler reads it via the returned
+   * row, not via the principal.
+   */
+  async getByIdForShareToken(agentId: string) {
+    const row = await this.prisma.kraterionAgent.findUnique({
+      where: { id: agentId },
+      include: {
+        ...AGENT_INCLUDE,
+        project: { select: { account_id: true } },
+      },
+    });
+    if (!row) {
+      throw new ControlPlaneError("NotFound", "Agent not found");
+    }
+    const { project, ...rest } = row;
+    return { ...rest, account_id: project.account_id };
+  }
+
   async create(
     accountId: string,
     projectId: string,

@@ -13,6 +13,14 @@ import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
 
 interface Props {
   agent: AgentJson;
+  /** Override the bearer token used to authenticate chat completions.
+   *  Defaults to the signed-in dashboard session. The embed widget
+   *  passes a `kr_share_*` token here — the iframe runs cross-origin
+   *  and can't read the dashboard's localStorage session. */
+  authTokenOverride?: string;
+  /** Hide the "New chat" header bar — used by the embed widget where
+   *  the launcher chrome already owns the close affordance. */
+  hideHeader?: boolean;
 }
 
 interface ChatTurn {
@@ -38,8 +46,9 @@ interface ChatTurn {
  * opens the chunk's source object in the bucket browser and the
  * on-chain manifest blob (Walruscan) when available.
  */
-export function AgentChatPanel({ agent }: Props) {
+export function AgentChatPanel({ agent, authTokenOverride, hideHeader }: Props) {
   const { session } = useCpSession();
+  const authToken = authTokenOverride ?? session?.token;
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -59,7 +68,7 @@ export function AgentChatPanel({ agent }: Props) {
     };
   }, []);
 
-  const disabled = agent.status !== "active" || !session?.token;
+  const disabled = agent.status !== "active" || !authToken;
 
   const send = async () => {
     const message = input.trim();
@@ -102,7 +111,7 @@ export function AgentChatPanel({ agent }: Props) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session!.token}`,
+            Authorization: `Bearer ${authToken!}`,
           },
           body: JSON.stringify({
             messages: messageHistory,
@@ -278,33 +287,43 @@ export function AgentChatPanel({ agent }: Props) {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: 560,
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-md)",
+        // Dashboard chat tab uses a fixed 560px panel; the embed iframe
+        // (hideHeader=true) flexes to fill its parent so the input row
+        // stays on-screen regardless of the iframe's actual height.
+        height: hideHeader ? "100%" : 560,
+        // The embed iframe already has an outer border + radius via the
+        // loader's `.kr-iframe-wrap` shell. Dropping the inner one
+        // here avoids the "box inside a box" look and gives the chat
+        // content the full iframe width.
+        border: hideHeader ? "none" : "1px solid var(--border)",
+        borderRadius: hideHeader ? 0 : "var(--radius-md)",
         background: "var(--bg-elevated)",
+        minHeight: 0,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          padding: "8px 12px",
-          borderBottom: "1px solid var(--border)",
-          minHeight: 40,
-        }}
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          icon="plus"
-          onClick={resetChat}
-          disabled={turns.length === 0 && !input}
-          title="Start a fresh conversation. The current turns will be cleared from the panel; server-side audit rows stay intact."
+      {hideHeader ? null : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            padding: "8px 12px",
+            borderBottom: "1px solid var(--border)",
+            minHeight: 40,
+          }}
         >
-          New chat
-        </Button>
-      </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="plus"
+            onClick={resetChat}
+            disabled={turns.length === 0 && !input}
+            title="Start a fresh conversation. The current turns will be cleared from the panel; server-side audit rows stay intact."
+          >
+            New chat
+          </Button>
+        </div>
+      )}
       <div
         ref={scrollRef}
         style={{

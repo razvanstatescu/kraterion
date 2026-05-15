@@ -50,6 +50,12 @@ export interface AnswerNonStreamRequest {
    *  `tool` results back into the conversation across rounds. Caller
    *  is responsible for the wire format (OpenAI shape). */
   extraMessages?: OpenAI.ChatCompletionMessageParam[];
+  /** When true, the retrieval block is still injected (the model
+   *  needs the chunks to ground its answer) but the `[chunk N]`
+   *  citation contract is dropped from the prompt. Used by share
+   *  tokens with `cite_sources=false` — the model produces clean
+   *  prose without any inline markers. */
+  omitCitationInstructions?: boolean;
   stream?: false;
 }
 
@@ -79,6 +85,7 @@ function buildMessages(req: {
   messages: readonly ChatHistoryMessage[];
   hits: readonly ChunkHit[];
   extraMessages?: OpenAI.ChatCompletionMessageParam[];
+  omitCitationInstructions?: boolean;
 }): OpenAI.ChatCompletionMessageParam[] {
   // Retrieval block lives on the system prompt for now. Known
   // limitation: this means every turn re-sends the full retrieval
@@ -87,7 +94,15 @@ function buildMessages(req: {
   // `docs/progress.md` "multi-turn known issues" for the post-
   // hackathon fix (move retrieval to a per-turn tool message, or
   // skip retrieval on contextual follow-ups).
-  const retrievalBlock = `\n\n---\nRetrieval context:\n${buildContext(req.hits)}\n\n${CITATION_INSTRUCTIONS}`;
+  // The retrieval block is always present (the model needs the chunks
+  // to ground its answer); the inline-citation contract is conditional.
+  // For `omitCitationInstructions=true` flows we substitute a short
+  // "answer in clean prose" instruction so the model knows the chunks
+  // are context, not data to copy markers from.
+  const citationCue = req.omitCitationInstructions
+    ? "Use the retrieval context to ground your answer. Do not output citation markers, chunk numbers, or source paths in your response."
+    : CITATION_INSTRUCTIONS;
+  const retrievalBlock = `\n\n---\nRetrieval context:\n${buildContext(req.hits)}\n\n${citationCue}`;
   return [
     { role: "system", content: `${req.systemPrompt}${retrievalBlock}` },
     ...req.messages.map((m) => ({ role: m.role, content: m.content })),

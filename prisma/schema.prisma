@@ -671,11 +671,12 @@ model KraterionAgent {
   updated_at DateTime  @updatedAt
   revoked_at DateTime?
 
-  project     Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  sub_wallet  SubWallet         @relation(fields: [sub_wallet_id], references: [id])
-  buckets     AgentBucket[]
-  tools       AgentTool[]
-  invocations AgentInvocation[]
+  project      Project            @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  sub_wallet   SubWallet          @relation(fields: [sub_wallet_id], references: [id])
+  buckets      AgentBucket[]
+  tools        AgentTool[]
+  invocations  AgentInvocation[]
+  share_tokens AgentShareToken[]
 
   @@unique([project_id, name])
   @@index([project_id])
@@ -737,6 +738,9 @@ model AgentInvocation {
   user_id         String? // session JWT
   api_key_id      String? // bearer API key (gateway-style AKIA)
   oauth_client_id String? // OAuth 2.1 / MCP DCR
+  // P6: embed widget share-token. Anonymous traffic from the customer's
+  // own site; the token (not a user) is the principal we audit against.
+  share_token_id  String?
 
   // 'pending' | 'completed' | 'failed' | 'revoked'.
   // 'revoked' is set when the agent was revoked mid-request (post-credential-fetch, pre-LLM-call).
@@ -828,4 +832,96 @@ model AgentToolCall {
 
   @@unique([invocation_id, tool_call_id])
   @@index([invocation_id, created_at])
+}
+
+/// P6 — Embeddable chat widget share token. Customers paste a
+/// `<script>` snippet on their own site that opens an iframe pointed
+/// at our dashboard's `/embed/chat/[agentId]` route. The widget
+/// authenticates with this token (one per "deployment surface"); the
+/// token is scoped to exactly one agent, never to the project broadly.
+///
+/// Storage mirrors the bearer API-key shape: SHA-256 hash of the
+/// token is the lookup key; cleartext is returned exactly once at
+/// mint time and never persisted. Format: `kr_share_<env>_<36 chars>`.
+///
+/// Anonymous traffic from a customer's site means we lock the token
+/// down on three axes:
+///   - **Origin allowlist** — `allowed_origins` is checked against the
+///     request's `Origin` header on every call.
+///   - **Daily request cap** — `max_requests_per_day` rolled at UTC
+///     midnight via `ShareTokenUsageDay`.
+///   - **Daily USD spend cap** — `max_spend_usd_micros_per_day` rolled
+///     the same way, debited per turn using completion-token usage ×
+///     per-million model price from `@kraterion/shared`.
+model AgentShareToken {
+  id            String  @id @default(uuid())
+  agent_id      String
+  // Human-readable label (e.g. "marketing site widget").
+  name          String
+  // sha256(cleartext) — same pattern as ApiKey.token_hash.
+  token_hash    String  @unique
+  // Cosmetic preview shown in the dashboard ("kr_share_test_aB3…X9Z").
+  token_prefix  String
+  // "testnet" | "mainnet" — same network gate as bearer tokens. A
+  // `kr_share_test_…` token presented to a mainnet deployment is
+  // rejected at resolver time.
+  network       String
+
+  // Origin allowlist (e.g. ["https://docs.example.com",
+  // "https://www.example.com"]). Empty array = no origins allowed
+  // (the token is dormant — requires the user to set this before the
+  // embed will accept calls). The resolver rejects when the request's
+  // `Origin` header isn't in the list.
+  allowed_origins String[] @default([])
+
+  // Per-day caps. NULL = unlimited; daily counters in
+  // `ShareTokenUsageDay`. The chat endpoint refuses with 429 once a
+  // cap is hit.
+  max_requests_per_day        Int?
+  max_spend_usd_micros_per_day BigInt?
+
+  // When true (default), the model's system prompt includes the
+  // `[chunk N]` citation contract and the response carries the
+  // citations panel + retrieval-info extension. When false, the
+  // citation instructions are stripped from the prompt entirely
+  // (so the model produces clean prose), and the response's
+  // `kraterion` extension carries no citations or retrieval info.
+  //
+  // Site owners disable this when the widget is on a public-facing
+  // surface where exposing internal source paths is wrong — e.g. a
+  // marketing-site help widget shouldn't quote internal handbook
+  // chunks back at visitors.
+  cite_sources Boolean @default(true)
+
+  last_used_at DateTime?
+  created_at   DateTime  @default(now())
+  revoked_at   DateTime?
+
+  agent          KraterionAgent       @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  usage_days     ShareTokenUsageDay[]
+
+  @@index([agent_id])
+  @@index([token_hash])
+}
+
+/// Per-token, per-UTC-day rolling counter for share token caps.
+/// Upserted on every successful chat invocation; cap-check reads the
+/// row right before issuing the LLM call. Rows older than a couple of
+/// days are stale audit; can be reaped by a future cleanup job.
+model ShareTokenUsageDay {
+  share_token_id    String
+  // UTC date as YYYY-MM-DD. Avoids timezone foot-guns in WHERE clauses.
+  day_utc           String
+  // Number of chat completions completed (failures + over-cap rejects
+  // do NOT increment).
+  requests          Int      @default(0)
+  // USD spend in micro-dollars (i.e. 1e-6 USD). Aggregates the per-turn
+  // (output_tokens / 1_000_000) * price_per_m_tokens_usd computation.
+  spend_usd_micros  BigInt   @default(0)
+  updated_at        DateTime @updatedAt
+
+  share_token AgentShareToken @relation(fields: [share_token_id], references: [id], onDelete: Cascade)
+
+  @@id([share_token_id, day_utc])
+  @@index([share_token_id])
 }

@@ -3226,3 +3226,116 @@ post-hackathon evolution.
   in `AgentToolCall` with arguments, output, latency, and (for
   writes) the on-chain digest. No other AI platform on the Walrus
   track will have a per-tool-call on-chain receipt.
+
+## 2026-05-15 — P6 ships: embeddable chat widget (script-tag + Shadow DOM + iframe)
+
+**Status:** Shipped.
+
+**Context.** The last untouched feature on the AI platform roadmap. P6
+turns a configured agent into a one-line `<script>` snippet a customer
+pastes on their site to get a floating chat widget powered by their
+own Kraterion agent — the proposal called it "the cleanest evidence
+that the platform's AI surface is real and not just an MCP toy."
+
+**Distribution model — script + Shadow DOM launcher + iframe panel
+(NOT an npm package).** Every major AI chat embed (Intercom Fin,
+Inkeep, Chatbase, DO Gradient AI, Mendable, Crisp, Voiceflow) ships
+this exact pattern. The npm-package route serves a different audience
+— developers building chat *into* their React app, where Vercel AI
+SDK already wins. Script + iframe wins because (a) it works on
+Webflow / Wix / Squarespace / static HTML, (b) marketing teams can
+install without a dev, (c) Shadow DOM isolates the launcher CSS, (d)
+iframe isolates the panel JS, (e) we own the rendering surface and
+can hotfix bugs without customers updating any dep.
+
+**Token model — `kr_share_<env>_<36 chars>`, network-prefixed, hash-
+stored.** Mirrors the unified bearer token shape (`kr_test_/kr_live_`)
+so dashboards and devs read them at a glance:
+- `kr_share_test_…` on testnet/devnet, `kr_share_live_…` on mainnet.
+  Cross-network use → 401 (Stripe-style mode boundary).
+- SHA-256 hash storage, cleartext returned once at mint, never
+  retrievable. Same one-time-reveal pattern as bearer tokens.
+- Scoped to **exactly one agent**, never to the project broadly. The
+  share token isn't a key — it's a deployment-surface credential.
+
+**Three-axis lockdown for anonymous traffic.** Anyone with the token
+on the customer's page could exfiltrate it via DevTools — that's
+inherent to a public website. We compensate at the API layer:
+- **Origin allowlist** (`allowed_origins: string[]`) — the request's
+  `Origin` header must match exactly. Lift the token and paste it
+  on a different domain, the chat call 403s before reaching OpenAI.
+- **Daily request cap** (`max_requests_per_day`) — rolled at UTC
+  midnight via the `ShareTokenUsageDay` table.
+- **Daily USD spend cap** (`max_spend_usd_micros_per_day`) — same
+  table; computed per-turn as `(completion_tokens / 1e6) ×
+  per-million-tokens-price`. Coarse but sufficient — a misbehaving
+  widget can't drain the project's OpenAI budget.
+
+**Why Prisma counters instead of Redis.** The control plane has
+`ioredis` as a dep but doesn't actually use it (see `oauth.service`
+comment, 2026-05-13). Introducing Redis for one feature is more
+operational surface than this counter needs; atomic Prisma upserts
+on `(share_token_id, day_utc)` give us free audit + atomic
+increments. The shape moves to Redis with a daily flush job if P6
+traffic ever justifies it; the application API doesn't change.
+
+**Principal model — third kind on the union, not satisfied by
+non-chat endpoints.** The Principal union gains `ShareTokenPrincipal`
+alongside `SessionPrincipal` + `ApiKeyPrincipal`. New helper
+`requireAccountPrincipal` narrows away share-token principals and is
+used by every controller except the agent chat endpoint. Share-token
+principals only satisfy `/v1/agents/:id/chat/completions`; any other
+route they reach gets a `Forbidden`. Defends against future routes
+accidentally accepting embed traffic without realizing it.
+
+**iframe page lives at `apps/dashboard/src/app/embed/chat/[agentId]`.**
+Sibling to the `(app)/` route group, so it inherits ONLY the root
+layout — no `RequireAuth`, no `Sidebar`, no dashboard chrome. Reuses
+`AgentChatPanel` with two new props (`authTokenOverride`, `hideHeader`)
+so we don't fork the chat UI. The iframe is allowed to be framed from
+any origin (`frame-ancestors *`) — the chat API's per-token
+origin check is the real enforcement boundary.
+
+**Loader at `apps/dashboard/public/embed/v1.js`** (~6 KB unminified).
+Vanilla JS, no build step, closed Shadow DOM around the launcher
+button. Iframe is lazy-mounted on first launcher click so the widget
+costs nothing until a visitor clicks. Subsequent close/open reuse
+the same iframe — preserves chat state across the same page session.
+
+**Spend computation: completion tokens only.** Input tokens are
+typically much cheaper than output and the retrieval block re-sent
+every turn makes input cost a poor proxy for "what the agent did
+this turn." Caps are a coarse spend protection, not a billing
+source-of-truth. If/when we ever proxy through our own LLM key
+(currently we don't — every token bills the user's stored OpenAI
+key), this becomes the basis for the platform's own metering.
+
+**Deferred from the proposal:**
+- **`packages/ui-embed` as a published npm artifact.** The dashboard
+  hosts both the loader and the iframe today — that's enough for the
+  hackathon. Publishing to npm is post-submission packaging work.
+- **Theming customization** (`data-theme`, `data-accent-color`). One
+  brand palette only for v1; matches the design-system rules.
+- **Pre-filled end-user identity** (signed JWT with end-user claims
+  for in-app help / personalization). The share token is the only
+  credential surfaced today.
+- **Streaming size events / dynamic iframe resize.** Fixed 380×580 desktop
+  / full-screen mobile.
+- **Analytics / opens-counter / per-visitor session.** The
+  `AgentInvocation.share_token_id` audit row is the only source of
+  usage data today.
+
+**Consequences:**
+
+- The proposal's demo arc closes: *"upload your docs → enable knowledge
+  → create an agent → paste a one-line snippet on your site → visitors
+  chat against your bucket."* End-to-end with on-chain audit trail.
+- Anonymous traffic now goes through `AuthGuard` like everything else;
+  the share-token branch is a true peer of session + bearer, not a
+  bolted-on shortcut.
+- `AgentInvocation.share_token_id` joins `user_id` / `api_key_id` /
+  `oauth_client_id` as principal discriminators. Activity queries can
+  filter "embed-driven chats" cleanly.
+- Cross-network share tokens are refused at resolution, same posture
+  as bearer tokens. A token minted on testnet won't run against a
+  mainnet deployment by accident.

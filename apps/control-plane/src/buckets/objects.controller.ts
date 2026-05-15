@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { requirePrincipal } from "../auth/request-context.js";
+import { requireAccountPrincipal } from "../auth/request-context.js";
 import { BucketsService } from "./buckets.service.js";
 import { serializeObject } from "./serialize.js";
 
@@ -12,7 +12,7 @@ export class ObjectsController {
 
   @Get(":objectId")
   async get(@Req() req: FastifyRequest, @Param("objectId") objectId: string) {
-    const user = requirePrincipal(req);
+    const user = requireAccountPrincipal(req);
     const object = await this.buckets.getObject(user.accountId, objectId);
     return { object: serializeObject(object) };
   }

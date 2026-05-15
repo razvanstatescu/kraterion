@@ -1,6 +1,5 @@
 import { Logger } from "@nestjs/common";
 import { RpcError } from "@protobuf-ts/runtime-rpc";
-import { setMaxListeners } from "node:events";
 import type { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { Prisma } from "@prisma/client";
 import { walkCheckpoint, type KraterionEventBatch } from "./checkpoint-events.js";
@@ -28,6 +27,85 @@ const BACKFILL_MIN_INTERVAL_MS = Number(process.env["INDEXER_BACKFILL_INTERVAL_M
 const BACKOFF_MAX_MS = 30_000;
 const BACKOFF_BASE_MS = 250;
 const STABLE_STREAM_RESET_MS = 60_000; // 60s of stable streaming → reset attempt counter
+
+/**
+ * Bridges a long-lived parent AbortSignal to a fleet of short-lived
+ * per-call AbortControllers.
+ *
+ * Why this exists: `@protobuf-ts/grpc-transport@2.11.1` attaches a
+ * listener to every gRPC call's abort signal and **never removes it**
+ * (see `grpc-transport.js`, lines 43-46 / 76-79 / 129-132 / 149-152).
+ * Reusing one iteration-scoped signal across the 100k+ `getCheckpoint`
+ * calls of an initial backfill therefore retains one closure per call
+ * — each holding a reference to the underlying `gCall` — until V8
+ * OOMs at the ~4 GB heap ceiling.
+ *
+ * The pool puts exactly ONE listener on the parent. Each `run()`
+ * issues a fresh child `AbortController` to the gRPC layer; the
+ * leaked closure references that child, which is dropped from the
+ * inflight set as soon as the call returns and is GC'd along with
+ * its closure. On parent abort the pool walks the inflight set and
+ * cancels everything.
+ */
+class AbortPool {
+  private readonly inflight = new Set<AbortController>();
+  private readonly onParentAbort: () => void;
+  private disposed = false;
+
+  constructor(private readonly parent: AbortSignal) {
+    this.onParentAbort = () => {
+      for (const c of this.inflight) c.abort();
+      this.inflight.clear();
+    };
+    parent.addEventListener("abort", this.onParentAbort, { once: true });
+  }
+
+  get aborted(): boolean {
+    return this.disposed || this.parent.aborted;
+  }
+
+  /** Run `fn` with a fresh child signal scoped to this one call. */
+  async run<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.parent.aborted || this.disposed) {
+      const ac = new AbortController();
+      ac.abort();
+      return fn(ac.signal);
+    }
+    const ac = new AbortController();
+    this.inflight.add(ac);
+    try {
+      return await fn(ac.signal);
+    } finally {
+      this.inflight.delete(ac);
+    }
+  }
+
+  /** Acquire a child signal that outlives a single call (e.g. a long
+   * server-streaming subscribe). Caller releases it when done. */
+  acquire(): { signal: AbortSignal; release: () => void } {
+    const ac = new AbortController();
+    if (this.parent.aborted || this.disposed) {
+      ac.abort();
+      return { signal: ac.signal, release: () => undefined };
+    }
+    this.inflight.add(ac);
+    return {
+      signal: ac.signal,
+      release: () => {
+        this.inflight.delete(ac);
+        ac.abort();
+      },
+    };
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.parent.removeEventListener("abort", this.onParentAbort);
+    for (const c of this.inflight) c.abort();
+    this.inflight.clear();
+  }
+}
 
 /**
  * The forever-loop. Owns the cursor + the gRPC subscribe stream +
@@ -60,14 +138,11 @@ export async function runLoop(opts: {
   let lastStableStartMs = Date.now();
 
   while (!opts.signal.aborted) {
-    const ac = new AbortController();
-    // Backfill fans out N concurrent gRPC calls + the subscribe
-    // stream + per-call timers, all registering abort listeners on
-    // this signal. Default cap of 10 is too low; bump generously
-    // (Node only logs a warning, doesn't enforce).
-    setMaxListeners(64, ac.signal);
-    const onAbort = () => ac.abort();
-    opts.signal.addEventListener("abort", onAbort, { once: true });
+    // One pool per iteration. Every gRPC call (subscribe + per-
+    // checkpoint backfill fetches + live-stream fetches) borrows a
+    // fresh child signal from it. Exactly ONE listener lives on
+    // `opts.signal` no matter how many checkpoints flow through.
+    const pool = new AbortPool(opts.signal);
 
     try {
       const cursorState = await opts.cursor.read(opts.sourceId);
@@ -76,9 +151,10 @@ export async function runLoop(opts: {
         : opts.initialCheckpointSeq;
 
       logger.log(`subscribing (resume from=${startFrom})…`);
+      const stream = pool.acquire();
       const call = opts.client.subscriptionService.subscribeCheckpoints(
         { readMask: { paths: [...SUBSCRIBE_READ_MASK_PATHS] } },
-        { abort: ac.signal },
+        { abort: stream.signal },
       );
 
       const iterator = call.responses[Symbol.asyncIterator]();
@@ -92,33 +168,27 @@ export async function runLoop(opts: {
       }
       logger.log(`live tip=${liveTip}, our cursor next=${startFrom}`);
 
-      // Backfill from `startFrom` up to (but not including) liveTip,
-      // using unary getCheckpoint with bounded concurrency. Pass the
-      // inner abort controller's signal — when the subscribe stream
-      // errors out and we enter the catch block, in-flight backfill
-      // calls must abort together, otherwise their late rejections
-      // surface as unhandled rejections and crash the process.
+      // Backfill from `startFrom` up to (but not including) liveTip
+      // via bounded-concurrency unary getCheckpoint. In-flight
+      // calls cancel together if the subscribe stream errors out
+      // because they all live in the same pool.
       if (startFrom < liveTip) {
         await backfillRange({
           ...opts,
-          signal: ac.signal,
+          pool,
           fromInclusive: startFrom,
           toExclusive: liveTip,
         });
       }
 
-      // Drain the live stream from liveTip forward. The first message
-      // we already pulled; process it, then continue. We pass
-      // `signal: ac.signal` so the per-checkpoint fetchCheckpoint
-      // calls cancel cleanly on stream error.
-      const liveOpts = { ...opts, signal: ac.signal };
+      // Drain the live stream from liveTip forward. The first
+      // message was already pulled; process it, then continue.
+      const liveOpts = { ...opts, pool };
       await processSubscribeResponse(liveOpts, first.value);
-      while (!ac.signal.aborted) {
+      while (!stream.signal.aborted) {
         const next = await iterator.next();
         if (next.done) break;
         await processSubscribeResponse(liveOpts, next.value);
-        // Reset the attempt counter once we've been streaming
-        // stably for a while.
         if (Date.now() - lastStableStartMs > STABLE_STREAM_RESET_MS) {
           attempt = 0;
         }
@@ -144,8 +214,7 @@ export async function runLoop(opts: {
       );
       await sleep(wait, opts.signal);
     } finally {
-      opts.signal.removeEventListener("abort", onAbort);
-      ac.abort();
+      pool.dispose();
     }
   }
   logger.log("indexer loop exited (signal aborted)");
@@ -176,12 +245,12 @@ async function processSubscribeResponse(
     dispatcher: DispatcherService;
     deadLetter: DeadLetterService;
     sourceId: string;
-    signal: AbortSignal;
+    pool: AbortPool;
   },
   msg: { cursor?: bigint },
 ): Promise<void> {
   if (msg.cursor === undefined) return;
-  const checkpoint = await fetchCheckpoint(opts.client, msg.cursor, opts.signal);
+  const checkpoint = await fetchCheckpoint(opts.client, msg.cursor, opts.pool);
   if (checkpoint == null) {
     await advanceEmpty(opts, msg.cursor);
     return;
@@ -198,7 +267,7 @@ async function backfillRange(opts: {
   dispatcher: DispatcherService;
   deadLetter: DeadLetterService;
   sourceId: string;
-  signal: AbortSignal;
+  pool: AbortPool;
   fromInclusive: bigint;
   toExclusive: bigint;
 }): Promise<void> {
@@ -216,23 +285,23 @@ async function backfillRange(opts: {
   const inflight = new Map<bigint, Promise<unknown>>();
   let nextAllowedFetchAtMs = 0;
 
-  while (nextToCommit < opts.toExclusive && !opts.signal.aborted) {
+  while (nextToCommit < opts.toExclusive && !opts.pool.aborted) {
     while (
       inflight.size < BACKFILL_CONCURRENCY &&
-      nextToFetch < opts.toExclusive
+      nextToFetch < opts.toExclusive &&
+      !opts.pool.aborted
     ) {
       // Token-bucket gate: each backfill `getCheckpoint` waits for
       // its slot. Eliminates the 429 churn we saw against the public
       // testnet at concurrency=4 with no spacing.
       const now = Date.now();
       if (now < nextAllowedFetchAtMs) {
-        await sleep(nextAllowedFetchAtMs - now, opts.signal);
-        if (opts.signal.aborted) break;
+        await opts.pool.run((signal) => sleep(nextAllowedFetchAtMs - now, signal));
       }
       nextAllowedFetchAtMs = Math.max(now, nextAllowedFetchAtMs) + BACKFILL_MIN_INTERVAL_MS;
 
       const seq = nextToFetch++;
-      const p = fetchCheckpoint(opts.client, seq, opts.signal);
+      const p = fetchCheckpoint(opts.client, seq, opts.pool);
       // Attach a noop handler to mark rejections as "handled" — the
       // sequential `await inflight.get(seq)` below still observes
       // them. Without this, when one in-flight call rejects (429
@@ -259,16 +328,18 @@ async function backfillRange(opts: {
 async function fetchCheckpoint(
   client: SuiGrpcClient,
   sequenceNumber: bigint,
-  signal: AbortSignal,
+  pool: AbortPool,
 ): Promise<unknown | null> {
-  const { response } = await client.ledgerService.getCheckpoint(
-    {
-      checkpointId: { oneofKind: "sequenceNumber", sequenceNumber },
-      readMask: { paths: [...CHECKPOINT_READ_MASK_PATHS] },
-    },
-    { abort: signal },
-  );
-  return response.checkpoint ?? null;
+  return pool.run(async (signal) => {
+    const { response } = await client.ledgerService.getCheckpoint(
+      {
+        checkpointId: { oneofKind: "sequenceNumber", sequenceNumber },
+        readMask: { paths: [...CHECKPOINT_READ_MASK_PATHS] },
+      },
+      { abort: signal },
+    );
+    return response.checkpoint ?? null;
+  });
 }
 
 /** Commit one checkpoint's worth of events + cursor advance. */

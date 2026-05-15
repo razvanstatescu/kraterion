@@ -8,6 +8,8 @@ import { ProvidersModule } from "../providers/providers.module.js";
 import { SuiClientModule } from "../sui/sui-client.module.js";
 import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
+import { ShareTokensService } from "./share-tokens.service.js";
+import { ShareTokenUsageService } from "./share-token-usage.js";
 import { AgentToolRegistry } from "./tools/registry.js";
 
 /**
@@ -31,8 +33,15 @@ import { AgentToolRegistry } from "./tools/registry.js";
     ProvidersModule,
     SuiClientModule,
   ],
-  providers: [AgentsService, ProjectsService, KeyWrappingService, AgentToolRegistry],
+  providers: [
+    AgentsService,
+    ProjectsService,
+    KeyWrappingService,
+    AgentToolRegistry,
+    ShareTokenUsageService,
+    ShareTokensService,
+  ],
   controllers: [AgentsController],
-  exports: [AgentsService, AgentToolRegistry],
+  exports: [AgentsService, AgentToolRegistry, ShareTokenUsageService],
 })
 export class AgentsModule {}
