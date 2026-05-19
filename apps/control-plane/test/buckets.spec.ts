@@ -216,8 +216,6 @@ async function seedFull(prisma: PrismaService, label: string, opts: SeedOpts) {
           content_type: "application/octet-stream",
           etag: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa${o.toString().padStart(2, "0")}`,
           walrus_blob_id: `walrus-${b}-${o}-${stamp}`,
-          shared_blob_object_id: `0xshared-${b}-${o}-${stamp}`,
-          storage_end_epoch: 100 + o,
           seal_identity: Buffer.alloc(48, o),
         },
       });
