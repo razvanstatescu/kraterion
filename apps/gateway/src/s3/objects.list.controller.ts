@@ -52,6 +52,9 @@
 import { Controller, Get, Header, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
+import { MeterClassA } from "../billing/meter-class.decorator.js";
+import { PoolCapacityGuard } from "../billing/pool-capacity.guard.js";
+import { SpendCapGuard } from "../billing/spend-cap.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { S3Error } from "./s3-error.js";
 import { requireKraterion, requireBucket } from "./request-context.js";
@@ -121,13 +124,14 @@ interface ListParams {
   fetchOwner: boolean;
 }
 
-@UseGuards(Sigv4Guard)
+@UseGuards(Sigv4Guard, SpendCapGuard, PoolCapacityGuard)
 @Controller()
 export class ObjectsListController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get(":bucket")
   @Header("Content-Type", "application/xml")
+  @MeterClassA()
   async dispatch(@Req() req: FastifyRequest): Promise<string> {
     const ctx = requireKraterion(req);
     const bucketName = requireBucket(ctx);

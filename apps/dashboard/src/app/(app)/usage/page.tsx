@@ -1,94 +1,37 @@
 "use client";
 
-import { useQueries } from "@tanstack/react-query";
-import { useMemo } from "react";
+import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Banner } from "@/components/ui/Banner";
-import { ControlPlaneError, cpFetch, type BucketJson, type S3ObjectJson } from "@/lib/api";
-import { useCpSession } from "@/lib/auth";
-import { formatBytes } from "@/lib/format";
-import { useBuckets } from "@/lib/queries";
-
-interface ObjectsPage {
-  objects: S3ObjectJson[];
-  next_cursor: string | null;
-}
-
-interface BucketUsage {
-  bucket: BucketJson;
-  bytes: bigint;
-  objects: number;
-}
+import { ControlPlaneError, type UsageCurrentPeriodJson } from "@/lib/api";
+import { useMe, useUsageCurrentPeriod } from "@/lib/queries";
 
 /**
- * Editorial-styled usage snapshot. Splits a hero "Storage" number off
- * from per-bucket detail rows. The hero is a typographic centerpiece;
- * the proportional bar + legend lets the user see *which* bucket holds
- * the bytes without rendering a chart library.
+ * Current-period usage view. Replaces the editorial hero snapshot
+ * with a real meter table backed by the hourly rollup workers.
  *
- * Fan-out: one buckets list + one objects list per bucket via
- * `useQueries` (parallel, cached for 30s). The CP caps `limit` at 100
- * for buckets and 1000 for objects, so this view is honest up to the
- * first ~100 buckets and up to 1000 objects per bucket — a real
- * billing UI would lean on a server-aggregated endpoint.
+ * Layout (B4 — header + storage row + meter table + BYOK section,
+ * the stacked daily bar chart lands in a polish pass):
+ *
+ *   1. Header strip: current period range, total accrued, projected
+ *      end-of-period, days remaining.
+ *   2. Storage row: used / reserved gauge + monthly cost. Resize CTA
+ *      points to /billing where the modal lives.
+ *   3. Meter table: 5 rows (Storage writes, Storage reads, Download
+ *      bandwidth, Knowledge storage, Agent chat messages). Each shows
+ *      used, free band, billable, cost-this-period, projected
+ *      end-of-period.
+ *   4. BYOK section: tokens-on-your-own-OpenAI-key spend; display
+ *      only, never billed by Kraterion.
  */
 export default function UsagePage() {
-  const { session } = useCpSession();
-  const { data: bucketsData, isLoading: bucketsLoading, error: bucketsError } = useBuckets({
-    limit: 100,
-  });
+  const me = useMe();
+  const project = me.data?.projects[0];
+  const projectId = project?.id;
+  const usage = useUsageCurrentPeriod(projectId);
 
-  const buckets = useMemo(
-    () => bucketsData?.pages.flatMap((p) => p.buckets) ?? [],
-    [bucketsData],
-  );
-
-  const objectQueries = useQueries({
-    queries: buckets.map((b) => ({
-      queryKey: ["v1", "objects", b.id, "usage"],
-      queryFn: () => cpFetch<ObjectsPage>(`/v1/buckets/${b.id}/objects?limit=1000`),
-      enabled: Boolean(session?.token),
-      staleTime: 30_000,
-    })),
-  });
-
-  const objectsLoading = objectQueries.some((q) => q.isLoading);
-  const objectsError = objectQueries.find((q) => q.error)?.error;
-
-  const { totalBytes, totalObjects, perBucket, privateCount, publicCount } = useMemo(() => {
-    let totalBytes = 0n;
-    let totalObjects = 0;
-    let privateCount = 0;
-    let publicCount = 0;
-    const perBucket: BucketUsage[] = [];
-    for (let i = 0; i < buckets.length; i++) {
-      const b = buckets[i]!;
-      if (b.encryption_mode === "private") privateCount += 1;
-      else publicCount += 1;
-      const q = objectQueries[i];
-      let bytes = 0n;
-      let objects = 0;
-      if (q?.data) {
-        for (const o of q.data.objects) {
-          objects += 1;
-          try {
-            bytes += BigInt(o.size_bytes);
-          } catch {
-            // ignore malformed
-          }
-        }
-      }
-      totalBytes += bytes;
-      totalObjects += objects;
-      perBucket.push({ bucket: b, bytes, objects });
-    }
-    perBucket.sort((a, b) => (a.bytes < b.bytes ? 1 : a.bytes > b.bytes ? -1 : 0));
-    return { totalBytes, totalObjects, perBucket, privateCount, publicCount };
-  }, [buckets, objectQueries]);
-
-  const isLoading = bucketsLoading || objectsLoading;
-  const formattedTotal = formatBytes(totalBytes);
-  const [heroValue, heroUnit] = splitFormattedBytes(formattedTotal);
+  const isLoading = me.isLoading || usage.isLoading;
+  const data = usage.data;
 
   return (
     <>
@@ -98,158 +41,345 @@ export default function UsagePage() {
           <div>
             <h1>Usage</h1>
             <p className="lead">
-              Where your bytes live right now, by bucket.
+              What you've used this billing period and what it projects to
+              by end of month.
             </p>
           </div>
         </div>
 
-        {bucketsError || objectsError ? (
+        {usage.error ? (
           <Banner
             tone="error"
             title="Couldn't load usage"
             body={
-              bucketsError instanceof ControlPlaneError
-                ? bucketsError.message
-                : objectsError instanceof Error
-                  ? objectsError.message
+              usage.error instanceof ControlPlaneError
+                ? usage.error.message
+                : usage.error instanceof Error
+                  ? usage.error.message
                   : "Try again in a moment."
             }
           />
         ) : null}
 
-        <section className="ks-usage-hero">
-          <div>
-            <div className="ks-usage-hero-eyebrow">Storage used</div>
-            <div className="ks-usage-hero-number">
-              <span className="ks-usage-hero-value">{isLoading ? "—" : heroValue}</span>
-              <span className="ks-usage-hero-unit">{isLoading ? "" : heroUnit}</span>
-            </div>
-            <p className="ks-usage-hero-sub">
-              Across{" "}
-              <strong style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-                {totalObjects.toLocaleString()}
-              </strong>{" "}
-              {totalObjects === 1 ? "object" : "objects"} in{" "}
-              <strong style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-                {buckets.length.toLocaleString()}
-              </strong>{" "}
-              {buckets.length === 1 ? "bucket" : "buckets"}. Every byte is encrypted with Seal
-              before it leaves your browser and stored as a Walrus SharedBlob you own on-chain.
+        {isLoading || !data ? (
+          <div className="muted" style={{ padding: 32 }}>
+            Loading usage…
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 24 }}>
+            <Header data={data} />
+            <StorageRow data={data} />
+            <MetersTable data={data} />
+            <ByokSection data={data} />
+            <p
+              className="muted"
+              style={{ fontSize: 12, marginTop: 8, textAlign: "right" }}
+            >
+              Pricing details on <Link href="/billing">Billing</Link>. Free
+              bands apply per meter — usage above them rolls into the next
+              invoice.
             </p>
           </div>
-          <aside className="ks-usage-hero-aside">
-            <Mini label="Private" value={isLoading ? "—" : privateCount.toLocaleString()} />
-            <Mini label="Public-read" value={isLoading ? "—" : publicCount.toLocaleString()} />
-          </aside>
-        </section>
-
-        <section className="ks-usage-section">
-          <div className="ks-usage-section-head">
-            <div className="ks-usage-section-title">Storage by bucket</div>
-            <div className="ks-usage-section-sub">
-              {isLoading
-                ? "Counting bytes…"
-                : totalBytes === 0n
-                  ? "Nothing stored yet"
-                  : `${formattedTotal} across ${perBucket.length} ${perBucket.length === 1 ? "bucket" : "buckets"}`}
-            </div>
-          </div>
-
-          {totalBytes === 0n || isLoading ? (
-            <div className="ks-usage-empty-bar" aria-hidden="true" />
-          ) : (
-            <>
-              <div className="ks-usage-bar" role="img" aria-label="Storage distribution by bucket">
-                {perBucket
-                  .filter((row) => row.bytes > 0n)
-                  .map((row, idx) => {
-                    const pct = bigIntPct(row.bytes, totalBytes);
-                    return (
-                      <span
-                        key={row.bucket.id}
-                        className="ks-usage-bar-seg"
-                        style={{
-                          width: `${pct}%`,
-                          background: segmentColor(idx),
-                        }}
-                        title={`${row.bucket.name} · ${formatBytes(row.bytes)} (${pct.toFixed(1)}%)`}
-                      />
-                    );
-                  })}
-              </div>
-
-              <div className="ks-usage-legend">
-                {perBucket.map((row, idx) => {
-                  const pct = totalBytes === 0n ? 0 : bigIntPct(row.bytes, totalBytes);
-                  const empty = row.bytes === 0n;
-                  return (
-                    <div className="ks-usage-legend-row" key={row.bucket.id}>
-                      <span
-                        className="ks-usage-legend-swatch"
-                        style={{
-                          background: empty ? "var(--stone-200)" : segmentColor(idx),
-                        }}
-                      />
-                      <span className="ks-usage-legend-name">{row.bucket.name}</span>
-                      <span className="ks-usage-legend-size">
-                        {empty ? "—" : formatBytes(row.bytes)}
-                      </span>
-                      <span className="ks-usage-legend-pct">{empty ? "0%" : `${pct.toFixed(1)}%`}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </section>
-
-        <p className="ks-usage-footer">
-          Free during the hackathon — no metered billing on this view yet. When per-request
-          metering lands on the gateway, this page grows a 30-day chart with requests, egress,
-          and Walrus epoch-rollover costs.
-        </p>
+        )}
       </main>
     </>
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Header({ data }: { data: UsageCurrentPeriodJson }) {
+  const start = new Date(data.period.start).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const end = new Date(
+    new Date(data.period.end).getTime() - 86400000,
+  ).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const daysLeft = Math.max(0, data.period.days_in_period - data.period.days_elapsed);
+  const totalUsd = (data.total_accrued_usd_cents / 100).toFixed(2);
+  const projectedUsd = (data.projected_total_usd_cents / 100).toFixed(2);
+
   return (
-    <div className="ks-usage-mini">
-      <div className="ks-usage-mini-label">{label}</div>
-      <div className="ks-usage-mini-value">{value}</div>
+    <section
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: 16,
+      }}
+    >
+      <Stat label="Current period" value={`${start} – ${end}`} />
+      <Stat label="Total accrued" value={`$${totalUsd}`} />
+      <Stat label="Projected end-of-period" value={`$${projectedUsd}`} />
+      <Stat label="Days remaining" value={`${daysLeft}`} />
+    </section>
+  );
+}
+
+function StorageRow({ data }: { data: UsageCurrentPeriodJson }) {
+  const fillPct = data.storage.reserved_gb > 0
+    ? Math.min(100, (data.storage.used_gb / data.storage.reserved_gb) * 100)
+    : 0;
+  const monthlyUsd = (data.storage.monthly_cost_usd_cents / 100).toFixed(2);
+
+  return (
+    <section className="ks-card">
+      <div
+        className="ks-card-body"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 24,
+          alignItems: "center",
+          padding: "20px 24px",
+        }}
+      >
+        <div>
+          <div className="muted" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 6 }}>
+            Storage
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 500, color: "var(--text-primary)" }}>
+            {data.storage.used_gb} GB used of {data.storage.reserved_gb} GB
+            reserved
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              height: 3,
+              background: "var(--stone-100)",
+              borderRadius: 2,
+              overflow: "hidden",
+              maxWidth: 320,
+            }}
+          >
+            <div
+              style={{
+                width: `${fillPct}%`,
+                height: "100%",
+                background: "var(--krater)",
+              }}
+            />
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div className="muted" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 4 }}>
+            Monthly
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 500, color: "var(--text-primary)" }}>
+            ${monthlyUsd}
+          </div>
+          <Link
+            href="/billing"
+            style={{
+              display: "inline-block",
+              marginTop: 6,
+              fontSize: 12,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Resize →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetersTable({ data }: { data: UsageCurrentPeriodJson }) {
+  return (
+    <section className="ks-card" style={{ padding: 0 }}>
+      <div
+        style={{
+          padding: "16px 24px",
+          borderBottom: "1px solid var(--border)",
+          fontSize: 14,
+          fontWeight: 500,
+        }}
+      >
+        Metered usage
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <Th>Meter</Th>
+            <Th align="right">Used</Th>
+            <Th align="right">Free band</Th>
+            <Th align="right">Billable</Th>
+            <Th align="right">Cost</Th>
+            <Th align="right">Projected</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.meters.map((m) => (
+            <tr key={m.meter_name} style={{ borderBottom: "1px solid var(--border)" }}>
+              <Td>
+                <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>
+                  {m.label}
+                </div>
+                <div className="muted" style={{ fontSize: 11 }}>
+                  {prettyUnit(m.unit)}
+                </div>
+              </Td>
+              <Td align="right">{formatMeterValue(m.used, m.unit)}</Td>
+              <Td align="right">
+                <span className="muted">{formatMeterValue(m.free_band, m.unit)}</span>
+              </Td>
+              <Td align="right">{formatMeterValue(m.billable, m.unit)}</Td>
+              <Td align="right">
+                ${(m.billable_cost_usd_cents / 100).toFixed(2)}
+              </Td>
+              <Td align="right">
+                <span className="muted">
+                  ${(m.projected_cost_usd_cents / 100).toFixed(2)}
+                </span>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function ByokSection({ data }: { data: UsageCurrentPeriodJson }) {
+  if (data.byok.by_model.length === 0) return null;
+  const totalUsd = (data.byok.total_cost_usd_cents / 100).toFixed(2);
+  return (
+    <section className="ks-card">
+      <div className="ks-card-head">
+        <div>
+          <div className="ks-card-title">BYOK token spend</div>
+          <div className="ks-card-sub">
+            ${totalUsd} on your own OpenAI key this period. Not billed by
+            Kraterion — shown for transparency.
+          </div>
+        </div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+            <Th>Model</Th>
+            <Th align="right">Input tokens</Th>
+            <Th align="right">Output tokens</Th>
+            <Th align="right">Cost</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.byok.by_model.map((m) => (
+            <tr key={m.model} style={{ borderBottom: "1px solid var(--border)" }}>
+              <Td>{m.model}</Td>
+              <Td align="right">{Number(m.input_tokens).toLocaleString()}</Td>
+              <Td align="right">{Number(m.output_tokens).toLocaleString()}</Td>
+              <Td align="right">${(m.cost_usd_cents / 100).toFixed(2)}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+// === Atoms =================================================================
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="ks-card" style={{ padding: "16px 20px" }}>
+      <div
+        className="muted"
+        style={{
+          fontSize: 11,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 500, color: "var(--text-primary)" }}>
+        {value}
+      </div>
     </div>
   );
 }
 
-/**
- * Split "1.2 MB" → ["1.2", "MB"] so the unit can render at a smaller size
- * next to the headline number. "0 B" / "—" also round-trip safely.
- */
-function splitFormattedBytes(s: string): [string, string] {
-  const idx = s.lastIndexOf(" ");
-  if (idx === -1) return [s, ""];
-  return [s.slice(0, idx), s.slice(idx + 1)];
+function Th({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right";
+}) {
+  return (
+    <th
+      style={{
+        textAlign: align,
+        padding: "10px 16px",
+        fontSize: 11,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        color: "var(--text-secondary)",
+        fontWeight: 500,
+      }}
+    >
+      {children}
+    </th>
+  );
 }
 
-function bigIntPct(part: bigint, total: bigint): number {
-  if (total === 0n) return 0;
-  // Multiply by 10_000 before dividing so we keep 2 decimal places.
-  return Number((part * 10_000n) / total) / 100;
+function Td({
+  children,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right";
+}) {
+  return (
+    <td
+      style={{
+        textAlign: align,
+        padding: "12px 16px",
+        color: "var(--text-primary)",
+      }}
+    >
+      {children}
+    </td>
+  );
 }
 
-/**
- * Segment colors for the proportional bar + legend. Index 0 (largest)
- * gets the brand accent; the rest fade through the warm stone scale.
- * No cool greys, no gradients — matches the design-system constraints.
- */
-function segmentColor(idx: number): string {
-  const palette = [
-    "var(--krater)",
-    "var(--stone-700)",
-    "var(--stone-500)",
-    "var(--stone-400)",
-    "var(--stone-300)",
-  ];
-  return palette[idx % palette.length]!;
+function prettyUnit(unit: string): string {
+  switch (unit) {
+    case "ops":
+      return "Requests";
+    case "bytes":
+      return "Total bytes";
+    case "byte·s":
+      return "Storage-time";
+    case "messages":
+      return "Messages";
+    default:
+      return unit;
+  }
+}
+
+function formatMeterValue(raw: string, unit: string): string {
+  const v = BigInt(raw);
+  if (unit === "bytes") return formatBytes(v);
+  if (unit === "byte·s") return formatByteSeconds(v);
+  return Number(v).toLocaleString();
+}
+
+function formatBytes(b: bigint): string {
+  if (b < 1024n) return `${b} B`;
+  if (b < 1024n * 1024n) return `${(Number(b) / 1024).toFixed(1)} KB`;
+  if (b < 1024n * 1024n * 1024n) return `${(Number(b) / (1024 * 1024)).toFixed(1)} MB`;
+  if (b < 1024n ** 4n) return `${(Number(b) / (1024 ** 3)).toFixed(2)} GB`;
+  return `${(Number(b) / 1024 ** 4).toFixed(2)} TB`;
+}
+
+function formatByteSeconds(bs: bigint): string {
+  // 1 GB-day = 1024^3 × 86400 byte·s ≈ 9.28e10
+  const gbDay = 1_073_741_824n * 86_400n;
+  if (bs < gbDay) {
+    const mbDay = bs / (1_048_576n * 86_400n);
+    return `${Number(mbDay).toLocaleString()} MB-day`;
+  }
+  return `${(Number(bs / gbDay)).toLocaleString()} GB-day`;
 }

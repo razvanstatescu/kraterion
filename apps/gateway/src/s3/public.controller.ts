@@ -28,6 +28,7 @@
 import { Controller, Get, Head, Logger, Param, Req, Res } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Prisma } from "@prisma/client";
+import { MeterClassNone } from "../billing/meter-class.decorator.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ObjectBytesService, OBJECT_SELECT } from "./object-bytes.service.js";
 import { S3Error } from "./s3-error.js";
@@ -49,7 +50,15 @@ export class PublicObjectsController {
     private readonly bytes: ObjectBytesService,
   ) {}
 
+  // Public routes are anonymous — no `req.kraterion`, so the global
+  // UsageInterceptor short-circuits anyway. We still tag them
+  // `MeterClassNone` to keep the "untagged handler" warning quiet.
+  // Egress billing for public reads will hook into the
+  // `share_token_egress_bytes` / future `public_egress_bytes` meter in
+  // a later phase, where we'll resolve the bucket → project at
+  // controller level before metering.
   @Get(":bucket/*")
+  @MeterClassNone()
   async getObject(
     @Param("bucket") bucketName: string,
     @Req() req: FastifyRequest,
@@ -65,6 +74,7 @@ export class PublicObjectsController {
   }
 
   @Head(":bucket/*")
+  @MeterClassNone()
   async headObject(
     @Param("bucket") bucketName: string,
     @Req() req: FastifyRequest,

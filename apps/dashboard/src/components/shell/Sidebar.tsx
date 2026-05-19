@@ -35,6 +35,7 @@ const GROUPS: NavGroup[] = [
     label: "Account",
     items: [
       { href: "/activity", label: "Activity", icon: "info" },
+      { href: "/billing", label: "Billing", icon: "credit-card" },
       { href: "/settings", label: "Settings", icon: "settings" },
     ],
   },

@@ -75,6 +75,9 @@ import { Transaction } from "@mysten/sui/transactions";
 import { toHex } from "@mysten/sui/utils";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
 import { GatewayKeypairService } from "../auth/gateway-keypair.service.js";
+import { MeterClassA } from "../billing/meter-class.decorator.js";
+import { PoolCapacityGuard } from "../billing/pool-capacity.guard.js";
+import { SpendCapGuard } from "../billing/spend-cap.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { REDIS } from "../redis/redis.module.js";
 import { S3Error } from "./s3-error.js";
@@ -115,7 +118,7 @@ const KRATERION_POOLED_BLOB_REGISTERED_TYPE =
 // Suppress unused — kept inline for future header-debug logs.
 void toHex;
 
-@UseGuards(Sigv4Guard)
+@UseGuards(Sigv4Guard, SpendCapGuard, PoolCapacityGuard)
 @Controller()
 export class ObjectsWriteController {
   private readonly logger = new Logger(ObjectsWriteController.name);
@@ -131,6 +134,7 @@ export class ObjectsWriteController {
 
   @Put(":bucket/*")
   @HttpCode(200)
+  @MeterClassA()
   async putObject(
     @Req() req: FastifyRequest,
     @Res({ passthrough: false }) reply: FastifyReply,
@@ -474,6 +478,7 @@ export class ObjectsWriteController {
 
   @Delete(":bucket/*")
   @HttpCode(204)
+  @MeterClassA()
   async deleteObject(@Req() req: FastifyRequest): Promise<void> {
     const ctx = requireKraterion(req);
     const bucketName = requireBucket(ctx);

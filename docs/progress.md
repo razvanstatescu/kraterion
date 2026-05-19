@@ -4114,3 +4114,107 @@ remain unchanged — verified not regressions from this work via
   green; SDK vitest 5 pass / 2 live-only skipped; Prisma schema/DB
   in sync (only the pre-existing pgvector raw-SQL drift remains, as
   documented).
+
+### 2026-05-19
+
+- `[billing]` `[control-plane]` `[dashboard]` **Phase B5 ships — inline
+  Stripe Elements card collection + the full `/billing` surface.**
+  Closes the "user can add a card and manage their subscription
+  without leaving the dashboard" milestone planned in
+  `/Users/razvanstatescu/.claude/plans/idempotent-tumbling-thompson.md`.
+
+  **Control-plane endpoints (all under `/v1/billing`, AuthGuard):**
+  - `POST /setup-intent` → returns `{ client_secret, setup_intent_id }`
+    for inline `<PaymentElement />`. Idempotency key bucketed per
+    project per ~17 min so strict-mode double-mounts collapse.
+  - `GET /invoices/:projectId` → live read of last 12 invoices from
+    Stripe (5-min React-Query cache on the dashboard side).
+  - `POST /cancel-subscription` → `cancel_at_period_end = true` (keeps
+    capacity through the boundary).
+  - `PATCH /spend-cap` → updates `hard_spend_cap_usd_cents` +
+    `soft_alert_thresholds` (cap can be null).
+  - `PATCH /details` → updates `billing_email` / `tax_id` / `country`
+    on the local `BillingAccount` row. Stripe Customer object is
+    mutated via the Customer Portal, not by us — portal handles VAT
+    validation + tax registration.
+
+  **Webhook handler** (`apps/control-plane/src/billing/webhook.controller.ts`):
+  added a `setup_intent.succeeded` branch that mirrors
+  `checkout.session.completed`: reads `metadata.project_id`, promotes
+  the attached payment method via
+  `billing.setDefaultPaymentMethod(...)`, calls `ensureSubscription`
+  (idempotent), flips `BillingAccount.has_payment_method = true`. The
+  inline-Elements flow now reaches a fully-billable subscription
+  without ever leaving the dashboard.
+
+  **Dashboard `/billing` rewrite** (Vercel / Supabase shape, single
+  column of stacked cards):
+  - `CurrentPeriodCard` — period range + accrued + projected + days
+    left, deep-links to `/usage` for the meter table.
+  - `PaymentMethodCard` — two states: no-card (`<Banner>` + "Add
+    card" button → mounts `InlineCardForm`) and card-on-file (brand
+    pill + "Manage in Stripe" deep link to Customer Portal). Hidden
+    "remove card" action when there's unbilled usage (server-side
+    guard is B8; UI mirror lands here).
+  - `InlineCardForm` — real `@stripe/stripe-js` +
+    `@stripe/react-stripe-js`. Mounts `<Elements>` with our design
+    tokens, `<PaymentElement />` collects the card, `confirmSetup`
+    with `redirect: 'if_required'` keeps SCA paths working without
+    forcing a redirect for non-3DS cards. On success: 2-second wait
+    for the webhook to land, then `useBillingAccount` invalidates
+    and the card flips to "Card on file" without a reload.
+  - `StorageCard` (carried over from B3) + `ResizeStorageModal` —
+    pool resize flow, upgrade immediate / downgrade scheduled.
+  - `SpendCapCard` — toggle between "no limit" and a dollar cap;
+    storage is exempt because it's a flat subscription, not metered.
+  - `InvoicesCard` — table of last 12 Stripe invoices, "View" deep-
+    links to `hosted_invoice_url`, "View all in Stripe" opens the
+    portal for full history + PDFs.
+  - `BillingDetailsCard` — email / tax id / country; Stripe Tax
+    deep-link via portal.
+  - `DangerZoneCard` — cancel subscription with `ConfirmModal`.
+  - `BillingBanner` — single banner at the top of `(app)/layout.tsx`
+    with priority logic: no-payment-method (info, persistent) →
+    past_due (error, dismissible) → cancelled (warning, dismissible)
+    → cap-exceeded (error, persistent) → 80%-cap-warn (warning,
+    dismissible). Dismiss flags live in `sessionStorage` keyed per
+    banner id so a fresh session re-surfaces unresolved issues.
+
+  **Dashboard wire layer** (`apps/dashboard/src/lib/queries.ts`):
+  added `useBillingAccount`, `useCreateSetupIntent`,
+  `useOpenBillingPortal`, `useInvoices`, `useUpdateSpendCap`,
+  `useUpdateBillingDetails`, `useCancelBillingSubscription`. Wire
+  types in `lib/api.ts` (`BillingAccountJson`, `InvoiceJson`,
+  `SetupIntentResponse`).
+
+  **New deps in `apps/dashboard`** (approved by user in this
+  session): `@stripe/stripe-js` + `@stripe/react-stripe-js`. Both
+  pinned at the current `minimumReleaseAge: 1440`-compliant latest.
+  Publishable key wired via `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+  (lazy accessor `env.getStripePublishableKey()` so pre-B5 routes
+  don't break if the key is absent).
+
+  **Design system compliance:** sentence case throughout, font-weight
+  ≤ 500, hairline borders, three radii (4/8/12), no shadows/gradients,
+  Lucide icons at 1.5px stroke. The Stripe Elements appearance object
+  tints `colorPrimary: #bf4a26` (Krater) + `--stone-300` borders to
+  match the surrounding card.
+
+  **Account-level cancel left in `/settings`:** the existing
+  `useCancelSubscription` hook hits `/v1/me/cancel` (Account.status =
+  'cancelled') — different concern from billing subscription cancel.
+  Two separate "delete the relationship" actions kept apart on
+  purpose: billing cancel is reversible, account cancel wipes data.
+
+  Verification: control-plane + dashboard typecheck green
+  (`pnpm -F @kraterion/control-plane typecheck`, `pnpm -F
+  @kraterion/dashboard typecheck`). End-to-end smoke deferred to user
+  testing — three terminals (`pnpm dev`, `stripe listen --forward-to
+  localhost:4001/webhooks/stripe`, a fresh project) and Stripe test
+  card `4242 4242 4242 4242` will exercise the full flow.
+
+  **Open next (B6):** wire the spend-cap + free-band enforcement
+  (gateway 507/429 + `X-Kraterion-Reason` headers; the entitlements
+  Redis cache). B7 is the admin pages; B8 is the onboarding flow +
+  `RequiresPaymentMethodGuard` + the remove-card-when-unbilled
+  server-side guard.

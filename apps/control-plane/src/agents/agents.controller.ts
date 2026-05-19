@@ -16,6 +16,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_CHAT_MODEL_ID, isKnownChatModel } from "@kraterion/shared";
 import { AuthGuard } from "../auth/auth.guard.js";
+import { imputeAndRecordInvocationCost } from "../billing/invocation-cost.js";
 import {
   requireAccountPrincipal,
   requirePrincipal,
@@ -544,6 +545,20 @@ export class AgentsController {
         },
       });
 
+      // B1 billing — compute cost from the canonical OpenAI price
+      // catalog, patch `cost_usd_micros` / `cost_price_version` /
+      // `key_source` on the invocation, and bump `BYOKDailySpend`.
+      // Best-effort: never throws from this call site.
+      void imputeAndRecordInvocationCost({
+        prisma: this.prisma,
+        invocationId: invocation.id,
+        projectId: agent.project_id,
+        model: requestedModel,
+        promptTokens: answered.prompt_tokens,
+        completionTokens: answered.completion_tokens,
+        keySource: "byok",
+      });
+
       // P6 — bump the share token's daily counters AFTER a successful
       // turn (failures don't count toward caps).
       //
@@ -966,6 +981,19 @@ export class AgentsController {
           ),
           finished_at: new Date(),
         },
+      });
+
+      // B1 billing — same hook as the non-streaming path. Best-effort
+      // and fire-and-forget so a billing failure can never break a
+      // chat completion that already streamed cleanly to the client.
+      void imputeAndRecordInvocationCost({
+        prisma: this.prisma,
+        invocationId: args.invocationId,
+        projectId,
+        model: args.requestedModel,
+        promptTokens,
+        completionTokens,
+        keySource: "byok",
       });
 
       // P6 — bump share-token daily counters after a clean stream.

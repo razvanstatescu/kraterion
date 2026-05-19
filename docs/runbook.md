@@ -1182,3 +1182,158 @@ pnpm -F @kraterion/gateway bootstrap
 ```
 
 **Observed:** 2026-05-18 during storage-pool migration Phase K.
+
+---
+
+## Howto: Test the inline Stripe Elements billing flow end-to-end
+
+**When to use this:** verifying B5 (`/billing` page) after any change to the
+billing module, the dashboard PaymentMethod card, the Stripe webhook
+handlers, or the `setup-intent` endpoint.
+
+**Prerequisites:**
+- Stripe CLI installed (`brew install stripe/stripe-cli/stripe`)
+- Stripe CLI authenticated to the **test mode** account
+  (`stripe login` once, picks up the right account by default)
+- `.env` carries `STRIPE_MODE=test`, `STRIPE_SECRET_KEY=sk_test_…`,
+  `STRIPE_WEBHOOK_SECRET=whsec_…` (the value `stripe listen` prints)
+- `apps/dashboard/.env.local` carries
+  `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_…`
+
+**Three terminals:**
+
+```bash
+# Terminal 1 — full stack
+pnpm dev
+
+# Terminal 2 — webhook forwarder (forwards ALL events, no allow-list needed)
+stripe listen --forward-to localhost:4001/webhooks/stripe
+# ↑ writes a new whsec_… to stdout on first run. Copy that into
+#   .env STRIPE_WEBHOOK_SECRET (only changes when you restart `stripe listen`).
+
+# Terminal 3 — sandbox bootstrap (optional; the dashboard can do this itself
+# now via /billing → Add card)
+pnpm -F @kraterion/control-plane exec tsx scripts/probe-billing-bootstrap.ts <projectId>
+```
+
+**Flow to exercise:**
+
+1. Open `http://localhost:3001/billing` on a project with no payment method.
+   The PaymentMethodCard shows the "Add a payment method to start using
+   Kraterion" banner + an **Add card** button.
+2. Click **Add card**. `InlineCardForm` mounts:
+   - calls `POST /v1/billing/setup-intent` (creates a Stripe Customer if
+     none exists, returns a `client_secret`)
+   - mounts `<Elements>` + `<PaymentElement />` with our design tokens
+3. Enter the test card: `4242 4242 4242 4242 / 12 28 / 123 / 12345`.
+   Click **Save card**.
+4. Stripe processes `confirmSetup`. With this PAN there's no 3DS challenge,
+   so we stay on `/billing`. Terminal 2 (`stripe listen`) logs the
+   `setup_intent.succeeded` event and forwards it.
+5. CP webhook handler:
+   - reads `metadata.project_id`
+   - resolves the SetupIntent's `payment_method`
+   - calls `setDefaultPaymentMethod(...)` on the Customer
+   - calls `ensureSubscription(...)` — creates the 7-item subscription
+     (1 licensed storage @ qty=10 + 6 metered)
+   - patches `BillingAccount.has_payment_method = true`, `status = 'active'`
+6. After ~2 s the dashboard refetches `useBillingAccount`. The card swaps
+   from the form to "Card on file" with a "Manage in Stripe" link.
+
+**Sanity checks:**
+
+- `psql -c "SELECT has_payment_method, status, default_payment_method
+  FROM \"BillingAccount\" WHERE project_id = '<projectId>';"` →
+  `(t, active, pm_…)`.
+- Stripe test-mode dashboard → Customers → your project name → check the
+  default payment method is on file and a subscription with 7 line items
+  is `active`.
+- Hit `GET /v1/billing/invoices/:projectId` — should return an empty array
+  (no usage yet means no draft invoice).
+
+**Other test cards** (Stripe's full list at
+https://docs.stripe.com/testing#cards):
+- `4000 0027 6000 3184` — 3DS required (verifies `redirect: 'if_required'`
+  redirects + returns correctly via the `return_url`)
+- `4000 0000 0000 9995` — insufficient funds (verifies error path)
+- `4000 0000 0000 0002` — generic decline
+
+**Resetting between tests:**
+```bash
+# Sandbox-only — wipes the BillingAccount row, deletes the Stripe Customer
+# and subscription, lets you start fresh on the same project id.
+pnpm -F @kraterion/control-plane exec tsx scripts/probe-billing-reset.ts <projectId>
+```
+(If that script doesn't exist yet, run the equivalent manually:
+`DELETE FROM "BillingAccount" WHERE project_id = '<id>';` plus a Stripe
+dashboard delete of the corresponding Customer.)
+
+**Observed:** 2026-05-19 during B5 implementation.
+
+**Notes:**
+- `stripe listen` prints a NEW `whsec_…` every time it starts. Either keep
+  the same terminal open across sessions, or update `STRIPE_WEBHOOK_SECRET`
+  in `.env` each restart (and restart the control-plane after).
+- The `setup_intent.succeeded` and `checkout.session.completed` handlers
+  share the same downstream logic — testing one validates most of the
+  other.
+- If the card form spins forever showing "Loading secure card form…",
+  check the browser console for a `loadStripe` error — most often the
+  publishable key is missing from `.env.local`.
+
+---
+
+## Symptom: dashboard `/billing` shows "Loading secure card form…" forever
+
+**Cause:** `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is missing from
+`apps/dashboard/.env.local`. The lazy accessor `env.getStripePublishableKey()`
+throws on first read; `InlineCardForm` catches it and stores the error in
+state but the spinner already rendered first.
+
+**Fix:**
+```bash
+# Add the test publishable key to .env.local
+echo "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_…" >> apps/dashboard/.env.local
+# Restart the dashboard so Next.js re-reads the env
+```
+The key is the test publishable key from
+https://dashboard.stripe.com/test/apikeys. Safe to commit to `.env.local`
+locally — it's the *public* half of the key pair, designed to ship in
+client bundles.
+
+**Observed:** 2026-05-19 during B5 wiring.
+
+**Notes:** Same accessor pattern as `NEXT_PUBLIC_ENOKI_PUBLIC_KEY` —
+deliberately lazy so a missing key doesn't blow up routes that don't need
+Stripe.
+
+---
+
+## Symptom: Stripe webhook never fires for `setup_intent.succeeded`
+
+**Cause:** Either (a) `stripe listen` was started against the wrong Stripe
+account or with an event-type filter that excluded SetupIntent events, or
+(b) the configured webhook endpoint in the Stripe dashboard has a curated
+allow-list that doesn't include `setup_intent.*`.
+
+**Fix:**
+```bash
+# Local dev — listen forwards everything by default:
+stripe listen --forward-to localhost:4001/webhooks/stripe
+
+# Verify by triggering a synthetic event:
+stripe trigger setup_intent.succeeded
+# Terminal 1 (control-plane) should log:
+#   StripeWebhookController handler succeeded for evt_…
+#   BillingService set default payment method pm_… on customer cus_…
+#   BillingService created subscription sub_… for project=…
+```
+If using a deployed webhook endpoint, edit it in the Stripe dashboard
+(Developers → Webhooks → click the endpoint → Listen to events): add
+`setup_intent.succeeded` to the allow-list.
+
+**Observed:** 2026-05-19 — anticipated during B5 testing.
+
+**Notes:** The handler is idempotent (`StripeWebhookEvent.id` PK + service-
+layer upserts) so re-sending the same event with `stripe events resend
+evt_…` is safe.

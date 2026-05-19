@@ -54,6 +54,9 @@ model Project {
   /// created on-chain by the gateway (whitelisted on the reserve);
   /// indexer writes this row from `KraterionVaultCreated`.
   storage_pool         StoragePool?
+  /// 1:1 billing record. Created lazily the first time the project goes
+  /// through Checkout (or eagerly at signup once that flow ships).
+  billing_account      BillingAccount?
 
   @@index([account_id])
 }
@@ -878,6 +881,19 @@ model AgentInvocation {
   // `output` and resolvable against on-chain manifests for verification.
   cited_hashes Bytes[]
 
+  // Billing imputation. Populated by the agents controller right after
+  // the OpenAI response, using the price catalog snapshot recorded in
+  // `cost_price_version` so the dollar value is immune to later
+  // OpenAI repricing.
+  //   - `key_source = 'platform'` → an `agent_messages` MeterEvent row
+  //     is emitted alongside this invocation.
+  //   - `key_source = 'byok'`     → tokens roll into BYOKDailySpend
+  //     instead; no MeterEvent is emitted (BYOK is display-only).
+  // `cost_usd_micros` stays at 0 for failed/revoked invocations.
+  cost_usd_micros   BigInt  @default(0)
+  cost_price_version String?
+  key_source        String? // 'platform' | 'byok'
+
   error_detail String?
 
   created_at  DateTime  @default(now())
@@ -1033,4 +1049,163 @@ model ShareTokenUsageDay {
 
   @@id([share_token_id, day_utc])
   @@index([share_token_id])
+}
+
+// === Billing layer (P8 — Stripe pay-as-you-go, sandbox only for v1) ===
+//
+// One BillingAccount per Project. Stripe is the billing source of truth;
+// these tables are the durable local log, reconciliation source, and
+// dashboard read surface. See /docs/monetization-and-billing.md and the
+// active plan at .claude/plans/idempotent-tumbling-thompson.md.
+//
+// Storage is a licensed (flat) subscription item — `quantity = reserved_gb`
+// kept in sync with `StoragePool.reserved_encoded_bytes`. Class A / B,
+// egress, knowledge index, agent messages are metered with graduated
+// prices (tier-1 zero amount = free band).
+
+/// 1:1 with Project. Created lazily on Checkout. `stripe_customer_id_test`
+/// and `*_live` are split so we can run sandbox and production with the
+/// same row layout — only one is active per environment, gated by
+/// STRIPE_MODE.
+model BillingAccount {
+  id                           String   @id @default(cuid())
+  project_id                   String   @unique
+  stripe_mode                  String   @default("test") // 'test' | 'live'
+  stripe_customer_id_test      String?  @unique
+  stripe_customer_id_live      String?  @unique
+  status                       String   @default("active") // active | past_due | cancelled
+  has_payment_method           Boolean  @default(false)
+  default_payment_method       String?
+  currency                     String   @default("usd")
+  /// Falls back to `Account.email` when null. Stripe sends invoices here.
+  billing_email                String?
+  tax_id                       String?
+  country                      String?
+  /// In USD cents. Null means no cap. Storage subscription line is
+  /// EXEMPT from this cap (fixed monthly reservation); only metered
+  /// items respect it.
+  hard_spend_cap_usd_cents     Int?
+  /// Percent thresholds for soft-alert emails / Slack webhooks (e.g.
+  /// 50, 80, 100). Empty array disables alerts.
+  soft_alert_thresholds        Int[]    @default([50, 80, 100])
+  upload_rate_limit_gb_per_day Int      @default(1024)
+  created_at                   DateTime @default(now())
+  updated_at                   DateTime @updatedAt
+
+  project Project @relation(fields: [project_id], references: [id])
+
+  @@index([stripe_customer_id_test])
+  @@index([stripe_customer_id_live])
+}
+
+/// One row per Stripe meter event we owe to the API. Written first by
+/// the agent / rollup paths, then drained to Stripe by the meter-emit
+/// worker. `identifier` is UNIQUE so retries inside Stripe's 24h dedupe
+/// window are safe. Includes a `{mode}:` prefix to keep test and live
+/// emits from ever colliding.
+model MeterEvent {
+  id            String    @id @default(cuid())
+  project_id    String
+  meter_name    String
+  value         BigInt
+  identifier    String    @unique
+  /// Set on rollup-style meters (`{mode}:{meter}:{project}:{hour}`).
+  /// Null for per-event meters keyed on a row id.
+  period_start  DateTime?
+  occurred_at   DateTime
+  sent_at       DateTime?
+  stripe_status String    @default("pending") // pending | sent | failed | dead_letter
+  attempt_count Int       @default(0)
+  last_error    String?
+  payload       Json?
+
+  @@index([stripe_status, occurred_at])
+  @@index([project_id, meter_name, period_start])
+}
+
+/// Per-project / per-day / per-meter rollup. Powers the `/usage`
+/// dashboard, projection math, and reconciliation against Stripe's
+/// Meter Event Summary API.
+model UsageDaily {
+  id              String @id @default(cuid())
+  project_id      String
+  day             String // YYYY-MM-DD UTC
+  meter_name      String
+  value           BigInt
+  cost_usd_micros BigInt @default(0)
+
+  @@unique([project_id, day, meter_name])
+  @@index([project_id, day])
+}
+
+/// BYOK token spend per (project, day, model). Display only — never
+/// emitted to Stripe. Lets the dashboard surface "you spent $X on your
+/// own OpenAI key today" without us being on the hook for the cost.
+model BYOKDailySpend {
+  id              String @id @default(cuid())
+  project_id      String
+  day             String
+  model           String
+  input_tokens    BigInt @default(0)
+  output_tokens   BigInt @default(0)
+  cost_usd_micros BigInt @default(0)
+
+  @@unique([project_id, day, model])
+}
+
+/// Holds a pending storage downsize until the current billing period
+/// ends. We schedule on-chain `pool_vault::resize_shrink` to fire at
+/// `effective_at` (period boundary); until then the customer keeps the
+/// full capacity they paid for, matching Dropbox / iCloud / DO Spaces
+/// convention. Cancel-able from the dashboard before fire.
+model PendingStorageDowngrade {
+  id                      String    @id @default(cuid())
+  project_id              String    @unique
+  new_reserved_gb         Int
+  current_reserved_gb     Int
+  effective_at            DateTime
+  requested_at            DateTime  @default(now())
+  /// Optional Stripe Subscription Schedule id, if we use one.
+  stripe_schedule_id      String?
+  status                  String    @default("scheduled") // scheduled | applied | cancelled | failed
+  applied_at              DateTime?
+  resize_shrink_tx_digest String?
+  last_error              String?
+
+  @@index([status, effective_at])
+}
+
+/// Inbound Stripe webhooks, dedup'd by Stripe `event.id`. The webhook
+/// controller writes the row + enqueues; the BullMQ processor consumes
+/// and marks `processed_at`. Replays are idempotent because the id is
+/// the primary key.
+model StripeWebhookEvent {
+  id            String    @id // Stripe event.id
+  type          String
+  received_at   DateTime  @default(now())
+  processed_at  DateTime?
+  attempt_count Int       @default(0)
+  payload       Json
+  last_error    String?
+
+  @@index([type, received_at])
+}
+
+/// Daily oracle snapshot + per-meter cost-floor. The cost-floor worker
+/// writes one row per day at 01:00 UTC; alerts fire if any customer
+/// price drops below the floor × (1 + fx_buffer).
+model CostFloorSnapshot {
+  id                         String   @id @default(cuid())
+  day                        String   @unique
+  wal_usd_micros             BigInt
+  sui_usd_micros             BigInt
+  walrus_storage_price_frost BigInt
+  walrus_write_price_frost   BigInt
+  /// `{meter_name: { raw_cost_usd_micros, fx_buffered, ship_price, headroom_pct }}`.
+  /// Stored as JSON so adding a meter doesn't require a migration.
+  per_meter_floor_json       Json
+  /// Which oracles answered today, with their quoted prices, for audit.
+  oracle_sources             Json
+  alert_fired                Boolean  @default(false)
+  created_at                 DateTime @default(now())
 }

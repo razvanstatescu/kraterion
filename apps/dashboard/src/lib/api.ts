@@ -404,3 +404,113 @@ export const sessionStorage = {
   clear: clearSession,
 };
 export type { StoredSession };
+
+// === Billing =================================================================
+
+/** Snapshot of the storage subscription state surfaced on the
+ *  `/billing` storage card. Mirrors the CP `getStorageState` shape;
+ *  `null` when the project hasn't been through Checkout yet. */
+export interface StorageBillingStateJson {
+  reserved_gb: number;
+  used_gb: number;
+  pool_reserved_gb: number;
+  stripe_quantity_gb: number;
+  monthly_cost_usd_cents: number;
+  next_bill_at: string | null;
+  pending_downgrade: {
+    new_gb: number;
+    effective_at: string;
+  } | null;
+}
+
+export interface ResizeStorageResponse {
+  direction: "upgrade" | "downgrade" | "noop";
+  effective_at?: string;
+  pool_resize_tx?: string;
+  stripe_subscription_id?: string;
+}
+
+/** One row in the meter table on `/usage`. */
+export interface UsageMeterJson {
+  meter_name: string;
+  label: string;
+  unit: string;
+  /** Stringified BigInt because raw byte / byte·second totals
+   *  overflow `number` quickly. */
+  used: string;
+  free_band: string;
+  billable: string;
+  billable_cost_usd_cents: number;
+  projected_cost_usd_cents: number;
+  daily_average: number;
+}
+
+export interface UsageByokJson {
+  total_cost_usd_cents: number;
+  total_input_tokens: string;
+  total_output_tokens: string;
+  by_model: Array<{
+    model: string;
+    input_tokens: string;
+    output_tokens: string;
+    cost_usd_cents: number;
+  }>;
+}
+
+/** Stripe BillingAccount row surfaced to the dashboard. `account: null`
+ *  means the project hasn't gone through Checkout / SetupIntent yet — the
+ *  billing page renders the "add payment method" empty state. */
+export interface BillingAccountJson {
+  id: string;
+  project_id: string;
+  stripe_mode: string;
+  status: string;
+  has_payment_method: boolean;
+  currency: string;
+  billing_email: string | null;
+  country: string | null;
+  hard_spend_cap_usd_cents: number | null;
+  soft_alert_thresholds: number[];
+  stripe_customer_id: string | null;
+}
+
+/** One Stripe invoice as surfaced by `GET /v1/billing/invoices/:projectId`.
+ *  Hosted URL + PDF link land on Stripe — we never mirror them locally. */
+export interface InvoiceJson {
+  id: string;
+  number: string | null;
+  status: string | null;
+  /** Unix seconds. */
+  period_start: number;
+  /** Unix seconds. */
+  period_end: number;
+  /** Unix seconds. */
+  created: number;
+  amount_due_usd_cents: number;
+  amount_paid_usd_cents: number;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
+}
+
+export interface SetupIntentResponse {
+  client_secret: string;
+  setup_intent_id: string;
+}
+
+export interface UsageCurrentPeriodJson {
+  period: {
+    start: string;
+    end: string;
+    days_elapsed: number;
+    days_in_period: number;
+  };
+  total_accrued_usd_cents: number;
+  projected_total_usd_cents: number;
+  storage: {
+    used_gb: number;
+    reserved_gb: number;
+    monthly_cost_usd_cents: number;
+  };
+  meters: UsageMeterJson[];
+  byok: UsageByokJson;
+}

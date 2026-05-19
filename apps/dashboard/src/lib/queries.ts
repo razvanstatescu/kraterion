@@ -24,7 +24,13 @@ import {
   type ProjectJson,
   type ProviderCredentialJson,
   type ProviderName,
+  type BillingAccountJson,
+  type InvoiceJson,
+  type ResizeStorageResponse,
   type S3ObjectJson,
+  type SetupIntentResponse,
+  type StorageBillingStateJson,
+  type UsageCurrentPeriodJson,
 } from "./api";
 import { useCpSession } from "./auth";
 
@@ -883,5 +889,220 @@ export function useAgentGrants(agentId: string | undefined) {
     queryFn: () => cpFetch<AgentGrantsResponse>(`/v1/agents/${agentId}/grants`),
     enabled: Boolean(session?.token && agentId),
     staleTime: 30_000,
+  });
+}
+
+// === Billing =================================================================
+
+interface StorageStateResponse {
+  state: StorageBillingStateJson | null;
+}
+
+/** Snapshot read for the `/billing` storage card. Refetched on
+ *  resize success so the dashboard reflects within ~5s of the
+ *  indexer-ack ping (the resize-flow handler waits for the
+ *  indexer before returning, so the next refetch is correct). */
+export function useStorageBillingState(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "billing", "storage", "state", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<StorageStateResponse>(`/v1/billing/storage/state/${projectId}`),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 10_000,
+  });
+}
+
+/** Resize the project's storage reservation. Server decides upgrade
+ *  vs scheduled downgrade based on direction. On success we
+ *  invalidate the storage-state query so the card re-renders. */
+export function useResizeStorage(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { new_reserved_gb: number }) =>
+      cpFetch<ResizeStorageResponse>("/v1/billing/storage/resize", {
+        method: "POST",
+        body: { project_id: projectId, new_reserved_gb: args.new_reserved_gb },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "billing", "storage", "state", projectId],
+      });
+    },
+  });
+}
+
+/** Current-period usage rollup for the `/usage` page. Refetched
+ *  every 30 s so the meter table reflects newly-arrived rollup
+ *  ticks without manual reloads. */
+export function useUsageCurrentPeriod(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "usage", "current-period", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<UsageCurrentPeriodJson>(`/v1/usage/current-period/${projectId}`),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+}
+
+/** BillingAccount row for the project. `{ account: null }` means
+ *  pre-Checkout — the billing page renders the empty-state PaymentMethod
+ *  card. Refetched on every navigation so card-attach + cap edits
+ *  reflect immediately. */
+export function useBillingAccount(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "billing", "account", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<{ account: BillingAccountJson | null }>(
+        `/v1/billing/account/${projectId}`,
+      ),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 10_000,
+  });
+}
+
+/** Mint a SetupIntent for inline `<PaymentElement />`. The dashboard
+ *  calls this once when mounting the empty-state card and uses the
+ *  returned `client_secret` to render the iframe. Each mint creates a
+ *  fresh SetupIntent so re-opening the card after a cancel works. */
+export function useCreateSetupIntent(projectId: string | undefined) {
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<SetupIntentResponse>("/v1/billing/setup-intent", {
+        method: "POST",
+        body: { project_id: projectId },
+      }),
+  });
+}
+
+/** Open a Customer Portal session. Returns the hosted URL — caller
+ *  navigates `window.location.href = url`. Used by "Manage in Stripe"
+ *  deep links for invoice PDFs, tax info, payment-method swap. */
+export function useOpenBillingPortal(projectId: string | undefined) {
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<{ url: string }>("/v1/billing/portal-session", {
+        method: "POST",
+        body: {
+          project_id: projectId,
+          return_url:
+            typeof window !== "undefined"
+              ? `${window.location.origin}/billing`
+              : "https://dashboard.kraterion.com/billing",
+        },
+      }),
+  });
+}
+
+/** Live read of the 12 most recent invoices. Stripe is source of truth
+ *  — we never mirror invoices locally. 5-minute stale time so the
+ *  dashboard doesn't hammer Stripe between page navigations. */
+export function useInvoices(projectId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "billing", "invoices", projectId ?? "none"],
+    queryFn: () =>
+      cpFetch<{ invoices: InvoiceJson[] }>(
+        `/v1/billing/invoices/${projectId}`,
+      ),
+    enabled: Boolean(session?.token && projectId),
+    staleTime: 300_000,
+  });
+}
+
+/** Patch `hard_spend_cap_usd_cents` + `soft_alert_thresholds`. The
+ *  cap can be `null` to remove it entirely. */
+export interface UpdateSpendCapInput {
+  hard_cap_usd_cents: number | null;
+  alert_thresholds?: number[];
+}
+export function useUpdateSpendCap(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateSpendCapInput) =>
+      cpFetch<{
+        hard_spend_cap_usd_cents: number | null;
+        alert_thresholds: number[];
+      }>("/v1/billing/spend-cap", {
+        method: "PATCH",
+        body: { project_id: projectId, ...input },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "billing", "account", projectId],
+      });
+    },
+  });
+}
+
+/** Patch billing email / tax id / country. Each field is independently
+ *  optional. */
+export interface UpdateBillingDetailsInput {
+  billing_email?: string | null;
+  tax_id?: string | null;
+  country?: string | null;
+}
+export function useUpdateBillingDetails(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateBillingDetailsInput) =>
+      cpFetch<{
+        billing_email: string | null;
+        tax_id: string | null;
+        country: string | null;
+      }>("/v1/billing/details", {
+        method: "PATCH",
+        body: { project_id: projectId, ...input },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "billing", "account", projectId],
+      });
+    },
+  });
+}
+
+/** Cancel the subscription at the end of the current period. The
+ *  customer keeps their capacity until the boundary; the
+ *  `customer.subscription.deleted` webhook flips the status. */
+export function useCancelBillingSubscription(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<{ cancel_at: number | null }>(
+        "/v1/billing/cancel-subscription",
+        {
+          method: "POST",
+          body: { project_id: projectId },
+        },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "billing", "account", projectId],
+      });
+    },
+  });
+}
+
+/** Cancel a scheduled downgrade. Same invalidation pattern as resize. */
+export function useCancelPendingDowngrade(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<{ cancelled: boolean; previous_status: string | null }>(
+        "/v1/billing/storage/pending-downgrade",
+        {
+          method: "DELETE",
+          body: { project_id: projectId },
+        },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["v1", "billing", "storage", "state", projectId],
+      });
+    },
   });
 }

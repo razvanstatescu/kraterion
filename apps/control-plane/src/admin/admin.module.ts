@@ -5,7 +5,6 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { AdminController } from "./admin.controller.js";
 import { AdminGuard } from "./admin.guard.js";
 import { AdminService } from "./admin.service.js";
-import { OperatorKeypairService } from "./operator-keypair.service.js";
 
 /**
  * Admin surface — manual storage-pool ops + on-chain reserve inspection.
@@ -23,7 +22,6 @@ import { OperatorKeypairService } from "./operator-keypair.service.js";
   providers: [
     PrismaService,
     KeyWrappingService,
-    OperatorKeypairService,
     AdminService,
     AdminGuard,
   ],

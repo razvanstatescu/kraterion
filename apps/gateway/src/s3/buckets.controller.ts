@@ -25,11 +25,14 @@ import {
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
+import { MeterClassA, MeterClassB, MeterClassNone } from "../billing/meter-class.decorator.js";
+import { PoolCapacityGuard } from "../billing/pool-capacity.guard.js";
+import { SpendCapGuard } from "../billing/spend-cap.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { S3Error } from "./s3-error.js";
 import { requireKraterion, requireBucket } from "./request-context.js";
 
-@UseGuards(Sigv4Guard)
+@UseGuards(Sigv4Guard, SpendCapGuard, PoolCapacityGuard)
 @Controller()
 export class BucketsController {
   private readonly logger = new Logger(BucketsController.name);
@@ -42,6 +45,7 @@ export class BucketsController {
    */
   @Get()
   @Header("Content-Type", "application/xml")
+  @MeterClassA()
   async listBuckets(@Req() req: FastifyRequest): Promise<string> {
     const ctx = requireKraterion(req);
     if (ctx.bucket) {
@@ -73,6 +77,7 @@ export class BucketsController {
    */
   @Head(":bucket")
   @HttpCode(200)
+  @MeterClassB()
   async headBucket(@Req() req: FastifyRequest): Promise<void> {
     const ctx = requireKraterion(req);
     const name = requireBucket(ctx);
@@ -96,6 +101,7 @@ export class BucketsController {
    * `scripts/bootstrap-gateway.ts`.
    */
   @Put(":bucket")
+  @MeterClassNone()
   createBucket(): never {
     throw new S3Error(
       "NotImplemented",
@@ -115,6 +121,7 @@ export class BucketsController {
    */
   @Delete(":bucket")
   @HttpCode(204)
+  @MeterClassA()
   async deleteBucket(@Req() req: FastifyRequest): Promise<void> {
     const ctx = requireKraterion(req);
     const name = requireBucket(ctx);

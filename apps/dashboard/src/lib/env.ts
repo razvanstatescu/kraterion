@@ -40,4 +40,10 @@ export const env = {
    */
   getEnokiPublicKey: () => required("NEXT_PUBLIC_ENOKI_PUBLIC_KEY"),
   getGoogleClientId: () => required("NEXT_PUBLIC_GOOGLE_CLIENT_ID"),
+  /**
+   * Stripe publishable key for inline `<PaymentElement />` on the
+   * billing page. Read lazily — pre-B5 pages don't depend on Stripe
+   * and shouldn't break if the key is missing.
+   */
+  getStripePublishableKey: () => required("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"),
 } as const;

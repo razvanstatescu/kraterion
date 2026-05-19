@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { BillingBanner } from "@/components/billing/BillingBanner";
 import { CancelledBanner } from "@/components/shell/CancelledBanner";
 import { Shell } from "@/components/shell/Shell";
 import { SidebarLive } from "@/components/shell/SidebarLive";
@@ -15,6 +16,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <RequireAuth>
       <Shell sidebar={<SidebarLive />}>
         <CancelledBanner />
+        <BillingBanner />
         {children}
       </Shell>
       {/*

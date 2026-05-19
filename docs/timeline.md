@@ -27,12 +27,16 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
 
 ## Status
 
-- **Current week:** W5 (Dashboard) calendar-wise; functionally past W6.
-  Storage path, read path & access, renewal worker, dashboard, and the
-  full AI-platform foundation (K0–K5 + P0 of the AI platform proposal)
-  have all landed. Running ~3 weeks ahead of plan.
-- **Days to submission:** 39
-- **Last reviewed:** 2026-05-13
+- **Current week:** W2 (May 14–20) calendar-wise. Storage-pool migration
+  complete; the Stripe pay-as-you-go billing system (B0–B5 of the
+  sandbox-only plan) ships fully wired with inline Stripe Elements card
+  collection on `/billing`, hourly meter rollups, scheduled
+  storage-downgrade processor, and the `BillingBanner` priority logic
+  across the (app) shell. Read paths, dashboard, AI platform, K5 manifest
+  archive, P3 agents, P4 tools, P6 embed widget all in. Running well
+  ahead of the original calendar phasing.
+- **Days to submission:** 33
+- **Last reviewed:** 2026-05-19
 - **Status (complete):**
   - **On-chain:** Move package `0x73b1…fa14`, init-spawned reserve, TS
     bindings auto-synced.
@@ -53,19 +57,44 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
     (enable modal with model pickers + cost estimate, separate
     "change embedding model" and "change chat model" actions, re-index
     flow), MCP connect panel (API key + OAuth), Activity feed.
+  - **Billing (B0–B5):** Stripe sandbox-mode plan implemented through
+    B5. New tables (`BillingAccount`, `MeterEvent`, `UsageDaily`,
+    `BYOKDailySpend`, `PendingStorageDowngrade`, `StripeWebhookEvent`,
+    `CostFloorSnapshot`). Catalog-as-code with `pnpm stripe:sync`
+    (1 licensed storage product + 6 metered products). Inline Stripe
+    Elements card collection on `/billing` (Vercel/Supabase shape, no
+    redirect). Storage as monthly licensed reservation with on-chain
+    `pool_vault::resize_grow` for upgrades + scheduled
+    `resize_shrink` at period boundary for downgrades. Hourly meter
+    rollups (gateway requests, knowledge byte-seconds, storage
+    snapshot for display). 60-s `kraterion-meter-emit` drain pushing
+    `MeterEvent` rows to Stripe `/v1/billing/meter_events`.
+    `BillingBanner` priority logic mounted across (app) layout.
+    Customer Portal kept for deep-link extras (invoice PDFs, tax
+    info). Spend-cap + free-band **enforcement** is the B6 followup.
   - **Tests / typecheck:** 33/33 Vitest in control-plane, 36/36 boto3
     in gateway, all workspace `tsc --noEmit` clean.
-- **Next (locked for submission):** P4 (Function calling) → P6
-  (widget, stretch). **P3 (Agents) landed 2026-05-13** including the
-  full `/ask` → `/v1/agents/:id/chat/completions` migration, MCP
-  `kraterion_invoke_agent`, and the per-bucket chat-model deprecation;
-  scope decision in `decisions.md` 2026-05-13 ("P3 ships…"). **P1
-  (multi-provider), P2 (reranker), and P5 (guardrails) all deferred
-  past Jun 21**, along with three small P0 deviations (1536d/3072d
+- **Next (locked for submission):**
+  - **B6** — spend-cap + free-band + pool-capacity enforcement at the
+    gateway interceptor and agent controller (507 / 429 / 402 with
+    `X-Kraterion-Reason` headers). Scaffolds are in place from B1;
+    B6 wires the live entitlements Redis cache and the actual gating.
+  - **B7** — admin pages (`/admin/billing` list + detail,
+    `/admin/cost-floor` graph, sandbox-reset button).
+  - **B8** — onboarding flow + `RequiresPaymentMethodGuard` on
+    bucket-create / agent-create / knowledge-enable + server-side
+    remove-payment-method guard while unbilled usage exists.
+  - **Demo-prep** — demo video, README rewrite, deployed demo,
+    submission form. Carries the existing "running ahead of
+    calendar" buffer; submission gate stays Jun 21.
+
+  **Deferred past Jun 21:** P1 (multi-provider), P2 (reranker),
+  P5 (guardrails), plus three small P0 deviations (1536d/3072d
   embeddings, transactional swap re-index, separate "Test connection"
   button). P2 research preserved in `docs/p2-reranker-research.md`.
-  From W6 onward focus shifts to demo-prep — demo video, README
-  rewrite, deployed demo, submission form.
+  Live-mode Stripe promotion (test → live env-var flip) deferred to
+  post-submission — not a hackathon-judge concern, single env flag
+  away.
 
 ## Cadence
 

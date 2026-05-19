@@ -23,7 +23,7 @@ import {
   getSuiClient,
 } from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { OperatorKeypairService } from "./operator-keypair.service.js";
+import { OperatorKeypairService } from "../sui/operator-keypair.service.js";
 
 @Injectable()
 export class AdminService {

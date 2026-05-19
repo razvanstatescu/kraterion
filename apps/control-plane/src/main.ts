@@ -24,6 +24,12 @@ async function bootstrap() {
       bodyLimit: 1 * 1024 * 1024,
       trustProxy: process.env["TRUST_PROXY"] === "true",
     }),
+    {
+      // Capture the raw body on every request so the Stripe webhook
+      // controller can verify the signature against the exact bytes
+      // Stripe sent. Nest exposes them as `req.rawBody: Buffer`.
+      rawBody: true,
+    },
   );
 
   app.enableShutdownHooks();

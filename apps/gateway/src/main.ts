@@ -5,6 +5,7 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module.js";
+import { UsageInterceptor } from "./billing/usage.interceptor.js";
 import { S3ExceptionFilter } from "./s3/s3-error.filter.js";
 
 // 2 GiB hard ceiling on body size. AES-GCM auth-tag-at-end means we
@@ -80,6 +81,14 @@ async function bootstrap() {
   // `S3Error`, plain `HttpException`, and unhandled exceptions) into
   // the canonical AWS error response shape boto3 expects.
   app.useGlobalFilters(new S3ExceptionFilter());
+
+  // Billing wire-up (B1 scaffold). The interceptor records every
+  // SigV4-authenticated S3 call into `UsageEvent` + Redis day-counters.
+  // The two guards (`SpendCapGuard`, `PoolCapacityGuard`) are attached
+  // controller-level alongside `Sigv4Guard` so they run AFTER auth
+  // populates `req.kraterion`. Resolve from the Nest DI container so
+  // the interceptor picks up Prisma + Redis without manual wiring.
+  app.useGlobalInterceptors(app.get(UsageInterceptor));
 
   const port = Number(process.env["PORT"] ?? 4002);
   await app.listen(port, "0.0.0.0");

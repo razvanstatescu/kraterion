@@ -48,6 +48,9 @@ import { Controller, Get, Head, Logger, Req, Res, UseGuards } from "@nestjs/comm
 import { randomUUID } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
+import { MeterClassB } from "../billing/meter-class.decorator.js";
+import { PoolCapacityGuard } from "../billing/pool-capacity.guard.js";
+import { SpendCapGuard } from "../billing/spend-cap.guard.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ObjectBytesService, OBJECT_SELECT, type ObjectRow } from "./object-bytes.service.js";
 import { S3Error } from "./s3-error.js";
@@ -64,7 +67,7 @@ const BUCKET_SELECT = {
 
 type BucketRow = Prisma.BucketGetPayload<{ select: typeof BUCKET_SELECT }>;
 
-@UseGuards(Sigv4Guard)
+@UseGuards(Sigv4Guard, SpendCapGuard, PoolCapacityGuard)
 @Controller()
 export class ObjectsReadController {
   private readonly logger = new Logger(ObjectsReadController.name);
@@ -75,6 +78,7 @@ export class ObjectsReadController {
   ) {}
 
   @Get(":bucket/*")
+  @MeterClassB()
   async getObject(
     @Req() req: FastifyRequest,
     @Res({ passthrough: false }) reply: FastifyReply,
@@ -89,6 +93,7 @@ export class ObjectsReadController {
   }
 
   @Head(":bucket/*")
+  @MeterClassB()
   async headObject(
     @Req() req: FastifyRequest,
     @Res({ passthrough: false }) reply: FastifyReply,

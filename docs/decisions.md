@@ -3401,3 +3401,156 @@ calibration), use the published-at directly.
   (deployer-owned, 2 MiB encoded capacity, 3 epochs ahead). Orphan — no
   way to call the package-internal `destroy` from outside. Expires
   naturally; cost is a rounding error.
+
+---
+
+## 2026-05-19 — Storage billed as a monthly reservation, not as metered usage
+
+**Status:** Accepted (implemented in B2 / B3 of the billing plan).
+
+**Context:** Storage is the one cost line where what we pay Walrus and what
+we'd bill the customer come from different denominators — Walrus charges by
+`reserved_encoded_bytes` of the pool, the customer would naturally be metered
+on `S3Object.size_bytes`. Under the SharedBlob model that gap was hidden
+(every blob had its own storage epoch); under the pool model the gap is
+literal — a 100 GB pool with 5 GB of objects costs us 100 GB-worth of WAL.
+
+**Decision:** Mirror the provisioning model in the billing model. Storage is
+a **licensed (flat) subscription item** with `quantity = reserved_gb` and a
+unit price of $0.06/GB-mo (first 10 GB free via a graduated zero-amount
+tier-1). Customer picks a pool size, pays for that size monthly, capacity is
+theirs whether they fill it or not. Walrus and Stripe see the same number;
+the margin gap is zero.
+
+Everything else — gateway requests, egress, knowledge-index byte-seconds,
+agent messages — stays metered with graduated pricing + free bands.
+Share-token egress is tracked separately for abuse but priced the same as
+gateway egress.
+
+**Consequences:**
+
+- Resize is the new billing primitive. Upgrade applies immediately via
+  `subscriptionItems.update(quantity=new, proration_behavior='create_prorations')`
+  plus an on-chain `pool_vault::resize_grow` PTB; downgrades schedule for
+  next billing period via a `PendingStorageDowngrade` row applied by a
+  5-min processor at the boundary.
+- Removes `S3Object.billed_size_bytes`, `StorageBillingTail`, 1-MiB minimum,
+  90-day minimum from the plan — all artefacts of the SharedBlob margin gap
+  that don't exist under pools.
+- Spend cap exempts storage. Hard cap exceeded → metered writes pause; the
+  storage subscription line continues to invoice. Storage cost is bounded
+  and predictable; the cap is for runaway metered growth.
+- Customer Portal shows the storage line as "10 × $0.06 = $0.60/mo" in
+  natural Stripe shape; no custom billing UI needed for the math.
+
+---
+
+## 2026-05-19 — Inline Stripe Elements, not hosted Checkout
+
+**Status:** Accepted (implemented in B5).
+
+**Context:** Stripe gives us three card-collection shapes: hosted Checkout
+(redirect to stripe.com/c/...), embedded Checkout (their iframe on our page,
+but still their UI), or inline Elements (their iframe but our wrapping UI).
+B2 shipped hosted Checkout in setup mode. User's product instinct was
+"Vercel and Supabase let me add a card directly in /settings; this flow
+should match."
+
+**Decision:** Inline `<PaymentElement />` mounted inside our
+`PaymentMethodCard`. Server mints a SetupIntent
+(`POST /v1/billing/setup-intent`), dashboard calls
+`stripe.confirmSetup({ redirect: 'if_required' })` — non-3DS cards stay on
+`/billing`, SCA-required cards redirect to the bank and back. The
+`setup_intent.succeeded` webhook does the rest (default-PM promotion +
+`ensureSubscription`), mirroring the existing `checkout.session.completed`
+handler.
+
+Hosted Checkout is kept as a fallback for non-JS clients + scripts but the
+dashboard never redirects.
+
+**Why this matters:**
+
+- Visual continuity. The user never leaves the brand. Two iframes
+  (`PaymentElement` for entry, brand+last4 view for state) live in the
+  same card slot.
+- One subscription-creation code path. Both `checkout.session.completed`
+  and `setup_intent.succeeded` call `ensureSubscription(...)` which is
+  idempotent (re-runs return the existing sub). No divergence.
+- Customer Portal stays in scope but only for **deep-link extras**:
+  invoice PDFs, tax info, payment-method swap. Common actions (add card,
+  see current period, edit spend cap, view recent invoices) are native.
+
+**Consequences:**
+
+- New deps in `apps/dashboard`: `@stripe/stripe-js`, `@stripe/react-stripe-js`.
+  Both pinned at the latest `minimumReleaseAge: 1440`-compliant version.
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is now required for `/billing` to
+  render. Lazy accessor `env.getStripePublishableKey()` keeps pre-B5 routes
+  working without it.
+- The `setup_intent.succeeded` webhook MUST be subscribed in Stripe (or
+  forwarded via `stripe listen` in dev) — the previous Checkout-only
+  subscription set is no longer sufficient.
+- The Stripe Elements theme object is tinted to our design tokens (Krater
+  primary, stone borders, no shadows). Stripe's appearance surface is small
+  but enough to avoid the iframe screaming "third-party widget."
+
+---
+
+## 2026-05-19 — `setup_intent.succeeded` and `checkout.session.completed` share the same handler shape
+
+**Status:** Accepted.
+
+**Context:** With both flows live (Checkout retained as fallback, Elements
+as primary), there are two webhooks that mean "card attached, time to set
+up subscription." Naive split would have two slightly-different handlers
+that drift over time.
+
+**Decision:** Both webhook branches do the same five things in the same
+order: resolve project from event metadata, read the attached PM id off the
+SetupIntent, call `setDefaultPaymentMethod`, call `ensureSubscription`
+(idempotent), patch `BillingAccount.{has_payment_method, default_payment_method,
+status='active'}`. Each branch is ~30 lines, both delegate to the same
+service methods.
+
+**Consequences:**
+
+- A regression in one branch is unlikely without breaking the other in the
+  same way — they share the underlying helpers.
+- Idempotency is at the service layer (`ensureSubscription` returns existing
+  sub if any; `setDefaultPaymentMethod` is a Customer update which is
+  inherently idempotent) so Stripe webhook replays are safe regardless of
+  which event triggered.
+- Tradeoff considered: a single shared private helper that both branches
+  delegate to. Skipped because the input shapes (`Checkout.Session` vs
+  `SetupIntent`) differ enough that a helper would just be a thin wrapper
+  over five lines. Kept the two branches as siblings for readability.
+
+---
+
+## 2026-05-19 — Single billing banner with priority logic, not a stack
+
+**Status:** Accepted.
+
+**Context:** Five orthogonal banner conditions (no payment method, past_due,
+cancelled, cap exceeded, cap-warning). Three of them are mutually exclusive
+(past_due, cancelled, active+cap-warn). A naive impl would mount all five
+and let each gate itself; result is a 30-vh stack of red+amber boxes during
+a billing incident.
+
+**Decision:** `BillingBanner` is a single component that picks **exactly
+one** state to render, in priority order: no-PM → past_due → cancelled →
+cap-exceeded → cap-80%-warn → nothing. Dismiss flags live in
+`sessionStorage` keyed per banner id, so dismissing a warning doesn't hide
+the next-tier banner (a user who dismisses 80% can still see cap-exceeded
+fire later).
+
+**Consequences:**
+
+- One banner slot at the top of `(app)/layout.tsx`. Never more.
+- Dismiss returns at the start of every browser session, so unresolved
+  issues re-surface. Persistent banners (no-PM, cap-exceeded) ignore the
+  dismiss flag entirely.
+- New banner conditions land as priority slots, not as new components.
+- Tradeoff considered: stacking with a 1-banner-visible-at-a-time `<Drawer>`.
+  Rejected — banners need to be visible without interaction. Priority
+  picking is simpler.
