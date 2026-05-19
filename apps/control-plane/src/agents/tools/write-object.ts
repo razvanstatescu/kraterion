@@ -107,8 +107,8 @@ export const writeObjectTool: ToolDef<typeof schema> = {
       },
       ...(receipt?.tx_digest ? { txDigest: receipt.tx_digest } : {}),
       ...(receipt?.walrus_blob_id ? { walrusBlobId: receipt.walrus_blob_id } : {}),
-      ...(receipt?.shared_blob_object_id
-        ? { sharedBlobObjectId: receipt.shared_blob_object_id }
+      ...(receipt?.pooled_blob_object_id
+        ? { pooledBlobObjectId: receipt.pooled_blob_object_id }
         : {}),
     };
   },
@@ -117,7 +117,7 @@ export const writeObjectTool: ToolDef<typeof schema> = {
 interface Receipt {
   tx_digest: string;
   walrus_blob_id: string | null;
-  shared_blob_object_id: string | null;
+  pooled_blob_object_id: string | null;
 }
 
 async function awaitOnChainReceipt(
@@ -137,7 +137,7 @@ async function awaitOnChainReceipt(
       select: {
         tx_digest: true,
         walrus_blob_id: true,
-        shared_blob_object_id: true,
+        pooled_blob: { select: { pooled_blob_object_id: true } },
       },
     });
     if (row?.tx_digest) {
@@ -150,7 +150,7 @@ async function awaitOnChainReceipt(
       return {
         tx_digest: row.tx_digest.toString("utf8"),
         walrus_blob_id: row.walrus_blob_id ?? null,
-        shared_blob_object_id: row.shared_blob_object_id ?? null,
+        pooled_blob_object_id: row.pooled_blob?.pooled_blob_object_id ?? null,
       };
     }
     await sleep(250);

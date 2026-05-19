@@ -224,7 +224,7 @@ export interface AgentToolCallJson {
   output_json: unknown;
   tx_digest: string | null;
   walrus_blob_id: string | null;
-  shared_blob_object_id: string | null;
+  pooled_blob_object_id: string | null;
   error_detail: string | null;
   latency_ms: number | null;
 }
@@ -274,7 +274,7 @@ export interface AgentCitationJson {
   ordinal: number;
   bucket_id: string;
   source_walrus_blob_id: string;
-  source_shared_blob_object_id: string;
+  source_pooled_blob_object_id: string | null;
   manifest_walrus_blob_id: string | null;
   /** True when the assistant text actually referenced this chunk. */
   cited: boolean;
@@ -324,14 +324,24 @@ export interface S3ObjectJson {
   content_type: string | null;
   etag: string;
   walrus_blob_id: string;
-  shared_blob_object_id: string;
-  storage_end_epoch: number;
+  /**
+   * Sui object ID of the `walrus::storage_pool::PooledBlob` row inside
+   * the project's pool. Nullable during the register → certify window.
+   * Replaces the SharedBlob-era `shared_blob_object_id` (see
+   * /docs/storage-pool-migration.md).
+   */
+  pooled_blob_object_id: string | null;
+  /** Encoded byte size (post-RS expansion), rounded up to whole MiB. */
+  encoded_size_bytes: string;
   seal_identity_b64: string;
   /** User-provided `x-amz-meta-*` headers captured at PUT time. Empty
    *  object → null on the wire to keep the shape minimal. */
   metadata: Record<string, string> | null;
   uploaded_at: string;
   deleted_at: string | null;
+  // NOTE: `storage_end_epoch` was per-blob under SharedBlob; under
+  // pools, lifetime is shared across the whole pool. Fetch from the
+  // pool-level endpoint when Phase I admin UI lands.
 }
 
 export type ActivityEventKind =

@@ -304,7 +304,7 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
 
       <OnchainDisclosure
         walrusBlobId={object.walrus_blob_id}
-        sharedBlobObjectId={object.shared_blob_object_id}
+        pooledBlobObjectId={object.pooled_blob_object_id}
         sealIdentityB64={object.seal_identity_b64}
         network={network}
       />
@@ -373,12 +373,12 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
  */
 function OnchainDisclosure({
   walrusBlobId,
-  sharedBlobObjectId,
+  pooledBlobObjectId,
   sealIdentityB64,
   network,
 }: {
   walrusBlobId: string;
-  sharedBlobObjectId: string;
+  pooledBlobObjectId: string | null;
   sealIdentityB64: string;
   network: "testnet" | "mainnet" | "devnet";
 }) {
@@ -404,11 +404,15 @@ function OnchainDisclosure({
             value={walrusBlobId}
             href={walruscanUrl(walrusBlobId)}
           />
-          <OnchainRef
-            label="Sui object"
-            value={sharedBlobObjectId}
-            href={suiscanObjectUrl(sharedBlobObjectId, network)}
-          />
+          {pooledBlobObjectId ? (
+            <OnchainRef
+              label="Sui object"
+              value={pooledBlobObjectId}
+              href={suiscanObjectUrl(pooledBlobObjectId, network)}
+            />
+          ) : (
+            <OnchainRef label="Sui object" value="(pending indexer)" />
+          )}
           <OnchainRef label="Seal identity" value={sealIdentityB64} />
           <p className="ks-inspector-onchain-caption">
             48-byte IBE identity Seal uses to gate decryption — bucket

@@ -8,11 +8,12 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "lint": "eslint \"{src,test}/**/*.ts\"",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "bootstrap": "tsx scripts/bootstrap-gateway.ts",
-    "smoke": "tsx scripts/smoke-encrypt-roundtrip.ts"
+    "smoke": "tsx scripts/smoke-pool-roundtrip.ts",
+    "smoke:baseline": "tsx scripts/walrus-pool-baseline.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

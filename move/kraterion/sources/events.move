@@ -20,48 +20,11 @@ public struct KraterionBucketCreated has copy, drop {
     encryption_mode: u8,
 }
 
-public struct KraterionObjectCreated has copy, drop {
-    bucket_id: ID,
-    walrus_blob_object_id: ID,
-    walrus_blob_id: u256,
-    s3_key: vector<u8>,
-    content_type: vector<u8>,
-    owner_address: address,
-    wrapped_by: address,
-    // 48-byte Seal IBE identity = bucket_object_id (32) || object_uuid (16).
-    // Gateway-minted at PutObject time; the indexer needs it to populate
-    // S3Object.seal_identity (which seal_approve checks at GET time).
-    // Cannot be derived from on-chain state; must come via the event.
-    seal_identity: vector<u8>,
-    // Plaintext byte count of the original object body. The gateway knows
-    // this at PutObject time; included here so the indexer can populate
-    // S3Object.size_bytes (S3 GET's Content-Length) without an extra
-    // chain query.
-    size_bytes: u64,
-    // Walrus storage end epoch (current_epoch + epochs_ahead). Gateway
-    // computes this from systemState before PutObject; included so the
-    // indexer's renewal worker can scan by storage_end_epoch without
-    // round-tripping through getObject(SharedBlob).
-    storage_end_epoch: u32,
-    // 16-byte raw MD5 of the PLAINTEXT body. This is the S3 spec's
-    // `ETag` value for non-multipart uploads — boto3 verifies it
-    // against client-side MD5 in `aws s3 sync` and friends. The
-    // gateway computes it pre-encryption; chain has no other way to
-    // derive plaintext-MD5 (the Walrus blob is the encrypted bytes).
-    etag_md5: vector<u8>,
-    // Note: `shared_blob_object_id` is intentionally omitted — walrus's
-    // `shared_blob::new` consumes the Blob and shares without returning
-    // the SharedBlob, so we cannot read its ID inside this Move
-    // function. The indexer recovers it from `tx.effects.changed_objects`
-    // in the same checkpoint payload (one created object of type
-    // `walrus::shared_blob::SharedBlob` per emit).
-}
-
-public struct KraterionObjectExtended has copy, drop {
-    shared_blob_id: ID,
-    epochs_added: u32,
-    funder: address,
-}
+// `KraterionObjectCreated` and `KraterionObjectExtended` (the SharedBlob-
+// era events) were removed at the storage-pool migration. The pool path
+// emits `KraterionPooledBlobRegistered` / `KraterionPooledBlobCertified`
+// / `KraterionPooledBlobDeleted` / `KraterionPoolExtended` instead — see
+// the "Pool vault events" section below.
 
 public struct ApiAccessGranted has copy, drop {
     bucket_id: ID,
@@ -110,6 +73,93 @@ public struct ReserveWithdrawn has copy, drop {
     amount: u64,
 }
 
+// === Pool vault events (Phase C — storage pool migration) ===
+//
+// `KraterionVaultCreated` mirrors `KraterionBucketCreated`: tells the indexer
+// "a new platform-managed storage pool exists, tied to this project".
+//
+// `KraterionPooledBlobRegistered` and `KraterionPooledBlobCertified` carry the
+// same plaintext-side metadata `KraterionObjectCreated` did under the
+// SharedBlob model (s3_key, content_type, seal_identity, size_bytes,
+// etag_md5) so the indexer doesn't have to subscribe to Walrus's own
+// events. `pooled_blob_object_id` is included so the gateway and indexer
+// can address the blob without an extra `pool::blob_object_id` RPC.
+//
+// `KraterionPooledBlobDeleted` is emitted for both explicit S3 DELETE and
+// for overwrite-DELETE (the second leg of an overwriting PUT).
+//
+// `KraterionPoolExtended` / `KraterionPoolResizedGrow` track lifecycle ops
+// so the indexer's `StoragePool` row stays in sync with on-chain state.
+// We do NOT emit a `Resized_shrink` event — the v1 admin endpoint can read
+// the new `reserved_encoded_bytes` directly from the pool object after
+// the shrink tx settles.
+
+public struct KraterionVaultCreated has copy, drop {
+    vault_id: ID,
+    pool_id: ID,
+    created_by: address,
+    /// Off-chain Postgres `Project.id` UUID (typically 16 bytes). Indexer
+    /// uses this to associate the on-chain vault with its project row.
+    project_id: vector<u8>,
+    reserved_encoded_capacity_bytes: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+}
+
+public struct KraterionVaultRevoked has copy, drop {
+    vault_id: ID,
+    revoked_by: address,
+}
+
+public struct KraterionPooledBlobRegistered has copy, drop {
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    s3_key: vector<u8>,
+    content_type: vector<u8>,
+    /// The user who owns the project (vault.created_by) — recorded so
+    /// downstream tooling doesn't have to dereference the vault.
+    owner_address: address,
+    /// The address that signed the registration tx (gateway operator).
+    registered_by: address,
+    /// 48-byte Seal IBE identity. Same format as the SharedBlob-era event
+    /// (`bucket_uid (32) || object_uuid (16)`); pool membership is
+    /// orthogonal to encryption identity.
+    seal_identity: vector<u8>,
+    /// Plaintext size — what S3 GET reports as Content-Length.
+    size_bytes: u64,
+    /// 16-byte raw MD5 of plaintext. S3 ETag for non-multipart uploads.
+    etag_md5: vector<u8>,
+}
+
+public struct KraterionPooledBlobCertified has copy, drop {
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    certified_by: address,
+}
+
+public struct KraterionPooledBlobDeleted has copy, drop {
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    deleted_by: address,
+}
+
+public struct KraterionPoolExtended has copy, drop {
+    vault_id: ID,
+    extended_epochs: u32,
+    new_end_epoch: u32,
+    extended_by: address,
+}
+
+public struct KraterionPoolResizedGrow has copy, drop {
+    vault_id: ID,
+    additional_encoded_capacity_bytes: u64,
+    new_reserved_encoded_capacity_bytes: u64,
+    resized_by: address,
+}
+
 public(package) fun emit_bucket_created(
     bucket_id: ID,
     owner: address,
@@ -119,41 +169,10 @@ public(package) fun emit_bucket_created(
     event::emit(KraterionBucketCreated { bucket_id, owner, name, encryption_mode });
 }
 
-public(package) fun emit_object_created(
-    bucket_id: ID,
-    walrus_blob_object_id: ID,
-    walrus_blob_id: u256,
-    s3_key: vector<u8>,
-    content_type: vector<u8>,
-    owner_address: address,
-    wrapped_by: address,
-    seal_identity: vector<u8>,
-    size_bytes: u64,
-    storage_end_epoch: u32,
-    etag_md5: vector<u8>,
-) {
-    event::emit(KraterionObjectCreated {
-        bucket_id,
-        walrus_blob_object_id,
-        walrus_blob_id,
-        s3_key,
-        content_type,
-        owner_address,
-        wrapped_by,
-        seal_identity,
-        size_bytes,
-        storage_end_epoch,
-        etag_md5,
-    });
-}
-
-public(package) fun emit_object_extended(
-    shared_blob_id: ID,
-    epochs_added: u32,
-    funder: address,
-) {
-    event::emit(KraterionObjectExtended { shared_blob_id, epochs_added, funder });
-}
+// `emit_object_created` and `emit_object_extended` removed at the
+// storage-pool migration. Use `emit_pooled_blob_registered` /
+// `emit_pooled_blob_certified` / `emit_pooled_blob_deleted` /
+// `emit_pool_extended` (defined further down) instead.
 
 public(package) fun emit_api_access_granted(
     bucket_id: ID,
@@ -207,4 +226,112 @@ public(package) fun emit_reserve_withdrawn(
     amount: u64,
 ) {
     event::emit(ReserveWithdrawn { reserve_id, admin, recipient, amount });
+}
+
+// === Pool vault emit helpers ===
+
+public(package) fun emit_vault_created(
+    vault_id: ID,
+    pool_id: ID,
+    created_by: address,
+    project_id: vector<u8>,
+    reserved_encoded_capacity_bytes: u64,
+    start_epoch: u32,
+    end_epoch: u32,
+) {
+    event::emit(KraterionVaultCreated {
+        vault_id,
+        pool_id,
+        created_by,
+        project_id,
+        reserved_encoded_capacity_bytes,
+        start_epoch,
+        end_epoch,
+    });
+}
+
+public(package) fun emit_vault_revoked(vault_id: ID, revoked_by: address) {
+    event::emit(KraterionVaultRevoked { vault_id, revoked_by });
+}
+
+public(package) fun emit_pooled_blob_registered(
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    s3_key: vector<u8>,
+    content_type: vector<u8>,
+    owner_address: address,
+    registered_by: address,
+    seal_identity: vector<u8>,
+    size_bytes: u64,
+    etag_md5: vector<u8>,
+) {
+    event::emit(KraterionPooledBlobRegistered {
+        vault_id,
+        pooled_blob_object_id,
+        walrus_blob_id,
+        s3_key,
+        content_type,
+        owner_address,
+        registered_by,
+        seal_identity,
+        size_bytes,
+        etag_md5,
+    });
+}
+
+public(package) fun emit_pooled_blob_certified(
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    certified_by: address,
+) {
+    event::emit(KraterionPooledBlobCertified {
+        vault_id,
+        pooled_blob_object_id,
+        walrus_blob_id,
+        certified_by,
+    });
+}
+
+public(package) fun emit_pooled_blob_deleted(
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    deleted_by: address,
+) {
+    event::emit(KraterionPooledBlobDeleted {
+        vault_id,
+        pooled_blob_object_id,
+        walrus_blob_id,
+        deleted_by,
+    });
+}
+
+public(package) fun emit_pool_extended(
+    vault_id: ID,
+    extended_epochs: u32,
+    new_end_epoch: u32,
+    extended_by: address,
+) {
+    event::emit(KraterionPoolExtended {
+        vault_id,
+        extended_epochs,
+        new_end_epoch,
+        extended_by,
+    });
+}
+
+public(package) fun emit_pool_resized_grow(
+    vault_id: ID,
+    additional_encoded_capacity_bytes: u64,
+    new_reserved_encoded_capacity_bytes: u64,
+    resized_by: address,
+) {
+    event::emit(KraterionPoolResizedGrow {
+        vault_id,
+        additional_encoded_capacity_bytes,
+        new_reserved_encoded_capacity_bytes,
+        resized_by,
+    });
 }

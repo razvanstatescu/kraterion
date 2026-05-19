@@ -50,6 +50,10 @@ model Project {
   api_keys             ApiKey[]
   provider_credentials ProviderCredential[]
   agents               KraterionAgent[]
+  /// Lazy 1:1 — set the first time the project does a PUT. The vault is
+  /// created on-chain by the gateway (whitelisted on the reserve);
+  /// indexer writes this row from `KraterionVaultCreated`.
+  storage_pool         StoragePool?
 
   @@index([account_id])
 }
@@ -76,7 +80,7 @@ model ApiKey {
   // sha256(token) — O(1) lookup at auth time. Hash-only storage means a
   // DB compromise cannot reveal the actual tokens; the cleartext is
   // returned exactly once at mint time and thrown away.
-  token_hash   String? @unique
+  token_hash   String?  @unique
   // Cosmetic preview shown in the dashboard ("kr_test_aB3…X9Z"). Safe
   // to display; not enough to authenticate.
   token_prefix String?
@@ -171,13 +175,19 @@ model S3Object {
   // MD5 hex of plaintext bytes (S3 API contract — clients verify this).
   etag         String
 
-  // === Walrus / Sui binding ===
+  // === Walrus / Sui binding (pool model — see /docs/storage-pool-migration.md) ===
   // u256 in URL-safe base64. Walrus's content-addressed blob identifier.
-  walrus_blob_id        String
-  // Sui object ID of the wrapping SharedBlob (derived by the indexer from
-  // the publish-time tx's created-objects list — see decisions.md).
-  shared_blob_object_id String @unique
-  storage_end_epoch     Int
+  walrus_blob_id     String
+  // Sui object ID of the `walrus::storage_pool::PooledBlob` row inside the
+  // project's pool's ObjectTable. Recovered by the gateway from the
+  // `KraterionPooledBlobRegistered` event we emit in `pool_vault::register_blob`.
+  // Nullable only during the brief register → indexer-ack window; populated by
+  // the indexer's `pooled-blob-registered` handler.
+  pooled_blob_id     String? @unique
+  // Encoded byte size (post-RS expansion), rounded up to whole MiB for
+  // pool accounting. Used to verify the off-chain `PooledBlob` rows sum
+  // to on-chain `StoragePool.used_encoded_bytes`. Set at insert.
+  encoded_size_bytes BigInt  @default(0)
 
   // === Encryption ===
   // Every file is Seal-encrypted at the gateway, regardless of the bucket's
@@ -186,17 +196,15 @@ model S3Object {
   // Identity bytes used at IBE encryption time:
   //   [bucket_uid (32) || object_uuid (16)] = 48 bytes.
   // The Seal SDK prepends the package-id prefix; we don't store it.
-  // Note: there is no separate `encryption_envelope` column — Seal's
-  // `client.encrypt(...)` embeds the BCS-encoded envelope (recipient-set,
-  // ciphertext, AES-GCM tag) into the bytes we push to Walrus. The full
-  // ciphertext is content-addressed by `walrus_blob_id` and recovered at
-  // GET time by reading from the aggregator and calling `client.decrypt`.
+  // Pool membership is orthogonal to encryption identity — same format
+  // as the SharedBlob era.
   seal_identity Bytes
 
   // === Indexer provenance ===
   // Same shape as `Bucket.tx_digest/event_seq/event_payload`. Populated
-  // by `ObjectCreatedHandler` at `KraterionObjectCreated`; nullable
-  // until Phase 2 removes the gateway-direct upsert.
+  // by `pooled-blob-registered` handler at `KraterionPooledBlobRegistered`.
+  // Nullable until the indexer settles the event-derived row (gateway
+  // upserts a placeholder during PUT).
   tx_digest     Bytes?
   event_seq     Int?
   event_payload Json?
@@ -205,11 +213,6 @@ model S3Object {
   // S3 `x-amz-meta-*` user-provided headers, captured at PUT time as a
   // flat string→string map. AWS caps the total serialized form at 2 KiB;
   // we enforce the same limit at the gateway boundary.
-  //
-  // Writer: the gateway PUT handler, *after* the indexer settles the
-  // event-derived row. This is the one column on `S3Object` that doesn't
-  // flow from a Move event — the on-chain `KraterionObjectCreated` event
-  // doesn't carry metadata because it isn't consensus-critical.
   metadata Json?
 
   // === Bookkeeping ===
@@ -217,7 +220,7 @@ model S3Object {
   deleted_at  DateTime?
 
   bucket              Bucket              @relation(fields: [bucket_id], references: [id])
-  extensions          S3ObjectExtension[]
+  pooled_blob         PooledBlob?         @relation(fields: [pooled_blob_id], references: [id])
   knowledge_manifests KnowledgeManifest[]
   knowledge_chunks    KnowledgeChunk[]
 
@@ -226,9 +229,6 @@ model S3Object {
   @@unique([bucket_id, s3_key])
   @@unique([tx_digest, event_seq], map: "S3Object_indexer_event_key")
   @@index([bucket_id, s3_key])
-  // Renewal worker scans by storage_end_epoch.
-  @@index([storage_end_epoch])
-  @@index([shared_blob_object_id])
 }
 
 // === Operational tables ===
@@ -252,11 +252,21 @@ model SubWallet {
   sui_address      String  @unique
   // KMS-wrapped Ed25519 seed/mnemonic. Never persisted in plaintext.
   mnemonic_wrapped Bytes
-  // "publisher" | "renewal" | "api_decryption" | "knowledge_indexer" | "agent"
+  // Per-account roles (account_id set):
+  //   "api_decryption"     — Seal decryption key per account
+  //   "knowledge_indexer"  — embeddings worker, per account
+  //   "agent"              — one wallet per agent (linked via KraterionAgent.sub_wallet_id)
+  // Global platform roles (account_id null, one wallet per role for the
+  // whole platform):
+  //   "pool_operator"      — signs all `pool_vault::*` PTBs; on reserve whitelist
+  //   "pool_treasury"      — admin on the reserve; signs deposits/rotations
+  // Legacy roles removed at the storage_pool cutover:
+  //   "publisher"  → folded into pool_operator
+  //   "renewal"    → folded into pool_operator (no separate renewal wallet in v1)
   role             String
-  // Set for "api_decryption" role (one wallet per account). Null for
-  // shared-pool roles (publisher, renewal) and for the agent role
-  // (one wallet per agent, linked via KraterionAgent.sub_wallet_id).
+  // Set for per-account roles. Null for global platform roles
+  // (pool_operator, pool_treasury) and for the agent role (one wallet
+  // per agent, linked via KraterionAgent.sub_wallet_id).
   account_id       String? @unique
 
   // Last-known balances, refreshed by the health-check worker. Used to
@@ -301,25 +311,119 @@ model FolderMarker {
   @@index([bucket_id])
 }
 
-// Log table for idempotent application of `KraterionObjectExtended`
-// events. The handler increments `S3Object.storage_end_epoch` by
-// `epochs_added`, which is NOT naturally idempotent — replaying the
-// event would double-add. The handler inserts a row here with
-// `(tx_digest, event_seq) UNIQUE`; if the insert conflicts, the
-// extension was already applied and the update is skipped.
-model S3ObjectExtension {
-  id           String   @id @default(uuid())
-  s3_object_id String
-  tx_digest    Bytes
-  event_seq    Int
-  epochs_added Int
-  funder       String
-  applied_at   DateTime @default(now())
+// === Storage pool tables (Phase D — see /docs/storage-pool-migration.md) ===
 
-  s3_object S3Object @relation(fields: [s3_object_id], references: [id])
+/// One `StoragePool` per `Project`. Mirrors the on-chain
+/// `kraterion::pool_vault::KraterionPoolVault` (which itself wraps a
+/// `walrus::storage_pool::StoragePool` as a field). Rows are written by
+/// the indexer's `vault-created` handler on `KraterionVaultCreated`; the
+/// gateway reads them at PUT time to find the vault object ID for the
+/// register/certify PTBs.
+///
+/// Capacity columns (`reserved_encoded_bytes`, `used_encoded_bytes`,
+/// `blob_count`) are kept in sync by the indexer on every pool-touching
+/// event. They're the authoritative quick-read; for absolute truth,
+/// query the on-chain pool object directly.
+model StoragePool {
+  id                     String    @id @default(uuid())
+  project_id             String    @unique
+  /// `KraterionPoolVault` Sui ObjectID (shared object).
+  vault_object_id        String    @unique
+  /// `walrus::storage_pool::StoragePool` ObjectID (held as a field inside
+  /// the vault — never directly addressable but useful for debugging /
+  /// auditing on Suiscan).
+  pool_object_id         String    @unique
+  reserved_encoded_bytes BigInt
+  used_encoded_bytes     BigInt    @default(0)
+  blob_count             Int       @default(0)
+  start_epoch            Int
+  end_epoch              Int
+  /// User-side kill switch mirror. Flipped to true by the
+  /// `vault-revoked` handler on `KraterionVaultRevoked`. Gateway checks
+  /// this before attempting writes (cheap pre-flight; the on-chain
+  /// `assert!(vault.platform_authorized)` is the authoritative gate).
+  user_revoked           Boolean   @default(false)
+  /// active | expired | user_revoked
+  status                 String    @default("active")
+  /// Sui address of the user who owns the project this pool serves.
+  /// Mirror of on-chain `vault.created_by`. Set at insert from the
+  /// `KraterionVaultCreated` event; never updated thereafter.
+  created_by_address     String
+  created_at             DateTime  @default(now())
+  last_extended_at       DateTime?
+  last_resized_at        DateTime?
+  last_synced_at         DateTime  @default(now())
+  /// Indexer provenance for the `KraterionVaultCreated` event.
+  tx_digest              Bytes?
+  event_seq              Int?
+
+  project      Project                @relation(fields: [project_id], references: [id])
+  pooled_blobs PooledBlob[]
+  extensions   StoragePoolExtension[]
+
+  @@unique([tx_digest, event_seq], map: "StoragePool_indexer_event_key")
+  @@index([end_epoch])
+  @@index([status])
+}
+
+/// One row per PooledBlob inside a StoragePool. Mirrors
+/// `walrus::storage_pool::PooledBlob` (stored inside the pool's internal
+/// ObjectTable; never an owned object).
+///
+/// Inserted by the indexer's `pooled-blob-registered` handler on
+/// `KraterionPooledBlobRegistered`; `status` advances to `certified` on
+/// `KraterionPooledBlobCertified`, then `deleted` on
+/// `KraterionPooledBlobDeleted`. The gateway's `indexer-wait` polls for
+/// `status='certified'` to confirm the PUT can return 200.
+model PooledBlob {
+  id                    String    @id @default(uuid())
+  storage_pool_id       String
+  /// u256 in URL-safe base64. Walrus's content-addressed blob ID.
+  walrus_blob_id        String
+  /// Sui ObjectID of the on-chain PooledBlob row inside the pool's
+  /// ObjectTable. Recovered from the `KraterionPooledBlobRegistered`
+  /// event payload.
+  pooled_blob_object_id String    @unique
+  /// Encoded size in bytes (post-RS expansion). Used for pool accounting.
+  encoded_size_bytes    BigInt
+  registered_epoch      Int
+  certified_epoch       Int?
+  /// registered | certified | deleted
+  status                String    @default("registered")
+  registered_at         DateTime  @default(now())
+  certified_at          DateTime?
+  deleted_at            DateTime?
+
+  storage_pool StoragePool @relation(fields: [storage_pool_id], references: [id])
+  s3_object    S3Object?
+
+  @@index([storage_pool_id, status])
+  @@index([walrus_blob_id])
+}
+
+/// Audit log for pool lifecycle ops (`extend`, `resize_grow`, future
+/// `resize_shrink`). Mirrors the per-event idempotency pattern that
+/// `S3ObjectExtension` used in the SharedBlob era — handlers insert
+/// here with `(tx_digest, event_seq) UNIQUE` to dedupe on replay.
+model StoragePoolExtension {
+  id                  String   @id @default(uuid())
+  storage_pool_id     String
+  /// 'extend' | 'resize_grow' | 'resize_shrink'
+  kind                String
+  prev_end_epoch      Int?
+  new_end_epoch       Int?
+  prev_reserved_bytes BigInt?
+  new_reserved_bytes  BigInt?
+  /// WAL spent for this op (informational; ground truth is on-chain).
+  wal_cost_frost      BigInt   @default(0)
+  tx_digest           Bytes
+  event_seq           Int
+  occurred_at         DateTime @default(now())
+
+  storage_pool StoragePool @relation(fields: [storage_pool_id], references: [id])
 
   @@unique([tx_digest, event_seq])
-  @@index([s3_object_id])
+  @@index([storage_pool_id, occurred_at])
 }
 
 // === Knowledge layer (additive; opt-in per bucket) ===
@@ -365,10 +469,14 @@ model KnowledgeManifest {
   embedding_model                String?
   embedding_dimensions           Int?
   chunk_count                    Int       @default(0)
-  // Walrus blob id of the manifest archive (a SharedBlob owned by the
-  // user's on-chain bucket). Null until K5 lands.
+  // Walrus blob id of the manifest archive (a PooledBlob in the
+  // project's pool, owned via `pool_vault::register_blob`).
+  // Null until K5 archive completes.
   manifest_walrus_blob_id        String?
-  manifest_shared_blob_object_id String?
+  // Renamed from `manifest_shared_blob_object_id` at the storage-pool
+  // migration. Sui ObjectID of the on-chain `PooledBlob` carrying the
+  // manifest JSON. The dashboard surfaces this as a Sui-explorer link.
+  manifest_pooled_blob_object_id String?
   bytes_in                       BigInt    @default(0)
   bytes_indexed                  BigInt    @default(0)
   embedding_tokens               Int       @default(0)
@@ -671,8 +779,8 @@ model KraterionAgent {
   updated_at DateTime  @updatedAt
   revoked_at DateTime?
 
-  project      Project            @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  sub_wallet   SubWallet          @relation(fields: [sub_wallet_id], references: [id])
+  project      Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  sub_wallet   SubWallet         @relation(fields: [sub_wallet_id], references: [id])
   buckets      AgentBucket[]
   tools        AgentTool[]
   invocations  AgentInvocation[]
@@ -807,20 +915,21 @@ model AgentToolCall {
 
   // Raw arguments JSON emitted by the model — stored even if validation
   // fails so the dashboard can show what was attempted.
-  arguments String @db.Text
+  arguments   String  @db.Text
   // String form the model sees as the tool result. JSON-stringified
   // when the underlying handler returns structured data.
-  output    String? @db.Text
+  output      String? @db.Text
   // Structured metadata captured by the handler for the dashboard
-  // (walrus_blob_id, shared_blob_object_id, etag, etc.). Not fed back
+  // (walrus_blob_id, pooled_blob_object_id, etag, etc.). Not fed back
   // to the model.
   output_json Json?
 
   // On-chain receipt for tools that emit a Move tx. Populated by
-  // polling S3Object after writes settle.
+  // polling S3Object after writes settle. Renamed from
+  // `shared_blob_object_id` at the storage-pool migration cutover.
   tx_digest             String?
   walrus_blob_id        String?
-  shared_blob_object_id String?
+  pooled_blob_object_id String?
 
   latency_ms   Int?
   error_detail String?
@@ -854,18 +963,18 @@ model AgentToolCall {
 ///     the same way, debited per turn using completion-token usage ×
 ///     per-million model price from `@kraterion/shared`.
 model AgentShareToken {
-  id            String  @id @default(uuid())
-  agent_id      String
+  id           String @id @default(uuid())
+  agent_id     String
   // Human-readable label (e.g. "marketing site widget").
-  name          String
+  name         String
   // sha256(cleartext) — same pattern as ApiKey.token_hash.
-  token_hash    String  @unique
+  token_hash   String @unique
   // Cosmetic preview shown in the dashboard ("kr_share_test_aB3…X9Z").
-  token_prefix  String
+  token_prefix String
   // "testnet" | "mainnet" — same network gate as bearer tokens. A
   // `kr_share_test_…` token presented to a mainnet deployment is
   // rejected at resolver time.
-  network       String
+  network      String
 
   // Origin allowlist (e.g. ["https://docs.example.com",
   // "https://www.example.com"]). Empty array = no origins allowed
@@ -877,7 +986,7 @@ model AgentShareToken {
   // Per-day caps. NULL = unlimited; daily counters in
   // `ShareTokenUsageDay`. The chat endpoint refuses with 429 once a
   // cap is hit.
-  max_requests_per_day        Int?
+  max_requests_per_day         Int?
   max_spend_usd_micros_per_day BigInt?
 
   // When true (default), the model's system prompt includes the
@@ -897,8 +1006,8 @@ model AgentShareToken {
   created_at   DateTime  @default(now())
   revoked_at   DateTime?
 
-  agent          KraterionAgent       @relation(fields: [agent_id], references: [id], onDelete: Cascade)
-  usage_days     ShareTokenUsageDay[]
+  agent      KraterionAgent       @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  usage_days ShareTokenUsageDay[]
 
   @@index([agent_id])
   @@index([token_hash])
@@ -909,16 +1018,16 @@ model AgentShareToken {
 /// row right before issuing the LLM call. Rows older than a couple of
 /// days are stale audit; can be reaped by a future cleanup job.
 model ShareTokenUsageDay {
-  share_token_id    String
+  share_token_id   String
   // UTC date as YYYY-MM-DD. Avoids timezone foot-guns in WHERE clauses.
-  day_utc           String
+  day_utc          String
   // Number of chat completions completed (failures + over-cap rejects
   // do NOT increment).
-  requests          Int      @default(0)
+  requests         Int      @default(0)
   // USD spend in micro-dollars (i.e. 1e-6 USD). Aggregates the per-turn
   // (output_tokens / 1_000_000) * price_per_m_tokens_usd computation.
-  spend_usd_micros  BigInt   @default(0)
-  updated_at        DateTime @updatedAt
+  spend_usd_micros BigInt   @default(0)
+  updated_at       DateTime @updatedAt
 
   share_token AgentShareToken @relation(fields: [share_token_id], references: [id], onDelete: Cascade)
 

@@ -60,34 +60,96 @@ export const KraterionBucketCreatedSchema = z
   .passthrough();
 export type KraterionBucketCreated = z.infer<typeof KraterionBucketCreatedSchema>;
 
-export const KraterionObjectCreatedSchema = z
+// === Storage pool migration events (Phase H) ===
+//
+// `KraterionObjectCreated` + `KraterionObjectExtended` were the SharedBlob-
+// era events; their handlers were deleted in Phase D. The pool model emits
+// six new events below — all wrapped by our `pool_vault.move` module so
+// we don't have to filter Walrus's network-wide events.
+
+export const KraterionVaultCreatedSchema = z
   .object({
-    bucket_id: suiId,
-    walrus_blob_object_id: suiId,
-    walrus_blob_id: u64Str, // u256 on chain; arrives as decimal string
+    vault_id: suiId,
+    pool_id: suiId,
+    created_by: suiId,
+    /// Off-chain Postgres `Project.id` UUID, passed by the gateway at
+    /// `create_vault` time. Decoded from base64 → UTF-8 by the handler.
+    project_id: bytesB64,
+    reserved_encoded_capacity_bytes: u64Str,
+    start_epoch: u32,
+    end_epoch: u32,
+  })
+  .passthrough();
+export type KraterionVaultCreated = z.infer<typeof KraterionVaultCreatedSchema>;
+
+export const KraterionVaultRevokedSchema = z
+  .object({
+    vault_id: suiId,
+    revoked_by: suiId,
+  })
+  .passthrough();
+export type KraterionVaultRevoked = z.infer<typeof KraterionVaultRevokedSchema>;
+
+export const KraterionPooledBlobRegisteredSchema = z
+  .object({
+    vault_id: suiId,
+    pooled_blob_object_id: suiId,
+    walrus_blob_id: u64Str, // u256 on chain
     s3_key: bytesB64,
     content_type: bytesB64,
     owner_address: suiId,
-    wrapped_by: suiId,
+    registered_by: suiId,
+    /// `bucket_uid (32) || object_uuid (16)` = 48 bytes. The first 32
+    /// bytes are the on-chain bucket object ID (used by the handler to
+    /// resolve the S3Object's parent bucket without an extra event field).
     seal_identity: bytesB64,
     size_bytes: u64Str,
-    storage_end_epoch: u32,
-    // 16-byte raw MD5 of the plaintext body. Hex-encoded by the
-    // handler for `S3Object.etag` (which the gateway returns in the
-    // `ETag:` header).
+    /// 16-byte raw MD5 of the plaintext body. Hex-encoded by the
+    /// handler for `S3Object.etag` (S3 API contract).
     etag_md5: bytesB64,
   })
   .passthrough();
-export type KraterionObjectCreated = z.infer<typeof KraterionObjectCreatedSchema>;
+export type KraterionPooledBlobRegistered = z.infer<typeof KraterionPooledBlobRegisteredSchema>;
 
-export const KraterionObjectExtendedSchema = z
+export const KraterionPooledBlobCertifiedSchema = z
   .object({
-    shared_blob_id: suiId,
-    epochs_added: u32,
-    funder: suiId,
+    vault_id: suiId,
+    pooled_blob_object_id: suiId,
+    walrus_blob_id: u64Str,
+    certified_by: suiId,
   })
   .passthrough();
-export type KraterionObjectExtended = z.infer<typeof KraterionObjectExtendedSchema>;
+export type KraterionPooledBlobCertified = z.infer<typeof KraterionPooledBlobCertifiedSchema>;
+
+export const KraterionPooledBlobDeletedSchema = z
+  .object({
+    vault_id: suiId,
+    pooled_blob_object_id: suiId,
+    walrus_blob_id: u64Str,
+    deleted_by: suiId,
+  })
+  .passthrough();
+export type KraterionPooledBlobDeleted = z.infer<typeof KraterionPooledBlobDeletedSchema>;
+
+export const KraterionPoolExtendedSchema = z
+  .object({
+    vault_id: suiId,
+    extended_epochs: u32,
+    new_end_epoch: u32,
+    extended_by: suiId,
+  })
+  .passthrough();
+export type KraterionPoolExtended = z.infer<typeof KraterionPoolExtendedSchema>;
+
+export const KraterionPoolResizedGrowSchema = z
+  .object({
+    vault_id: suiId,
+    additional_encoded_capacity_bytes: u64Str,
+    new_reserved_encoded_capacity_bytes: u64Str,
+    resized_by: suiId,
+  })
+  .passthrough();
+export type KraterionPoolResizedGrow = z.infer<typeof KraterionPoolResizedGrowSchema>;
 
 export const ApiAccessGrantedSchema = z
   .object({ bucket_id: suiId, owner: suiId, granted_to: suiId })

@@ -1,48 +1,58 @@
 /**
- * PutObject + DeleteObject — the S3 write path.
+ * PutObject + DeleteObject — the S3 write path on the storage-pool model.
+ *
+ * Replaces the SharedBlob-era flow (`kraterion::register_blob_for_bucket` →
+ * `kraterion::wrap_in_shared_blob`) with the pool wrapper
+ * (`kraterion::pool_vault::register_blob` → `pool_vault::certify_blob`).
+ * See /docs/storage-pool-migration.md.
  *
  * Flow (PutObject):
  *   1. SigV4 guard resolves identity + bucket + key.
- *   2. Validate the body — Content-Length present, body within size cap,
+ *   2. Validate body — Content-Length present, body within size cap,
  *      Content-MD5 matches MD5(body) if header set, x-amz-content-sha256
  *      matches SHA-256(body) if not UNSIGNED-PAYLOAD.
- *   3. Reject S3 features we explicitly don't support yet
- *      (`x-amz-tagging`, `x-amz-meta-*`). Silently accept-and-ignore the
- *      `x-amz-acl`, `x-amz-storage-class`, `x-amz-server-side-encryption`
- *      headers that boto3/aws-cli send by default.
- *   4. Postgres: load bucket by (account, name, not deleted), assert
- *      `api_access_granted`.
- *   5. Mint a fresh `object_uuid` (16 bytes); seal_identity is
- *      `bucket_object_id_bytes (32) || object_uuid (16)` = 48 bytes.
- *   6. Seal-encrypt plaintext; encrypted blob is what we hand to Walrus.
- *   7. Walrus `computeBlobMetadata` → blobId + rootHash + nonce.
- *   8. PTB 1 (gateway-signed):
+ *   3. Reject unsupported S3 features; parse `x-amz-meta-*` ahead of the
+ *      expensive crypto/chain ops so an over-sized payload fails fast.
+ *   4. Postgres: load bucket + parent project + account (for user's
+ *      Sui address). Reject revoked access at the DB layer.
+ *   5. Lazy vault provisioning — ensure the project has a
+ *      `KraterionPoolVault` on chain. First PUT in a project blocks on
+ *      `pool_vault::create_vault`; subsequent PUTs hit the cached row.
+ *   6. Mint a fresh `object_uuid` (16 bytes); seal_identity = bucket
+ *      object id (32) || object_uuid (16) = 48 bytes.
+ *   7. Seal-encrypt plaintext.
+ *   8. Walrus `computeBlobMetadata` → blobId + rootHash + nonce.
+ *   9. Look up any existing object at (bucket_id, s3_key) — the
+ *      `pooled_blob_object_id` becomes the second `delete_blob` arg in
+ *      PTB2 so the pool's `used_encoded_bytes` recycles atomically.
+ *  10. PTB 1 (gateway-signed):
  *        - `walrus.sendUploadRelayTip` (FIRST so the auth payload is
  *          input slot 0; relay verifier requires that)
- *        - `kraterion.registerBlobForBucket` → `Blob` object
- *        - transfer the resulting `Blob` to the gateway address
- *      Parse effects → `blobObjectId`.
- *   9. POST encoded slivers to Mysten testnet upload-relay → certificate.
- *  10. PTB 2 (gateway-signed):
- *        - `walrus.certifyBlob`
- *        - `kraterion.wrapInSharedBlob` → `SharedBlob`
- *      Parse effects → `sharedBlobObjectId`.
- *  11. Upsert `S3Object` row keyed on (bucket_id, s3_key). On overwrite,
- *      log the previous walrus_blob_id + shared_blob_object_id so a
- *      future reaper can refund WAL from the orphaned SharedBlob.
- *  12. Return 200 with empty body and canonical S3 response headers.
+ *        - `pool_vault::register_blob` (pulls write fee from reserve,
+ *          stores PooledBlob in the pool's ObjectTable, emits
+ *          `KraterionPooledBlobRegistered`)
+ *      Parse `r1.events` → `pooled_blob_object_id`.
+ *  11. POST encoded slivers to Mysten testnet upload-relay → certificate.
+ *  12. PTB 2 (gateway-signed):
+ *        - `pool_vault::certify_blob`
+ *        - (if overwriting) `pool_vault::delete_blob(old_pooled_blob_id)`
+ *  13. Wait for the indexer to write the `S3Object` row + `PooledBlob` row.
+ *  14. Patch `metadata` (column doesn't flow through the indexer).
+ *  15. Return 200.
  *
- * Failure modes (logged but never auto-recovered in v1):
- *   - PTB 1 fails → no on-chain state, just return error.
- *   - Relay POST or PTB 2 fails after PTB 1 succeeded → orphan `Blob`
- *     owned by the gateway with no SharedBlob wrapper. Logged at
- *     ERROR; reaper job is post-hackathon.
- *   - DB insert fails after PTB 2 succeeded → orphan `SharedBlob` on
- *     chain with no DB record. Logged at ERROR; same reaper.
+ * Failure modes (logged but not auto-recovered):
+ *   - PTB 1 fails → no on-chain state, return 5xx.
+ *   - Relay POST or PTB 2 fails after PTB 1 → the PooledBlob is in the
+ *     pool's ObjectTable but never certified; pool capacity is consumed.
+ *     The `burn_expired_pooled_blob` reaper cleans up after pool expiry.
  *
  * Flow (DeleteObject):
- *   Soft delete the row (`deleted_at = NOW()`). The on-chain SharedBlob
- *   persists — that's the whole product point. 204 no body.
+ *   1. Resolve target row by (bucket, s3_key). 204 if missing.
+ *   2. Soft-mark row + delete its Knowledge chunks.
+ *   3. Build `pool_vault::delete_blob` PTB. Operator-signed.
+ *   4. On success, capacity is freed and indexer-event finalises state.
+ *   5. On failure, the row stays soft-deleted; orphan PooledBlob is
+ *      cleaned by `burn_expired_pooled_blob` at pool expiry.
  */
 
 import {
@@ -70,30 +80,37 @@ import { REDIS } from "../redis/redis.module.js";
 import { S3Error } from "./s3-error.js";
 import { requireKraterion, requireBucket, requireKey } from "./request-context.js";
 import { waitForS3Object } from "../indexer-wait/wait-for-row.js";
+import { VaultProvisioningService } from "./vault-provisioning.service.js";
 import {
   KRATERION_PACKAGE_ID,
   KRATERION_RESERVE_ID,
   SEAL_THRESHOLD,
   WALRUS_SYSTEM_OBJECT_ID,
 } from "@kraterion/shared";
-import { kraterion } from "@kraterion/kraterion-move-sdk";
+import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import {
   blobIdStringToU256,
   getEncodedBlobLength,
   getSuiClient,
   getWalrusClient,
+  getWriteFeeFrost,
   rootHashBytesToU256,
+  signersToBitmap,
 } from "@kraterion/walrus-client";
 import { getSealClient } from "@kraterion/seal-client";
 
 const MAX_PUT_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB; matches GET cap.
-const EPOCHS_AHEAD = 5;
-// Generous WAL budget for register_blob_for_bucket. Walrus testnet
-// pricing is tiny (a few thousand MIST per epoch); leftover is auto-
-// returned to the reserve.
-const PAYMENT_AMOUNT_MIST = 200_000_000n; // 0.2 WAL
 const ENCODING_TYPE_RS2 = 1;
 const DEFAULT_CONTENT_TYPE = "binary/octet-stream"; // AWS-canonical S3 default
+
+/**
+ * Fully-qualified Move event type the gateway parses out of PTB 1's
+ * effects to recover the new PooledBlob's on-chain object ID. Walrus's
+ * `register_pooled_blob` returns `()`, so the only way to know the
+ * fresh PooledBlob's ID without an extra RPC is via our own event.
+ */
+const KRATERION_POOLED_BLOB_REGISTERED_TYPE =
+  `${KRATERION_PACKAGE_ID}::events::KraterionPooledBlobRegistered` as const;
 
 // Suppress unused — kept inline for future header-debug logs.
 void toHex;
@@ -106,6 +123,7 @@ export class ObjectsWriteController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gatewayKeypair: GatewayKeypairService,
+    private readonly vaultProvisioning: VaultProvisioningService,
     @Inject(REDIS) _redis: Redis,
   ) {
     void _redis; // SessionKey caching is read-side only; PutObject doesn't need Redis.
@@ -123,11 +141,11 @@ export class ObjectsWriteController {
     const bucketName = requireBucket(ctx);
     const s3Key = requireKey(ctx);
 
-    // Reserved namespace for internal artifacts (Knowledge manifests
-    // landed as bucket-owned SharedBlobs by the worker — K5). The
-    // indexer routes events under this prefix to `KnowledgeManifest`
-    // instead of `S3Object`; admitting user PUTs here would break the
-    // routing assumption.
+    // Reserved namespace for internal artifacts (Knowledge manifests land
+    // as bucket-owned blobs written by the worker). The indexer routes
+    // events under this prefix to `KnowledgeManifest` instead of
+    // `S3Object`; admitting user PUTs here would break the routing
+    // assumption.
     if (s3Key.startsWith("_kraterion/")) {
       throw new S3Error(
         "InvalidArgument",
@@ -136,15 +154,8 @@ export class ObjectsWriteController {
     }
 
     rejectUnsupportedWriteHeaders(headers);
-    // Parse `x-amz-meta-*` ahead of the (expensive) Walrus+Seal+PTB flow
-    // so an over-sized metadata payload fails fast without wasting a
-    // round-trip.
     const metadata = pickMetadata(headers);
 
-    // Fastify's catch-all parser yields a Buffer for any body; an empty
-    // PUT (`Body=b""`) becomes `Buffer.alloc(0)`. A missing body
-    // entirely (no Content-Length, no body) yields `undefined` — we
-    // require a Content-Length per RFC 9110 §8.6.
     const plaintext = body ?? Buffer.alloc(0);
     validateContentLength(headers, plaintext);
     if (plaintext.byteLength > MAX_PUT_BYTES) {
@@ -157,16 +168,14 @@ export class ObjectsWriteController {
     validateContentMd5(headers, plaintext);
     validateContentSha256(headers, plaintext);
 
-    // ETag is plaintext MD5, per the S3 spec for single-part uploads.
-    // Compute once as raw bytes (passed to the Move event so the
-    // indexer can populate `S3Object.etag`) and as lowercase hex
-    // (returned in the response `ETag:` header, stored in DB).
     const etagRaw = createHash("md5").update(plaintext).digest();
     const etag = etagRaw.toString("hex");
     const contentType = pickContentType(headers);
 
-    // Bucket lookup — same shape as GetObject. Reject revoked access at
-    // the DB layer to save a Seal/chain round-trip.
+    // Bucket lookup. Join through to project + account so we have the
+    // user's Sui address for lazy vault provisioning (the address is
+    // recorded as `vault.created_by` so the user can call
+    // `pool_vault::revoke_all` later).
     const bucketRow = await this.prisma.bucket.findFirst({
       where: {
         name: bucketName,
@@ -176,8 +185,10 @@ export class ObjectsWriteController {
       select: {
         id: true,
         name: true,
+        project_id: true,
         kraterion_bucket_object_id: true,
         api_access_granted: true,
+        project: { select: { account: { select: { sui_address: true } } } },
       },
     });
     if (!bucketRow) {
@@ -190,7 +201,17 @@ export class ObjectsWriteController {
       );
     }
 
-    // Build a fresh seal_identity. The 32-byte bucket prefix binds the
+    // === Lazy vault provisioning ===
+    // First PUT in a brand-new project blocks here while we create the
+    // vault on chain and wait for the indexer to write the StoragePool
+    // row (~3-5s testnet). Concurrent first-PUTs serialize on a Postgres
+    // advisory lock; only one tx hits the chain.
+    const { vaultObjectId } = await this.vaultProvisioning.ensureVaultForProject(
+      bucketRow.project_id,
+      bucketRow.project.account.sui_address,
+    );
+
+    // Build the seal_identity. The 32-byte bucket prefix binds the
     // ciphertext to this bucket's seal_approve policy; the 16-byte
     // suffix is per-object so each file has a unique IBE identity.
     const objectUuid = randomBytes(16);
@@ -198,8 +219,6 @@ export class ObjectsWriteController {
     sealIdentity.set(hexToBytes(bucketRow.kraterion_bucket_object_id), 0);
     sealIdentity.set(objectUuid, 32);
 
-    // Seal does the AES envelope internally — `encryptedObject` is the
-    // full ciphertext to push to Walrus.
     const { encryptedObject: encrypted } = await getSealClient().encrypt({
       threshold: SEAL_THRESHOLD,
       packageId: KRATERION_PACKAGE_ID,
@@ -207,24 +226,47 @@ export class ObjectsWriteController {
       data: plaintext,
     });
 
-    // Compute blob metadata + encoded size locally (Walrus expects the
-    // *encoded* size as the storage_amount, not the raw byte count).
-    // The Walrus storage end-epoch is derived in Move from the inner
-    // Blob (via `walrus::blob::end_epoch`) and surfaced via the
-    // `KraterionObjectCreated` event — gateway no longer needs it.
+    // Compute Walrus metadata + encoded size locally (Walrus expects the
+    // unencoded byte count plus n_shards; we calculate the encoded MiB
+    // ourselves for the write-fee budget). Committee size is needed for
+    // packing the certify_blob signers bitmap further down.
     const walrus = getWalrusClient();
     const meta = await walrus.computeBlobMetadata({ bytes: encrypted });
     const systemState = await walrus.systemState();
     const nShards = systemState.committee.n_shards;
+    const committeeSize = systemState.committee.members.length;
     const encodedSize = getEncodedBlobLength(encrypted.length, nShards);
 
-    const gatewayKp = this.gatewayKeypair.getKeypair();
-    const gatewayAddress = this.gatewayKeypair.getAddress();
-    const suiClient = getSuiClient();
+    // === Overwrite detection ===
+    // If an object already exists at (bucket, key) and has a PooledBlob,
+    // we'll atomically delete it in PTB2 so the pool's used_bytes
+    // recycles. Soft-deleted rows are ignored (we already freed them).
+    const existing = await this.prisma.s3Object.findFirst({
+      where: { bucket_id: bucketRow.id, s3_key: s3Key, deleted_at: null },
+      select: {
+        id: true,
+        pooled_blob: { select: { pooled_blob_object_id: true, walrus_blob_id: true } },
+      },
+    });
+    // `walrus_blob_id` is stored in Walrus's canonical URL-safe-base64
+    // form; the on-chain delete_blob entry expects the `u256` form, so
+    // we convert via the same helper the register path uses (NOT plain
+    // `BigInt(...)`, which only works on decimal strings).
+    const overwritePooledBlobIdToDelete = existing?.pooled_blob?.walrus_blob_id
+      ? blobIdStringToU256(existing.pooled_blob.walrus_blob_id)
+      : null;
 
-    // === PTB 1: relay tip + register_blob_for_bucket ===
-    // The relay's verifier requires the auth payload be input slot 0,
-    // hence the tip command is added BEFORE register.
+    const gatewayKp = this.gatewayKeypair.getKeypair();
+    const suiClient = getSuiClient();
+    const writeFeeBudget = getWriteFeeFrost(encodedSize);
+
+    const blobIdU256 = blobIdStringToU256(meta.blobId);
+
+    // === PTB 1: relay tip + pool_vault::register_blob ===
+    // No `transferObjects` — `register_pooled_blob` returns `()` and the
+    // PooledBlob lives inside the pool's internal ObjectTable. We
+    // recover its object ID from our own `KraterionPooledBlobRegistered`
+    // event after the tx settles.
     const tx1 = new Transaction();
     tx1.add(
       walrus.sendUploadRelayTip({
@@ -233,33 +275,33 @@ export class ObjectsWriteController {
         nonce: meta.nonce,
       }),
     );
-    const blobArg = tx1.add(
-      kraterion.registerBlobForBucket({
+    tx1.add(
+      pool_vault.registerBlob({
         package: KRATERION_PACKAGE_ID,
         arguments: {
+          vault: vaultObjectId,
           reserve: KRATERION_RESERVE_ID,
-          bucket: bucketRow.kraterion_bucket_object_id,
           system: WALRUS_SYSTEM_OBJECT_ID,
-          paymentAmount: PAYMENT_AMOUNT_MIST,
-          storageAmount: BigInt(encodedSize),
-          epochsAhead: EPOCHS_AHEAD,
-          blobId: blobIdStringToU256(meta.blobId),
+          blobId: blobIdU256,
           rootHash: rootHashBytesToU256(meta.rootHash),
-          size: BigInt(encrypted.length),
+          unencodedSize: BigInt(encrypted.length),
           encodingType: ENCODING_TYPE_RS2,
+          s3Key: Array.from(new TextEncoder().encode(s3Key)),
+          contentType: Array.from(new TextEncoder().encode(contentType)),
+          sealIdentity: Array.from(sealIdentity),
+          sizeBytes: BigInt(plaintext.byteLength),
+          etagMd5: Array.from(etagRaw),
+          paymentBudgetFrost: writeFeeBudget,
         },
       }),
     );
-    // PTB result must be consumed; transfer the registered Blob back to
-    // the gateway so it lands as an owned object we can certify in PTB2.
-    tx1.transferObjects([blobArg], gatewayAddress);
 
     let r1;
     try {
       r1 = await suiClient.signAndExecuteTransaction({
         transaction: tx1,
         signer: gatewayKp,
-        options: { showEffects: true, showObjectChanges: true },
+        options: { showEffects: true, showEvents: true },
       });
     } catch (e) {
       this.logger.warn(
@@ -273,82 +315,125 @@ export class ObjectsWriteController {
     if (r1.effects?.status?.status !== "success") {
       throw new S3Error(
         "InternalError",
-        `register_blob_for_bucket failed: ${r1.effects?.status?.error ?? "unknown"}`,
+        `pool_vault::register_blob failed: ${r1.effects?.status?.error ?? "unknown"}`,
       );
     }
-    const blobObjectId = pickCreatedObjectId(r1, "::blob::Blob");
-    if (!blobObjectId) {
-      throw new S3Error("InternalError", "PTB1 produced no Blob object.");
+    const pooledBlobObjectId = pickPooledBlobObjectIdFromEvents(
+      r1.events ?? [],
+      blobIdU256,
+    );
+    if (!pooledBlobObjectId) {
+      throw new S3Error(
+        "InternalError",
+        "PTB1 settled but the KraterionPooledBlobRegistered event was missing.",
+      );
     }
 
     // === Relay upload ===
-    // From here on, any failure = orphan blob. Log loudly.
+    // From here on, any failure = orphan PooledBlob inside our pool
+    // (uses capacity but never certified). The
+    // `burn_expired_pooled_blob` reaper cleans up at pool expiry.
+    //
+    // The testnet upload-relay is flaky and occasionally returns 5xx on
+    // first try; retrying without backoff usually succeeds. Three
+    // attempts with 500ms / 1500ms backoff covers the observed failure
+    // window without inflating p99 unnecessarily.
     let certificate;
-    try {
-      const relayResult = await walrus.writeBlobToUploadRelay({
-        blob: encrypted,
-        blobId: meta.blobId,
-        nonce: meta.nonce,
-        txDigest: r1.digest,
-        blobObjectId,
-        deletable: false,
-      });
-      certificate = relayResult.certificate;
-    } catch (e) {
-      this.logger.error(
-        `ORPHAN BLOB (relay POST failed): blobObjectId=${blobObjectId} ` +
-          `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${(e as Error).message}`,
-      );
-      throw new S3Error(
-        "ServiceUnavailable",
-        "Storage upload failed; please retry.",
-      );
+    {
+      const maxAttempts = 3;
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const relayResult = await walrus.writeBlobToUploadRelay({
+            blob: encrypted,
+            blobId: meta.blobId,
+            nonce: meta.nonce,
+            txDigest: r1.digest,
+            blobObjectId: pooledBlobObjectId,
+            deletable: true,
+          });
+          certificate = relayResult.certificate;
+          if (attempt > 1) {
+            this.logger.log(
+              `relay POST succeeded on attempt ${attempt}/${maxAttempts} ` +
+                `(pooled_blob_object_id=${pooledBlobObjectId})`,
+            );
+          }
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < maxAttempts) {
+            this.logger.warn(
+              `relay POST attempt ${attempt}/${maxAttempts} failed ` +
+                `(pooled_blob_object_id=${pooledBlobObjectId}): ${(e as Error).message}`,
+            );
+            await new Promise((r) => setTimeout(r, attempt === 1 ? 500 : 1500));
+          }
+        }
+      }
+      if (!certificate) {
+        this.logger.error(
+          `ORPHAN POOLED BLOB (relay POST failed after ${maxAttempts} attempts): ` +
+            `pooled_blob_object_id=${pooledBlobObjectId} ` +
+            `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${
+              (lastErr as Error).message
+            }`,
+        );
+        throw new S3Error(
+          "ServiceUnavailable",
+          "Storage upload failed; please retry.",
+        );
+      }
     }
 
-    // === PTB 2: certifyBlob + wrap_in_shared_blob ===
+    // === PTB 2: pool_vault::certify_blob (+ overwrite delete) ===
     const tx2 = new Transaction();
+    // certificate.signers is a list of committee member indices; Walrus
+    // expects them packed as a bitmap. signersToBitmap mirrors the SDK's
+    // internal helper used by `walrus.certifyBlob` for SharedBlobs.
+    const signersBitmap = signersToBitmap(certificate.signers, committeeSize);
     tx2.add(
-      walrus.certifyBlob({
-        blobId: meta.blobId,
-        blobObjectId,
-        certificate,
-        deletable: false,
-      }),
-    );
-    tx2.add(
-      kraterion.wrapInSharedBlob({
+      pool_vault.certifyBlob({
         package: KRATERION_PACKAGE_ID,
         arguments: {
-          bucket: bucketRow.kraterion_bucket_object_id,
-          blob: blobObjectId,
-          s3Key: Array.from(new TextEncoder().encode(s3Key)),
-          contentType: Array.from(new TextEncoder().encode(contentType)),
-          // 48-byte IBE identity — gateway-minted, must travel via the
-          // event so the indexer can populate `S3Object.seal_identity`
-          // (used to reconstruct the `seal_approve` PTB at GET time).
-          sealIdentity: Array.from(sealIdentity),
-          // PLAINTEXT byte count — the value S3 returns as
-          // `Content-Length`. Distinct from the encrypted/Walrus-blob
-          // size; passed explicitly because the inner Blob only carries
-          // the encrypted size.
-          sizeBytes: BigInt(plaintext.byteLength),
-          // 16-byte raw MD5 of the plaintext = the S3 ETag's underlying
-          // hash. Indexer hex-encodes it for `S3Object.etag`.
-          etagMd5: Array.from(etagRaw),
+          vault: vaultObjectId,
+          reserve: KRATERION_RESERVE_ID,
+          system: WALRUS_SYSTEM_OBJECT_ID,
+          blobId: blobIdU256,
+          signature: Array.from(certificate.signature),
+          signersBitmap: Array.from(signersBitmap),
+          message: Array.from(certificate.serializedMessage),
         },
       }),
     );
+    if (overwritePooledBlobIdToDelete !== null) {
+      // Atomic: certify the new blob and free the old one in the same
+      // tx. If certify fails, delete doesn't run. If the whole tx fails,
+      // we end up with an orphan new PooledBlob (handled by reaper) and
+      // the old blob is unchanged (correct).
+      tx2.add(
+        pool_vault.deleteBlob({
+          package: KRATERION_PACKAGE_ID,
+          arguments: {
+            vault: vaultObjectId,
+            reserve: KRATERION_RESERVE_ID,
+            system: WALRUS_SYSTEM_OBJECT_ID,
+            blobId: overwritePooledBlobIdToDelete,
+          },
+        }),
+      );
+    }
 
     let r2;
     try {
       r2 = await suiClient.signAndExecuteTransaction({
         transaction: tx2,
         signer: gatewayKp,
-        options: { showEffects: true, showObjectChanges: true },
+        options: { showEffects: true },
       });
     } catch (e) {
       this.logger.error(
-        `ORPHAN BLOB (PTB2 RPC failed): blobObjectId=${blobObjectId} ` +
+        `ORPHAN POOLED BLOB (PTB2 RPC failed): pooled_blob_object_id=${pooledBlobObjectId} ` +
           `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${(e as Error).message}`,
       );
       throw new S3Error(
@@ -358,39 +443,27 @@ export class ObjectsWriteController {
     }
     if (r2.effects?.status?.status !== "success") {
       this.logger.error(
-        `ORPHAN BLOB (PTB2 reverted): blobObjectId=${blobObjectId} ` +
+        `ORPHAN POOLED BLOB (PTB2 reverted): pooled_blob_object_id=${pooledBlobObjectId} ` +
           `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${r2.effects?.status?.error}`,
       );
       throw new S3Error(
         "InternalError",
-        `certify_blob failed: ${r2.effects?.status?.error ?? "unknown"}`,
+        `pool_vault::certify_blob failed: ${r2.effects?.status?.error ?? "unknown"}`,
       );
-    }
-    const sharedBlobObjectId = pickCreatedObjectId(r2, "::shared_blob::SharedBlob");
-    if (!sharedBlobObjectId) {
-      this.logger.error(
-        `ORPHAN BLOB (no SharedBlob in effects): blobObjectId=${blobObjectId} ` +
-          `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}`,
-      );
-      throw new S3Error("InternalError", "PTB2 produced no SharedBlob object.");
     }
 
     // === Hand off to indexer ===
-    // The indexer is now the single writer of `S3Object` (per ADR
-    // "DB writes are gateway-direct today; replace with event-driven
-    // indexer when the dashboard lands"). Wait for the row to appear,
-    // then return success. If the indexer is down or far behind, we
-    // 503 — the data IS on chain, boto3 retries, by then the
-    // indexer has caught up.
-    await waitForS3Object(this.prisma, sharedBlobObjectId);
+    // The indexer's `pooled-blob-certified` handler advances the
+    // PooledBlob row to status='certified' and patches the S3Object
+    // row's `pooled_blob_id` FK. We poll for that.
+    await waitForS3Object(this.prisma, pooledBlobObjectId);
 
     // `metadata` is the one column on `S3Object` that does NOT flow
-    // through the indexer — the on-chain `KraterionObjectCreated` event
-    // carries no metadata because it isn't consensus-critical. So we
-    // patch it here, scoped to the row the indexer just wrote.
+    // through the indexer — the on-chain event carries no metadata
+    // because it isn't consensus-critical. Patch it here.
     if (metadata) {
-      await this.prisma.s3Object.update({
-        where: { shared_blob_object_id: sharedBlobObjectId },
+      await this.prisma.s3Object.updateMany({
+        where: { pooled_blob: { pooled_blob_object_id: pooledBlobObjectId } },
         data: { metadata },
       });
     }
@@ -406,43 +479,108 @@ export class ObjectsWriteController {
     const bucketName = requireBucket(ctx);
     const s3Key = requireKey(ctx);
 
+    // StoragePool lives on Project, not Bucket — we join through.
     const bucketRow = await this.prisma.bucket.findFirst({
       where: {
         name: bucketName,
         deleted_at: null,
         project: { account_id: ctx.identity.accountId },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        project_id: true,
+        project: {
+          select: { storage_pool: { select: { vault_object_id: true } } },
+        },
+      },
     });
     if (!bucketRow) {
       throw new S3Error("NoSuchBucket", "The specified bucket does not exist.");
     }
+    const projectVault = bucketRow.project.storage_pool;
 
-    // Soft-delete the row AND drop the object's Knowledge chunks in
-    // the same transaction. Chunks reference the S3Object row id, not
-    // its deleted_at, so without the explicit wipe they survive the
-    // delete and would still surface in `/search` against the bucket.
-    // We do the chunk delete unconditionally — `deleteMany` is a
-    // no-op when the object had no chunks (Knowledge off, etc.).
-    //
-    // Idempotent — DELETE on a missing key returns 204 (S3 spec); we
-    // resolve the object first so a no-match falls through cleanly.
+    // Idempotent — DELETE on a missing key returns 204 (S3 spec).
     const target = await this.prisma.s3Object.findFirst({
       where: { bucket_id: bucketRow.id, s3_key: s3Key, deleted_at: null },
-      select: { id: true },
+      select: {
+        id: true,
+        pooled_blob: { select: { walrus_blob_id: true, pooled_blob_object_id: true } },
+      },
     });
-    if (target) {
-      await this.prisma.$transaction([
-        this.prisma.knowledgeChunk.deleteMany({
-          where: { s3_object_id: target.id },
-        }),
-        this.prisma.s3Object.update({
-          where: { id: target.id },
-          data: { deleted_at: new Date() },
-        }),
-      ]);
+    if (!target) {
+      return;
     }
-    this.logger.log(`object soft-deleted: bucket=${bucketName} key=${s3Key}`);
+
+    // Soft-delete + wipe Knowledge chunks first. Even if the on-chain
+    // delete fails, the row + chunks are out of the user-visible state.
+    await this.prisma.$transaction([
+      this.prisma.knowledgeChunk.deleteMany({
+        where: { s3_object_id: target.id },
+      }),
+      this.prisma.s3Object.update({
+        where: { id: target.id },
+        data: { deleted_at: new Date() },
+      }),
+    ]);
+
+    // On-chain delete to recycle pool capacity. Skip if no vault yet
+    // (first PUT was in flight, never completed) or no PooledBlob row
+    // (object was never certified — orphan PooledBlob, reaper handles it).
+    if (!projectVault || !target.pooled_blob?.walrus_blob_id) {
+      this.logger.warn(
+        `DELETE soft-marked only (no vault or PooledBlob row): ` +
+          `bucket=${bucketName} key=${s3Key} object=${target.id}`,
+      );
+      return;
+    }
+
+    const gatewayKp = this.gatewayKeypair.getKeypair();
+    const suiClient = getSuiClient();
+    // Stored form is URL-safe-base64; convert through the SDK helper
+    // (see overwrite branch in `putObject` for the same conversion).
+    const blobIdU256 = blobIdStringToU256(target.pooled_blob.walrus_blob_id);
+
+    const tx = new Transaction();
+    tx.add(
+      pool_vault.deleteBlob({
+        package: KRATERION_PACKAGE_ID,
+        arguments: {
+          vault: projectVault.vault_object_id,
+          reserve: KRATERION_RESERVE_ID,
+          system: WALRUS_SYSTEM_OBJECT_ID,
+          blobId: blobIdU256,
+        },
+      }),
+    );
+
+    try {
+      const result = await suiClient.signAndExecuteTransaction({
+        transaction: tx,
+        signer: gatewayKp,
+        options: { showEffects: true },
+      });
+      if (result.effects?.status?.status !== "success") {
+        // Logged but not surfaced — the row is already soft-deleted from
+        // the user's perspective; the orphan PooledBlob is reaped later.
+        this.logger.error(
+          `ORPHAN POOLED BLOB (delete reverted): ` +
+            `pooled_blob_object_id=${target.pooled_blob.pooled_blob_object_id} ` +
+            `bucket=${bucketName} key=${s3Key}: ${result.effects?.status?.error}`,
+        );
+        return;
+      }
+      this.logger.log(
+        `object deleted: bucket=${bucketName} key=${s3Key} ` +
+          `pooled=${target.pooled_blob.pooled_blob_object_id.slice(0, 12)}… tx=${result.digest}`,
+      );
+    } catch (e) {
+      this.logger.error(
+        `ORPHAN POOLED BLOB (delete RPC failed): ` +
+          `pooled_blob_object_id=${target.pooled_blob.pooled_blob_object_id} ` +
+          `bucket=${bucketName} key=${s3Key}: ${(e as Error).message}`,
+      );
+      // Same as above — row soft-deleted, reaper cleans up.
+    }
   }
 }
 
@@ -465,8 +603,6 @@ function rejectUnsupportedWriteHeaders(
   // accepts a fixed enum for each. We always encrypt + don't expose
   // ACLs or storage classes, so silently accept-and-ignore — matches
   // what rclone/aws-cli send by default; rejecting them breaks both.
-  //
-  // x-amz-meta-* is now supported — see `pickMetadata` below.
 }
 
 /**
@@ -477,17 +613,6 @@ function rejectUnsupportedWriteHeaders(
  */
 const MAX_METADATA_BYTES = 2 * 1024;
 
-/**
- * Parse `x-amz-meta-*` headers into a flat key→value map.
- *
- * Returns `null` if no metadata headers were sent (so the column stays
- * NULL on the row instead of `{}`). Throws `MetadataTooLarge` when the
- * combined header bytes exceed the AWS cap.
- *
- * Keys are lowercased and prefix-stripped (`X-Amz-Meta-Author` →
- * `author`). Values are taken verbatim. Duplicate headers collapse
- * last-wins, matching what Node's lowercased header bag already does.
- */
 function pickMetadata(
   headers: Record<string, string | string[] | undefined>,
 ): Record<string, string> | null {
@@ -532,9 +657,6 @@ function validateContentLength(
     throw new S3Error("InvalidArgument", "Invalid Content-Length value.");
   }
   if (declared !== body.byteLength) {
-    // Fastify's parser will normally reject mismatches before this
-    // runs — this catches anything that slipped through (e.g. a proxy
-    // mangling the header).
     throw new S3Error(
       "IncompleteBody",
       "The number of bytes specified by the Content-Length HTTP header was not provided.",
@@ -565,8 +687,6 @@ function validateContentSha256(
 ): void {
   const v = headers["x-amz-content-sha256"];
   const value = Array.isArray(v) ? v[0] : v;
-  // Already gated by the SigV4 guard — when present it's either
-  // UNSIGNED-PAYLOAD or hex sha256. STREAMING-* is rejected upstream.
   if (!value || value === "UNSIGNED-PAYLOAD") return;
   const expected = createHash("sha256").update(body).digest("hex");
   if (value.toLowerCase() !== expected) {
@@ -584,19 +704,29 @@ function pickContentType(headers: Record<string, string | string[] | undefined>)
   return value;
 }
 
-function pickCreatedObjectId(
-  result: { objectChanges?: unknown[] | null },
-  typeSuffix: string,
+/**
+ * Find the `KraterionPooledBlobRegistered` event in PTB 1's effects
+ * payload and return the new PooledBlob's on-chain object ID.
+ *
+ * Matches on the fully-qualified Move type to ignore other events that
+ * the same package might emit in unrelated tx batches. Filters by
+ * `blob_id` too — in theory one PTB could register multiple blobs at
+ * once; in practice the gateway never batches, but the filter is cheap
+ * insurance.
+ */
+function pickPooledBlobObjectIdFromEvents(
+  events: Array<Record<string, unknown>>,
+  blobId: bigint,
 ): string | null {
-  const changes = result.objectChanges ?? [];
-  for (const c of changes as Array<Record<string, unknown>>) {
-    if (
-      c["type"] === "created" &&
-      typeof c["objectType"] === "string" &&
-      (c["objectType"] as string).endsWith(typeSuffix) &&
-      typeof c["objectId"] === "string"
-    ) {
-      return c["objectId"] as string;
+  for (const ev of events) {
+    if (ev["type"] !== KRATERION_POOLED_BLOB_REGISTERED_TYPE) continue;
+    const json = ev["parsedJson"] as Record<string, unknown> | undefined;
+    if (!json) continue;
+    const evBlobId = json["walrus_blob_id"];
+    // Sui RPC serialises u256 as decimal strings; compare as BigInt.
+    if (typeof evBlobId === "string" && BigInt(evBlobId) === blobId) {
+      const oid = json["pooled_blob_object_id"];
+      if (typeof oid === "string") return oid;
     }
   }
   return null;

@@ -5,18 +5,24 @@ import { ObjectsReadController } from "./objects.read.controller.js";
 import { ObjectsListController } from "./objects.list.controller.js";
 import { ObjectsWriteController } from "./objects.write.controller.js";
 import { PublicObjectsController } from "./public.controller.js";
+import { VaultProvisioningService } from "./vault-provisioning.service.js";
 
 /**
  * S3 surface area:
  *   - `BucketsController` — ListBuckets, HeadBucket, CreateBucket(=501),
  *     DeleteBucket.
  *   - `ObjectsReadController` — GetObject, HeadObject (SigV4-authed).
- *   - `ObjectsWriteController` — PutObject, DeleteObject.
+ *   - `ObjectsWriteController` — PutObject, DeleteObject. Lazy-provisions
+ *     a `KraterionPoolVault` for the project on first PUT via
+ *     `VaultProvisioningService`.
  *   - `ObjectsListController` — ListObjectsV2 (501 stub; Phase 6).
  *   - `PublicObjectsController` — unauthenticated `GET /public/:bucket/*`
  *     for buckets in `encryption_mode = "public-read"`.
  *   - `ObjectBytesService` — shared Seal+Walrus decrypt-and-serve
  *     pipeline used by both Read and Public controllers.
+ *   - `VaultProvisioningService` — one-time per-project vault creation
+ *     on first PUT, with Postgres-advisory-lock serialization to prevent
+ *     concurrent first-PUTs from racing.
  */
 @Module({
   controllers: [
@@ -26,6 +32,6 @@ import { PublicObjectsController } from "./public.controller.js";
     ObjectsListController,
     PublicObjectsController,
   ],
-  providers: [ObjectBytesService],
+  providers: [ObjectBytesService, VaultProvisioningService],
 })
 export class S3Module {}

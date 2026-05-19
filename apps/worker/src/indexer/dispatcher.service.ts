@@ -6,10 +6,15 @@ import {
   indexerLagSeconds,
 } from "./metrics.js";
 import { BucketCreatedHandler } from "./handlers/bucket-created.handler.js";
-import { ObjectCreatedHandler } from "./handlers/object-created.handler.js";
-import { ObjectExtendedHandler } from "./handlers/object-extended.handler.js";
 import { ApiAccessHandler } from "./handlers/api-access.handler.js";
 import { BucketVisibilityChangedHandler } from "./handlers/bucket-visibility.handler.js";
+import { VaultCreatedHandler } from "./handlers/vault-created.handler.js";
+import { VaultRevokedHandler } from "./handlers/vault-revoked.handler.js";
+import { PooledBlobRegisteredHandler } from "./handlers/pooled-blob-registered.handler.js";
+import { PooledBlobCertifiedHandler } from "./handlers/pooled-blob-certified.handler.js";
+import { PooledBlobDeletedHandler } from "./handlers/pooled-blob-deleted.handler.js";
+import { PoolExtendedHandler } from "./handlers/pool-extended.handler.js";
+import { PoolResizedHandler } from "./handlers/pool-resized.handler.js";
 import type { EventHandler, ParsedEvent } from "./handlers/handler.interface.js";
 
 /**
@@ -18,11 +23,22 @@ import type { EventHandler, ParsedEvent } from "./handlers/handler.interface.js"
  * (`::events::KraterionBucketCreated`) so a Move package redeploy
  * doesn't require touching the dispatcher.
  *
+ * **Storage pool migration (Phases C–H complete):**
+ * - `BucketCreatedHandler`, `ApiAccessHandler`, `BucketVisibilityChangedHandler`
+ *   — orthogonal to the storage backend; unchanged from the SharedBlob era.
+ * - `VaultCreatedHandler`, `VaultRevokedHandler` — vault lifecycle from
+ *   `pool_vault::create_vault` / `revoke_all`.
+ * - `PooledBlobRegisteredHandler`, `PooledBlobCertifiedHandler`,
+ *   `PooledBlobDeletedHandler` — per-blob lifecycle (register → certify
+ *   → delete) from `pool_vault::{register,certify,delete}_blob`.
+ * - `PoolExtendedHandler`, `PoolResizedHandler` — pool lifecycle from
+ *   `pool_vault::extend` and `::resize_grow`.
+ *
  * Reserve events (`ReserveCreated`, `ReserveCallerAuthorized`,
  * `ReserveCallerDeauthorized`, `ReserveFunded`, `ReserveWithdrawn`)
- * have no domain mapping yet — they fall through to the
- * "unhandled event" debug log. A `ReserveBalanceMirror` table is a
- * future Phase-7 nice-to-have.
+ * have no domain mapping yet — they fall through to the "unhandled
+ * event" debug log. A `ReserveBalanceMirror` table is a future
+ * nice-to-have.
  */
 @Injectable()
 export class DispatcherService {
@@ -31,17 +47,27 @@ export class DispatcherService {
 
   constructor(
     bucketCreated: BucketCreatedHandler,
-    objectCreated: ObjectCreatedHandler,
-    objectExtended: ObjectExtendedHandler,
     apiAccess: ApiAccessHandler,
     bucketVisibility: BucketVisibilityChangedHandler,
+    vaultCreated: VaultCreatedHandler,
+    vaultRevoked: VaultRevokedHandler,
+    pooledBlobRegistered: PooledBlobRegisteredHandler,
+    pooledBlobCertified: PooledBlobCertifiedHandler,
+    pooledBlobDeleted: PooledBlobDeletedHandler,
+    poolExtended: PoolExtendedHandler,
+    poolResized: PoolResizedHandler,
   ) {
     this.handlers = [
       bucketCreated,
-      objectCreated,
-      objectExtended,
       apiAccess,
       bucketVisibility,
+      vaultCreated,
+      vaultRevoked,
+      pooledBlobRegistered,
+      pooledBlobCertified,
+      pooledBlobDeleted,
+      poolExtended,
+      poolResized,
     ];
   }
 

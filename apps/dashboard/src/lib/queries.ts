@@ -678,8 +678,9 @@ export interface KnowledgeSearchHit {
   content_hash: string;
   /** Source object's Walrus blob id — the Walruscan deep-link target. */
   source_walrus_blob_id: string;
-  /** Source object's on-chain SharedBlob id (Sui explorer link). */
-  source_shared_blob_object_id: string;
+  /** Source object's on-chain PooledBlob id (Sui explorer link). Nullable
+   *  during the brief register → certify window after upload. */
+  source_pooled_blob_object_id: string | null;
   /** Manifest's Walrus blob id (K5). Null until the worker archives it. */
   manifest_walrus_blob_id: string | null;
   rrf_score: number;

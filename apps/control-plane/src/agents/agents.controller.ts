@@ -628,7 +628,7 @@ export class AgentsController {
       output_json: unknown;
       tx_digest: string | null;
       walrus_blob_id: string | null;
-      shared_blob_object_id: string | null;
+      pooled_blob_object_id: string | null;
       error_detail: string | null;
       latency_ms: number | null;
     }>;
@@ -669,7 +669,7 @@ export class AgentsController {
         ordinal: h.ordinal,
         bucket_id: h.bucket_id,
         source_walrus_blob_id: h.source_walrus_blob_id,
-        source_shared_blob_object_id: h.source_shared_blob_object_id,
+        source_pooled_blob_object_id: h.source_pooled_blob_object_id,
         manifest_walrus_blob_id: h.manifest_walrus_blob_id,
         cited: args.citations.some((c) => c.chunk_hash === h.content_hash),
       }));
@@ -685,7 +685,7 @@ export class AgentsController {
         output_json: tc.output_json,
         tx_digest: tc.tx_digest,
         walrus_blob_id: tc.walrus_blob_id,
-        shared_blob_object_id: tc.shared_blob_object_id,
+        pooled_blob_object_id: tc.pooled_blob_object_id,
         error_detail: tc.error_detail,
         latency_ms: tc.latency_ms,
       }));
@@ -917,7 +917,7 @@ export class AgentsController {
           ordinal: h.ordinal,
           bucket_id: h.bucket_id,
           source_walrus_blob_id: h.source_walrus_blob_id,
-          source_shared_blob_object_id: h.source_shared_blob_object_id,
+          source_pooled_blob_object_id: h.source_pooled_blob_object_id,
           manifest_walrus_blob_id: h.manifest_walrus_blob_id,
           cited: citations.some((c) => c.chunk_hash === h.content_hash),
         }));
@@ -942,7 +942,7 @@ export class AgentsController {
           output_json: tc.output_json,
           tx_digest: tc.tx_digest,
           walrus_blob_id: tc.walrus_blob_id,
-          shared_blob_object_id: tc.shared_blob_object_id,
+          pooled_blob_object_id: tc.pooled_blob_object_id,
           error_detail: tc.error_detail,
           latency_ms: tc.latency_ms,
         }));

@@ -24,8 +24,6 @@
 import { KRATERION_PACKAGE_ID } from "@kraterion/shared";
 import {
   KraterionBucketCreated,
-  KraterionObjectCreated,
-  KraterionObjectExtended,
   ApiAccessGranted,
   ApiAccessRevoked,
   BucketVisibilityChanged,
@@ -34,20 +32,27 @@ import {
   ReserveCallerDeauthorized,
   ReserveFunded,
   ReserveWithdrawn,
+  // Pool vault events (storage-pool migration).
+  KraterionVaultCreated,
+  KraterionVaultRevoked,
+  KraterionPooledBlobRegistered,
+  KraterionPooledBlobCertified,
+  KraterionPooledBlobDeleted,
+  KraterionPoolExtended,
+  KraterionPoolResizedGrow,
 } from "./generated/kraterion/events.js";
 
 export * as kraterion from "./generated/kraterion/kraterion.js";
 export * as access from "./generated/kraterion/access.js";
 export * as events from "./generated/kraterion/events.js";
 export * as reserve from "./generated/kraterion/reserve.js";
+export * as pool_vault from "./generated/kraterion/pool_vault.js";
 
 export { KRATERION_PACKAGE_ID };
 
 /** Fully-qualified event type strings, ready to pass to `client.queryEvents`. */
 export const EVENT_TYPE = {
   bucketCreated: `${KRATERION_PACKAGE_ID}::events::KraterionBucketCreated`,
-  objectCreated: `${KRATERION_PACKAGE_ID}::events::KraterionObjectCreated`,
-  objectExtended: `${KRATERION_PACKAGE_ID}::events::KraterionObjectExtended`,
   apiAccessGranted: `${KRATERION_PACKAGE_ID}::events::ApiAccessGranted`,
   apiAccessRevoked: `${KRATERION_PACKAGE_ID}::events::ApiAccessRevoked`,
   bucketVisibilityChanged: `${KRATERION_PACKAGE_ID}::events::BucketVisibilityChanged`,
@@ -56,6 +61,14 @@ export const EVENT_TYPE = {
   reserveCallerDeauthorized: `${KRATERION_PACKAGE_ID}::events::ReserveCallerDeauthorized`,
   reserveFunded: `${KRATERION_PACKAGE_ID}::events::ReserveFunded`,
   reserveWithdrawn: `${KRATERION_PACKAGE_ID}::events::ReserveWithdrawn`,
+  // Pool vault events (storage-pool migration).
+  vaultCreated: `${KRATERION_PACKAGE_ID}::events::KraterionVaultCreated`,
+  vaultRevoked: `${KRATERION_PACKAGE_ID}::events::KraterionVaultRevoked`,
+  pooledBlobRegistered: `${KRATERION_PACKAGE_ID}::events::KraterionPooledBlobRegistered`,
+  pooledBlobCertified: `${KRATERION_PACKAGE_ID}::events::KraterionPooledBlobCertified`,
+  pooledBlobDeleted: `${KRATERION_PACKAGE_ID}::events::KraterionPooledBlobDeleted`,
+  poolExtended: `${KRATERION_PACKAGE_ID}::events::KraterionPoolExtended`,
+  poolResizedGrow: `${KRATERION_PACKAGE_ID}::events::KraterionPoolResizedGrow`,
 } as const;
 
 /**
@@ -65,8 +78,6 @@ export const EVENT_TYPE = {
  */
 const SCHEMA_BY_TYPE = {
   [EVENT_TYPE.bucketCreated]: KraterionBucketCreated,
-  [EVENT_TYPE.objectCreated]: KraterionObjectCreated,
-  [EVENT_TYPE.objectExtended]: KraterionObjectExtended,
   [EVENT_TYPE.apiAccessGranted]: ApiAccessGranted,
   [EVENT_TYPE.apiAccessRevoked]: ApiAccessRevoked,
   [EVENT_TYPE.bucketVisibilityChanged]: BucketVisibilityChanged,
@@ -75,6 +86,13 @@ const SCHEMA_BY_TYPE = {
   [EVENT_TYPE.reserveCallerDeauthorized]: ReserveCallerDeauthorized,
   [EVENT_TYPE.reserveFunded]: ReserveFunded,
   [EVENT_TYPE.reserveWithdrawn]: ReserveWithdrawn,
+  [EVENT_TYPE.vaultCreated]: KraterionVaultCreated,
+  [EVENT_TYPE.vaultRevoked]: KraterionVaultRevoked,
+  [EVENT_TYPE.pooledBlobRegistered]: KraterionPooledBlobRegistered,
+  [EVENT_TYPE.pooledBlobCertified]: KraterionPooledBlobCertified,
+  [EVENT_TYPE.pooledBlobDeleted]: KraterionPooledBlobDeleted,
+  [EVENT_TYPE.poolExtended]: KraterionPoolExtended,
+  [EVENT_TYPE.poolResizedGrow]: KraterionPoolResizedGrow,
 } as const;
 
 /**
@@ -91,8 +109,6 @@ export function parseEvent(input: {
   bcsEncoding?: "base64" | "hex";
 }):
   | { type: typeof EVENT_TYPE.bucketCreated; data: typeof KraterionBucketCreated.$inferType }
-  | { type: typeof EVENT_TYPE.objectCreated; data: typeof KraterionObjectCreated.$inferType }
-  | { type: typeof EVENT_TYPE.objectExtended; data: typeof KraterionObjectExtended.$inferType }
   | { type: typeof EVENT_TYPE.apiAccessGranted; data: typeof ApiAccessGranted.$inferType }
   | { type: typeof EVENT_TYPE.apiAccessRevoked; data: typeof ApiAccessRevoked.$inferType }
   | { type: typeof EVENT_TYPE.bucketVisibilityChanged; data: typeof BucketVisibilityChanged.$inferType }
@@ -101,6 +117,13 @@ export function parseEvent(input: {
   | { type: typeof EVENT_TYPE.reserveCallerDeauthorized; data: typeof ReserveCallerDeauthorized.$inferType }
   | { type: typeof EVENT_TYPE.reserveFunded; data: typeof ReserveFunded.$inferType }
   | { type: typeof EVENT_TYPE.reserveWithdrawn; data: typeof ReserveWithdrawn.$inferType }
+  | { type: typeof EVENT_TYPE.vaultCreated; data: typeof KraterionVaultCreated.$inferType }
+  | { type: typeof EVENT_TYPE.vaultRevoked; data: typeof KraterionVaultRevoked.$inferType }
+  | { type: typeof EVENT_TYPE.pooledBlobRegistered; data: typeof KraterionPooledBlobRegistered.$inferType }
+  | { type: typeof EVENT_TYPE.pooledBlobCertified; data: typeof KraterionPooledBlobCertified.$inferType }
+  | { type: typeof EVENT_TYPE.pooledBlobDeleted; data: typeof KraterionPooledBlobDeleted.$inferType }
+  | { type: typeof EVENT_TYPE.poolExtended; data: typeof KraterionPoolExtended.$inferType }
+  | { type: typeof EVENT_TYPE.poolResizedGrow; data: typeof KraterionPoolResizedGrow.$inferType }
   | null {
   const schema = SCHEMA_BY_TYPE[input.type as keyof typeof SCHEMA_BY_TYPE];
   if (!schema || !input.bcs) return null;

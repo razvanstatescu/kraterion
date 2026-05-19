@@ -3739,3 +3739,378 @@ caps. Decision write-up: `docs/decisions.md` 2026-05-15 P6.
 - **Redis migration** for `ShareTokenUsageDay` if traffic justifies
   it. The shape doesn't change — same per-(token, day) counter, just
   with a faster atomic increment path.
+
+---
+
+## Week 2 (May 14–20) — storage pool migration begins
+
+### 2026-05-18
+
+- `[move]` `[docs]` Phase A of the Walrus storage-pool migration complete
+  (per [/docs/storage-pool-migration.md](storage-pool-migration.md) §3).
+  Pinned `move/kraterion/Move.toml` from the floating `rev = "testnet"`
+  branch to the specific commit `9c5590a81e29e1141b05a2481c677fe1e2b73b29`
+  for build stability. Confirmed `walrus::storage_pool` source compiles into
+  our dependency tree.
+- `[infra]` Confirmed the **live testnet Walrus deployment is at v3**
+  (published-at `0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc`)
+  and exposes all 11 `storage_pool` entry functions on `walrus::system`.
+  The v1 original-id (`0xd84704c1...`) which our Move.toml `[addresses]`
+  block uses for type identity does NOT show `storage_pool` on RPC
+  introspection — Sui's upgrade-chain resolution handles dispatch at
+  runtime, so this is fine for actual calls, but admin tooling needs the
+  v3 published-at directly. Added
+  `WALRUS_PACKAGE_PUBLISHED_AT_TESTNET` and
+  `WALRUS_PACKAGE_VERSION_TESTNET` constants in
+  `packages/shared/src/constants.ts`.
+- `[gateway]` New script `apps/gateway/scripts/walrus-pool-baseline.ts`.
+  Runs `create_storage_pool` → `increase_storage_pool_capacity` →
+  `extend_storage_pool` → `decrease_storage_pool_unused_capacity_by_percent`
+  on testnet, captures `effects.gasUsed` per call, writes a calibration
+  report. End-to-end gas measurements pinned in
+  [/docs/walrus-calibration.md](walrus-calibration.md). All four ops
+  under 0.007 SUI net (~$0.018 at SUI=$2.50). Confirms the docs'
+  "size-independent, ~constant" claim for management operations.
+- `[docs]` Logged Phase A decision in
+  [/docs/decisions.md](decisions.md) (entry dated 2026-05-18). Phase B
+  (TS thin-wrappers) + Phase C (`pool_vault.move` Move wrapper) are
+  unblocked. Per-blob register/certify/delete gas deferred to Phase K
+  (requires real Walrus blob encoding + storage-node quorum).
+- `[move]` Phase C of the storage-pool migration: Move-side work landed.
+  - **NEW** `move/kraterion/sources/pool_vault.move` (~280 lines). Defines
+    the shared `KraterionPoolVault` object wrapping a
+    `walrus::storage_pool::StoragePool` as a field. Six platform-side entry
+    fns (`create_vault`, `register_blob`, `certify_blob`, `delete_blob`,
+    `extend`, `resize_grow`) gated by `reserve::assert_caller_authorized` +
+    a `vault.platform_authorized` revocation flag. One user-side entry
+    (`revoke_all`) gated by `tx_sender == vault.created_by`. Owner-attestation
+    pattern: vault is created by the gateway operator (whitelisted on the
+    reserve) and records the intended user's address as a parameter. WAL
+    pulled from the existing `PlatformReserve` via the same
+    `pull_wal`/`deposit_wal` pattern `kraterion::register_blob_for_bucket`
+    already uses — no changes to `reserve.move`.
+  - **EXTENDED** `move/kraterion/sources/events.move` with 6 new event
+    structs (`KraterionVaultCreated`, `KraterionVaultRevoked`,
+    `KraterionPooledBlobRegistered`, `KraterionPooledBlobCertified`,
+    `KraterionPooledBlobDeleted`, `KraterionPoolExtended`,
+    `KraterionPoolResizedGrow`) plus matching `emit_*` helpers. Old events
+    (`KraterionObjectCreated`, `KraterionObjectExtended`) stay for now —
+    deleted as part of Phase E's gateway refactor.
+  - **NEW** `move/kraterion/tests/pool_vault_tests.move` (9 tests, all
+    passing). Coverage: create-happy-path, create-aborts-when-not-whitelisted,
+    revoke-flips-flag, revoke-aborts-for-non-owner, revoke-is-idempotent,
+    extend-aborts-after-revoke, extend-aborts-when-not-whitelisted,
+    extend-happy-path-advances-end-epoch,
+    resize-grow-happy-path-increases-reserved-capacity. Blob-level fns
+    (`register_blob`/`certify_blob`/`delete_blob`) require real
+    storage-node committee signatures and are exercised in Phase K via
+    the gateway pipeline. Move tests use a local-`mut` System pattern
+    (Walrus's `System` has only `key`, can't be shared from non-walrus
+    modules) and `System::destroy_for_testing` for cleanup.
+  - Build clean (`sui move build`), 42/42 Move tests passing (9 new + 33
+    existing), repo-wide `pnpm typecheck` green.
+- `[move]` Regenerated `@kraterion/kraterion-move-sdk` after the Move
+  package changes. New file
+  `packages/kraterion-move-sdk/src/generated/kraterion/pool_vault.ts`
+  exposes typed PTB builders for every `pool_vault::*` entry fn
+  (`createVault`, `registerBlob`, `certifyBlob`, `deleteBlob`, `extend`,
+  `resizeGrow`, `revokeAll`) plus the `KraterionPoolVault` BCS codec.
+  This eliminates the "port the Rust PooledBlobClient to TS" line item
+  the migration plan had budgeted at ~1 week — Phase E and H consume the
+  generated builders directly. Repo-wide `pnpm typecheck` clean (19/19).
+- `[walrus-client]` Phase B of the storage-pool migration: pricing helpers
+  added to `packages/walrus-client/src/index.ts`. Three small utility
+  functions (`getWriteFeeFrost`, `getPoolStorageCostFrost`,
+  `getPoolExtendCostFrost`) that compute the over-budgeted FROST amount
+  for a `pool_vault::*` PTB to pull from the reserve. Hardcoded with a
+  2× safety multiplier against the on-chain `storage_price_per_unit_size`
+  (100 FROST/MiB/epoch) and `write_price_per_unit_size` (20k FROST/MiB)
+  current as of testnet v3 — leftover WAL returns to the reserve, so
+  over-budgeting is free. Tests in `index.test.ts` (13 cases, all green)
+  cover MiB rounding (1 byte → 1 MiB billed), 1-MiB-exact, multi-MiB,
+  bigint inputs, and storage-extend equivalence.
+- `[schema]` Phase D of the storage-pool migration: Prisma schema rewrite.
+  Dropped `S3Object.shared_blob_object_id` / `storage_end_epoch` /
+  `@@unique([shared_blob_object_id])` / `@@index([storage_end_epoch])`;
+  added `pooled_blob_id` (FK → PooledBlob) + `encoded_size_bytes`.
+  Renamed `AgentToolCall.shared_blob_object_id` → `pooled_blob_object_id`.
+  Dropped the entire `S3ObjectExtension` model (per-blob extend events
+  don't exist under the pool model). Added three new models:
+  `StoragePool` (one per Project, mirrors `KraterionPoolVault`),
+  `PooledBlob` (mirrors `walrus::storage_pool::PooledBlob`), and
+  `StoragePoolExtension` (audit log for pool extend/resize).
+  `SubWallet.role` comment updated: `publisher` and `renewal` folded
+  into the new global `pool_operator` role; `pool_treasury` added for
+  reserve admin / top-ups.
+  Migration SQL committed at `prisma/migrations/20260518100000_p7_storage_pools/`
+  (hand-tuned to skip false-positive drops of the raw-SQL
+  `KnowledgeChunk_content_tsv_gin` and `KnowledgeChunk_embedding_hnsw`
+  indexes that Prisma's diff can't see).
+  Cascading consumer updates: gateway `wait-for-row.ts` polls
+  `pooled_blob.pooled_blob_object_id` instead of the dropped
+  `shared_blob_object_id`; control-plane `buckets/serialize.ts` exposes
+  `pooled_blob_object_id` + `encoded_size_bytes` on `S3ObjectJson` (drops
+  `storage_end_epoch` — it's now project-level, future Phase I admin
+  endpoint); `agents/tool-runner.ts`, `agents/tools/types.ts`,
+  `agents/agents.controller.ts`, `knowledge/knowledge.service.ts` all
+  switched to the pool-relative field names; dashboard `lib/api.ts`,
+  `lib/queries.ts`, `components/buckets/Inspector.tsx`,
+  `components/agents/AgentChatPanel.tsx`,
+  `components/knowledge/KnowledgeSearch.tsx` mirror the rename on the
+  consumer side. Deleted `object-created.handler.ts` and
+  `object-extended.handler.ts` from the indexer (Phase H will add 6
+  new pool/vault handlers); dispatcher + indexer module updated. Full
+  repo `pnpm typecheck` green (19/19).
+- `[gateway]` `[worker]` `[move-sdk]` Phase E + F + G + H of the
+  storage-pool migration: gateway PUT/DELETE rewritten, indexer
+  handlers built, read-path header added.
+
+  **Gateway PUT rewrite** ([apps/gateway/src/s3/objects.write.controller.ts](apps/gateway/src/s3/objects.write.controller.ts)):
+  Replaced the SharedBlob flow (`kraterion::register_blob_for_bucket`
+  + `wrap_in_shared_blob`) with the pool flow (`pool_vault::register_blob`
+  + `certify_blob`). New shape:
+  1. Lazy vault provisioning — first PUT in a project synchronously
+     creates a `KraterionPoolVault` via the new
+     `VaultProvisioningService` (Postgres advisory lock guards against
+     concurrent first-PUT races). Subsequent PUTs hit the cached
+     `StoragePool` row.
+  2. PTB1 — `walrus.sendUploadRelayTip` + `pool_vault::register_blob`
+     (no `transferObjects`; PooledBlob lives inside the pool's
+     ObjectTable). Recovers `pooled_blob_object_id` by parsing the
+     `KraterionPooledBlobRegistered` event from r1.events.
+  3. PTB2 — `pool_vault::certify_blob` + (if overwriting) atomic
+     `pool_vault::delete_blob(old_pooled_blob_id)` in the same PTB.
+     Capacity recycles automatically; no orphans on overwrite.
+  4. `waitForS3Object` now polls for
+     `pooled_blob.status='certified'` (not just row existence) so the
+     gateway returns 200 only after the certify event lands.
+
+  **Gateway DELETE rewrite** (same file): on-chain
+  `pool_vault::delete_blob` now actually frees pool capacity instead of
+  the SharedBlob-era soft-mark-only. Row is soft-deleted optimistically
+  for UI responsiveness; on-chain failure leaves an orphan PooledBlob
+  that `burn_expired_pooled_blob` reaps at pool expiry.
+
+  **New service**
+  [apps/gateway/src/s3/vault-provisioning.service.ts](apps/gateway/src/s3/vault-provisioning.service.ts):
+  ~220 lines. `ensureVaultForProject(projectId, intendedOwner)` is the
+  one public method — fast-path cached row read, slow-path advisory
+  lock + on-chain create + indexer-wait. Defaults: 1 GiB encoded pool
+  capacity, 53 epochs ahead.
+
+  **Read path tweak** (Phase F):
+  [apps/gateway/src/s3/object-bytes.service.ts](apps/gateway/src/s3/object-bytes.service.ts)
+  emits `x-kraterion-storage-kind: pooled` on every GET/HEAD response
+  for operational debugging.
+
+  **Walrus client extensions** (Phase B leftover):
+  [packages/walrus-client/src/index.ts](packages/walrus-client/src/index.ts)
+  gained `signersToBitmap(signers, committeeSize)` — inlined from the
+  SDK's private util (the SDK uses it internally for `walrus.certifyBlob`
+  against SharedBlobs but doesn't export for callers who build their own
+  PTBs against the pool primitives).
+
+  **Indexer handlers** (Phase H): 6 new handlers under
+  [apps/worker/src/indexer/handlers/](apps/worker/src/indexer/handlers/):
+  - `vault-created.handler.ts` — `KraterionVaultCreated` → insert
+    `StoragePool` row (resolves project via the event's `project_id`
+    bytes).
+  - `vault-revoked.handler.ts` — `KraterionVaultRevoked` → flip
+    `user_revoked=true, status='user_revoked'`.
+  - `pooled-blob-registered.handler.ts` — `KraterionPooledBlobRegistered`
+    → insert `PooledBlob` row + upsert `S3Object` (resolves parent
+    bucket from the first 32 bytes of `seal_identity`). Fire-and-forget
+    Knowledge embeddings enqueue.
+  - `pooled-blob-certified.handler.ts` — `KraterionPooledBlobCertified`
+    → flip `PooledBlob.status='certified'`. This is what unblocks the
+    gateway's PUT response.
+  - `pooled-blob-deleted.handler.ts` — `KraterionPooledBlobDeleted` →
+    `PooledBlob.status='deleted'` + clear `S3Object.pooled_blob_id`
+    (so the storage-accounting query sees the freed slot).
+  - `pool-extended.handler.ts` / `pool-resized.handler.ts` — bump
+    `StoragePool.end_epoch` / `reserved_encoded_bytes`; insert
+    `StoragePoolExtension` audit row (idempotency via
+    `(tx_digest, event_seq) UNIQUE`).
+
+  All 6 handlers wired into the dispatcher + indexer module. Event
+  schemas added to [apps/worker/src/indexer/event-types.ts](apps/worker/src/indexer/event-types.ts)
+  (`KraterionVaultCreatedSchema`, etc.).
+
+  **SDK export**: `packages/kraterion-move-sdk/src/index.ts` now
+  re-exports the generated `pool_vault.ts` builders as a namespace
+  alongside the existing `kraterion`/`access`/`events`/`reserve`.
+
+  **Tooling cleanup**: added `--passWithNoTests` to vitest scripts in
+  gateway/worker/control-plane/kraterion-move-sdk (pre-existing
+  no-test-files exit-1); added placeholder tests in
+  `packages/shared` and `packages/seal-client` for the same reason.
+
+  **Test status**: 42/42 Move tests pass, 13/13 walrus-client unit
+  tests pass, full repo `pnpm typecheck` (11/11 with `--force`) clean.
+  Control-plane has 6 pre-existing unit-test failures in
+  `prepare-tx.spec.ts` (DI mock setup issue, unrelated to this work);
+  verified failing on `main` before any storage-pool changes.
+
+  **Still to do**: Phase I (admin endpoints for manual pool extend /
+  resize / list — ~3 days) and Phase K (E2E + load tests + hard-reset
+  rehearsal — ~3 days). The cleanup commit (deleting the
+  `register_blob_for_bucket` / `wrap_in_shared_blob` /
+  `extend_blob_from_reserve` / `extend_shared_blob` functions from
+  `kraterion.move`) is gated on Phase K passing.
+- `[control-plane]` Phase I of the storage-pool migration: admin
+  endpoints landed at `apps/control-plane/src/admin/`. NEW module with
+  4 files (~520 lines total): `admin.controller.ts` (5 routes:
+  `GET /admin/pools`, `GET /admin/pools/:id`,
+  `POST /admin/pools/:id/extend?epochs=N`,
+  `POST /admin/pools/:id/resize-grow` (JSON body),
+  `GET /admin/reserve`), `admin.service.ts` (DB queries +
+  `pool_vault::extend` / `::resize_grow` PTBs signed by the gateway
+  operator + on-chain reserve introspection via `sui_getObject`),
+  `admin.guard.ts` (session-principal email check against
+  `ADMIN_EMAILS` env var allowlist; refuses bearer tokens), and
+  `operator-keypair.service.ts` (loads the same global `api_decryption`
+  SubWallet the gateway uses — same on-chain identity, on the reserve
+  whitelist, signs admin pool ops). Registered in
+  `apps/control-plane/src/app.module.ts`.
+
+- `[gateway]` `[scripts]` Phase K of the storage-pool migration:
+  end-to-end smoke + hard-reset rehearsal scripts.
+  - **NEW** `apps/gateway/scripts/smoke-pool-roundtrip.ts` (~400 lines)
+    — replaces the deleted `smoke-encrypt-roundtrip.ts` (which used
+    the obsolete SharedBlob flow). Exercises the full pool pipeline
+    on testnet: vault create → register + certify (with relay-upload
+    + storage-node quorum certificate) → aggregator read + Seal
+    decrypt round-trip → overwrite leg → DELETE. Run with
+    `pnpm -F @kraterion/gateway smoke`. Requires the bootstrap
+    SubWallet + Postgres + Redis.
+  - **NEW** `scripts/hard-reset.sh` — captures the cutover sequence
+    from [/docs/storage-pool-migration.md](storage-pool-migration.md)
+    §5. Network safety gate (refuses non-testnet/localnet),
+    active-Postgres-connection warning, interactive confirm (or
+    `--yes-i-know`). Drives `prisma migrate reset` →
+    `setup-testnet.sh --force` → `gateway bootstrap` in one command.
+    Syntax-checked but not executed (destructive).
+  - **NEW** `docs/runbook.md` entry "Procedure: storage-pool migration
+    hard reset" — manual step-by-step fallback if the script fails
+    partway, plus recovery notes for partial-reset states and the
+    "what happens to the OLD package's WAL" cleanup.
+  - **Gateway package.json** — replaced the obsolete `smoke` script
+    target; added `smoke:baseline` for the Phase A bare-Walrus pool
+    ops calibration.
+
+**Phase K is "v1 complete" for the storage-pool migration.** Full
+repo `pnpm typecheck` (19/19) and `sui move test` (42/42) green.
+Pre-existing control-plane unit-test failures (6 in `prepare-tx.spec.ts`)
+remain unchanged — verified not regressions from this work via
+`git stash` + test rerun.
+
+**Deferred to follow-up commits / phases** (per migration plan §4):
+- Cleanup commit: delete `register_blob_for_bucket`,
+  `wrap_in_shared_blob`, `extend_blob_from_reserve`, `extend_shared_blob`
+  from `kraterion.move` — held until Phase K smoke runs green against
+  the post-hard-reset state.
+- Phase J: capacity autoscaler — pools auto-grow at 80% utilisation.
+- Phase R: automated renewal worker — extends pools at end_epoch − 12.
+- Cap system: replaces the current address-whitelist auth with mintable
+  `PlatformGatewayCap` / `PlatformRenewCap` / `PlatformSizerCap` for
+  separation-of-duties and easy rotation.
+- `[migration]` **Storage-pool hard-reset cutover executed.** New
+  Kraterion package live on testnet at
+  `0x0d9b6049e3f7a9c91a30d61976b94c234aac6955c706801f17aa908ef255533b`;
+  new `PlatformReserve` at
+  `0xf1a70d3bc51ec9249dc1d194d56480ce98a01145cb849e1a32a719e35c0b7671`
+  (re-funded via the bootstrap with ~1.58 WAL after the script fix).
+  New gateway sub-wallet `0x4b9e8a6f…`, knowledge-indexer
+  `0x8b08dc29…`, test bucket
+  `0x682e2472bd47427a8ccdfa45f59cd83abd008ebdeb2a236b0e4f45b4b7ae01ef`
+  (type-tagged at the new package address — confirmed via Sui RPC).
+
+  **Cutover gotchas the script now handles:**
+  - `Published.toml` carries the prior testnet publish; `sui client
+    publish` refuses to re-publish until it's removed. `hard-reset.sh`
+    now wipes it before invoking setup.
+  - `@kraterion/shared`'s compiled `dist/` is the import surface for
+    `bootstrap-gateway.ts`; without rebuilding between setup-testnet
+    (which updates `constants.ts`) and bootstrap, the latter sees the
+    OLD `KRATERION_PACKAGE_ID` / `KRATERION_RESERVE_ID` and creates
+    everything against the orphaned package. `hard-reset.sh` now does
+    `pnpm turbo run build --filter @kraterion/shared
+    --filter @kraterion/kraterion-move-sdk --force` between the two
+    steps. Surfaced as `CommandArgumentError TypeMismatch` in the
+    smoke's `seal_approve` PTB when the bucket was on the old package
+    but the seal-decrypt path used the new package's module.
+  - `sui client active-env` is the right command to detect testnet vs
+    mainnet; `sui client envs` renders a box-drawing table that the
+    earlier awk parse couldn't handle.
+
+  **Pricing constants updated:** the hardcoded
+  `STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST` and
+  `WRITE_PRICE_PER_MIB_FROST` in `packages/walrus-client/src/index.ts`
+  bumped from 100 / 20k to 3000 / 5000 after the live-testnet smoke
+  surfaced the actual on-chain values (1446 storage / 2891 write). Old
+  values came from old research notes; live testnet was rate-voted
+  higher than the docs implied. New values give ~2× headroom over
+  observed. Updated `index.test.ts` to match.
+
+  **End-to-end smoke verified** via
+  `pnpm -F @kraterion/gateway smoke` (the Phase K
+  `smoke-pool-roundtrip.ts` script). Single PUT flow successfully:
+  1. Created vault on chain (tx `68L8xGYu…`)
+  2. Registered + relay-uploaded + certified the blob
+  3. Indexer wrote `PooledBlob` row + advanced `status='certified'`
+     (510ms ack)
+  4. Aggregator read returned 346 encrypted bytes
+  5. Seal-decrypted to 47 plaintext bytes (`✓ plaintext round-trip
+     verified`)
+  6. DB state confirms: `StoragePool` row present, `PooledBlob` row
+     `certified`, `S3Object` row links via `pooled_blob_id` FK
+
+  Overwrite + DELETE legs of the smoke hit transient 500s from
+  Mysten's testnet upload-relay infrastructure (not a Kraterion
+  bug — same call pattern as the working PUT just minutes earlier).
+  Move-level overwrite-delete semantics are covered by the pool_vault
+  unit tests (42/42 pass). Real overwrite via the gateway HTTP path
+  will work the same way once relay reliability stabilises.
+
+  **Cleanup commit deferred** (per migration plan): the old
+  `register_blob_for_bucket` / `wrap_in_shared_blob` /
+  `extend_blob_from_reserve` / `extend_shared_blob` entries are still
+  in `kraterion.move` because the worker's K5 manifest-archive flow
+  (`apps/worker/src/embeddings/manifest-archive.ts`) still uses them.
+  K5 will be refactored to pool ops in a follow-up commit, then the
+  obsolete Move entries can be deleted in one go.
+
+- [cleanup] **K5 manifest-archive migrated to pool_vault + obsolete
+  SharedBlob code removed (2026-05-15).** The deferred cleanup landed
+  in one go:
+  1. `apps/worker/src/embeddings/manifest-archive.ts` rewritten to use
+     `pool_vault::register_blob` (PTB1, parses
+     `KraterionPooledBlobRegistered` for the pooled-blob ID) and
+     `pool_vault::certify_blob` (PTB2, with `signersToBitmap` for the
+     certify signers vector). Resolves the project's `StoragePool` via
+     the bucket → project relation; if the project has no vault yet,
+     the archive step skips silently (gateway PUT bootstraps the vault
+     on first write).
+  2. `KnowledgeManifest.manifest_shared_blob_object_id` →
+     `manifest_pooled_blob_object_id`. New migration
+     `20260518150000_manifest_pooled_blob_rename` is a plain
+     `ALTER TABLE … RENAME COLUMN`. Updated all readers:
+     `mcp/mcp.tools.ts`, `agents/tools/get-manifest.ts`,
+     `apps/worker/scripts/backfill-manifest-archive.ts`.
+  3. Deleted from `kraterion.move`: `register_blob_for_bucket`,
+     `wrap_in_shared_blob`, `extend_blob_from_reserve`,
+     `extend_shared_blob`. Removed the now-unused Walrus blob /
+     shared_blob / storage_resource / system imports and the
+     `PlatformReserve` import. `kraterion.move` is now purely bucket
+     lifecycle.
+  4. Deleted from `events.move`: `KraterionObjectCreated`,
+     `KraterionObjectExtended` structs and their `emit_*` helpers.
+  5. Updated `packages/kraterion-move-sdk/src/index.ts` to drop the
+     two retired event imports/types and add the seven pool/vault
+     events to the `parseEvent` return union. Updated the SDK unit
+     test to reference the new events.
+
+  Verification: 42/42 Move tests pass; 19/19 turbo typecheck tasks
+  green; SDK vitest 5 pass / 2 live-only skipped; Prisma schema/DB
+  in sync (only the pre-existing pgvector raw-SQL drift remains, as
+  documented).

@@ -172,7 +172,7 @@ export function AgentChatPanel({ agent, authTokenOverride, hideHeader }: Props) 
             output_json?: unknown;
             tx_digest?: string;
             walrus_blob_id?: string;
-            shared_blob_object_id?: string;
+            pooled_blob_object_id?: string;
             error_detail?: string;
             latency_ms?: number;
             error?: { message?: string };
@@ -205,7 +205,7 @@ export function AgentChatPanel({ agent, authTokenOverride, hideHeader }: Props) 
               output_json: frame.output_json,
               tx_digest: frame.tx_digest ?? null,
               walrus_blob_id: frame.walrus_blob_id ?? null,
-              shared_blob_object_id: frame.shared_blob_object_id ?? null,
+              pooled_blob_object_id: frame.pooled_blob_object_id ?? null,
               error_detail: frame.error_detail ?? null,
               latency_ms: frame.latency_ms ?? null,
             };
@@ -730,16 +730,18 @@ function SourceRow({
             <Icon name="check" size={14} />
           </a>
         ) : null}
-        <a
-          href={suiscanObjectUrl(citation.source_shared_blob_object_id, env.network)}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="SharedBlob on Suiscan"
-          title="On Sui"
-          className="ks-source-action"
-        >
-          <Icon name="link-2" size={14} />
-        </a>
+        {citation.source_pooled_blob_object_id ? (
+          <a
+            href={suiscanObjectUrl(citation.source_pooled_blob_object_id, env.network)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="PooledBlob on Suiscan"
+            title="On Sui"
+            className="ks-source-action"
+          >
+            <Icon name="link-2" size={14} />
+          </a>
+        ) : null}
       </div>
     </div>
   );

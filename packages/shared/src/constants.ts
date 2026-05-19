@@ -20,11 +20,32 @@ export const WALRUS_UPLOAD_RELAY_URL = "https://upload-relay.testnet.walrus.spac
 
 /**
  * The on-chain `walrus::system::System` shared object on testnet. Required as
- * a tx input for `register_blob`, `extend_blob`, etc. Sourced from
- * `@mysten/walrus`'s `TESTNET_WALRUS_PACKAGE_CONFIG.systemObjectId`.
+ * a tx input for `register_blob`, `extend_blob`, `register_pooled_blob`, etc.
+ * Sourced from `@mysten/walrus`'s `TESTNET_WALRUS_PACKAGE_CONFIG.systemObjectId`.
  */
 export const WALRUS_SYSTEM_OBJECT_ID =
   "0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af";
+
+/**
+ * The Walrus package's CURRENT published-at address on testnet (v3 at time of
+ * writing — confirmed via `Published.toml` and the System object's `package_id`
+ * field). Differs from `WAL_PACKAGE_ID` and from the package's original-id
+ * (`0xd84704c1...`, the v1 address our Move.toml uses for type identity).
+ *
+ * We need this when reading on-chain modules via RPC (which does NOT follow
+ * the upgrade chain — `sui_getNormalizedMoveModule(original_id, ...)` returns
+ * the v1 surface). For tx submission, Sui resolves the upgrade chain
+ * automatically; for introspection (admin tooling, calibration scripts), use
+ * the published-at directly.
+ *
+ * The `storage_pool` module was introduced in v3 — check this constant on
+ * startup if the gateway needs to assert pool support is live.
+ */
+export const WALRUS_PACKAGE_PUBLISHED_AT_TESTNET =
+  "0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc";
+
+/** Walrus package version currently deployed on testnet (v3 ships storage_pool). */
+export const WALRUS_PACKAGE_VERSION_TESTNET = 3;
 
 /**
  * The Walrus staking pool on testnet. Some PTBs reference it; we don't yet,
@@ -86,14 +107,14 @@ export const SEAL_AGGREGATOR_URL = "https://seal-aggregator-testnet.mystenlabs.c
 // === Kraterion deployment ===
 
 /** Kraterion Move package — populated after first publish. */
-export const KRATERION_PACKAGE_ID = "0x73b16cf98849e22af31b3b3d5f54125193b5927b31b8ac06ab411234c0c2fa14";
+export const KRATERION_PACKAGE_ID = "0x10945f9b11d92ae3866b88447bb363bfe30866267970672e340a67dfea19cb9e";
 
 /** Captured at publish; needed for `sui client upgrade-package`. */
-export const KRATERION_UPGRADE_CAP_ID = "0x577a2aa44298b77099de2e6147beace1e24c8945436a6f4865d30012a9a1570a";
+export const KRATERION_UPGRADE_CAP_ID = "0x6785a4d043ac28d8c9cc9304b8a0ca7b7264497baf597ba93806214cdde0c997";
 
 /**
  * Singleton PlatformReserve, spawned by the package's init function
  * at publish. Required as a tx input by every paid operation
  * (`register_blob_for_bucket`, `extend_blob_from_reserve`).
  */
-export const KRATERION_RESERVE_ID = "0x3137a20eb5f654300f08dc911aee9edcde138afb8f34075800750613c5b1733f";
+export const KRATERION_RESERVE_ID = "0xe679ac8687f1c821f6fb37047bfdb1c4c9191ef494405d9d637ce34a1e6da2e6";

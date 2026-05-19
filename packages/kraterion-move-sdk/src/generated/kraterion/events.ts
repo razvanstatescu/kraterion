@@ -26,24 +26,6 @@ export const KraterionBucketCreated = new MoveStruct({ name: `${$moduleName}::Kr
         name: bcs.vector(bcs.u8()),
         encryption_mode: bcs.u8()
     } });
-export const KraterionObjectCreated = new MoveStruct({ name: `${$moduleName}::KraterionObjectCreated`, fields: {
-        bucket_id: bcs.Address,
-        walrus_blob_object_id: bcs.Address,
-        walrus_blob_id: bcs.u256(),
-        s3_key: bcs.vector(bcs.u8()),
-        content_type: bcs.vector(bcs.u8()),
-        owner_address: bcs.Address,
-        wrapped_by: bcs.Address,
-        seal_identity: bcs.vector(bcs.u8()),
-        size_bytes: bcs.u64(),
-        storage_end_epoch: bcs.u32(),
-        etag_md5: bcs.vector(bcs.u8())
-    } });
-export const KraterionObjectExtended = new MoveStruct({ name: `${$moduleName}::KraterionObjectExtended`, fields: {
-        shared_blob_id: bcs.Address,
-        epochs_added: bcs.u32(),
-        funder: bcs.Address
-    } });
 export const ApiAccessGranted = new MoveStruct({ name: `${$moduleName}::ApiAccessGranted`, fields: {
         bucket_id: bcs.Address,
         owner: bcs.Address,
@@ -82,4 +64,69 @@ export const ReserveWithdrawn = new MoveStruct({ name: `${$moduleName}::ReserveW
         admin: bcs.Address,
         recipient: bcs.Address,
         amount: bcs.u64()
+    } });
+export const KraterionVaultCreated = new MoveStruct({ name: `${$moduleName}::KraterionVaultCreated`, fields: {
+        vault_id: bcs.Address,
+        pool_id: bcs.Address,
+        created_by: bcs.Address,
+        /**
+         * Off-chain Postgres `Project.id` UUID (typically 16 bytes). Indexer uses this to
+         * associate the on-chain vault with its project row.
+         */
+        project_id: bcs.vector(bcs.u8()),
+        reserved_encoded_capacity_bytes: bcs.u64(),
+        start_epoch: bcs.u32(),
+        end_epoch: bcs.u32()
+    } });
+export const KraterionVaultRevoked = new MoveStruct({ name: `${$moduleName}::KraterionVaultRevoked`, fields: {
+        vault_id: bcs.Address,
+        revoked_by: bcs.Address
+    } });
+export const KraterionPooledBlobRegistered = new MoveStruct({ name: `${$moduleName}::KraterionPooledBlobRegistered`, fields: {
+        vault_id: bcs.Address,
+        pooled_blob_object_id: bcs.Address,
+        walrus_blob_id: bcs.u256(),
+        s3_key: bcs.vector(bcs.u8()),
+        content_type: bcs.vector(bcs.u8()),
+        /**
+         * The user who owns the project (vault.created_by) — recorded so downstream
+         * tooling doesn't have to dereference the vault.
+         */
+        owner_address: bcs.Address,
+        /** The address that signed the registration tx (gateway operator). */
+        registered_by: bcs.Address,
+        /**
+         * 48-byte Seal IBE identity. Same format as the SharedBlob-era event
+         * (`bucket_uid (32) || object_uuid (16)`); pool membership is orthogonal to
+         * encryption identity.
+         */
+        seal_identity: bcs.vector(bcs.u8()),
+        /** Plaintext size — what S3 GET reports as Content-Length. */
+        size_bytes: bcs.u64(),
+        /** 16-byte raw MD5 of plaintext. S3 ETag for non-multipart uploads. */
+        etag_md5: bcs.vector(bcs.u8())
+    } });
+export const KraterionPooledBlobCertified = new MoveStruct({ name: `${$moduleName}::KraterionPooledBlobCertified`, fields: {
+        vault_id: bcs.Address,
+        pooled_blob_object_id: bcs.Address,
+        walrus_blob_id: bcs.u256(),
+        certified_by: bcs.Address
+    } });
+export const KraterionPooledBlobDeleted = new MoveStruct({ name: `${$moduleName}::KraterionPooledBlobDeleted`, fields: {
+        vault_id: bcs.Address,
+        pooled_blob_object_id: bcs.Address,
+        walrus_blob_id: bcs.u256(),
+        deleted_by: bcs.Address
+    } });
+export const KraterionPoolExtended = new MoveStruct({ name: `${$moduleName}::KraterionPoolExtended`, fields: {
+        vault_id: bcs.Address,
+        extended_epochs: bcs.u32(),
+        new_end_epoch: bcs.u32(),
+        extended_by: bcs.Address
+    } });
+export const KraterionPoolResizedGrow = new MoveStruct({ name: `${$moduleName}::KraterionPoolResizedGrow`, fields: {
+        vault_id: bcs.Address,
+        additional_encoded_capacity_bytes: bcs.u64(),
+        new_reserved_encoded_capacity_bytes: bcs.u64(),
+        resized_by: bcs.Address
     } });

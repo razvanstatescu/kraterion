@@ -3339,3 +3339,65 @@ key), this becomes the basis for the platform's own metering.
 - Cross-network share tokens are refused at resolution, same posture
   as bearer tokens. A token minted on testnet won't run against a
   mainnet deployment by accident.
+
+---
+
+## 2026-05-18 — Walrus storage_pool migration: Phase A baseline
+
+**Status:** Accepted (Phase A complete)
+
+**Context:** The current per-blob `SharedBlob` model is structurally wrong for
+a real product (no DELETE, per-blob renewal gas, stranded WAL on early
+delete). Walrus shipped a `StoragePool` + `PooledBlob` primitive in v3 of the
+testnet deployment (Move source on the testnet branch since ~March 2026,
+deployed on-chain at `0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc`
+as of testnet package version 3). The plan in
+[/docs/storage-pool-migration.md](storage-pool-migration.md) requires a Phase A
+calibration sprint before committing to the wrapper module + gateway refactor.
+
+**Decision:** Proceed with the migration. Phase A confirmed three load-bearing
+assumptions:
+
+1. The testnet Walrus deployment has all 11 `storage_pool` entry points live
+   on `walrus::system` (`create_storage_pool`, `register_pooled_blob`,
+   `certify_pooled_blob`, `delete_pooled_blob`, `extend_storage_pool`,
+   `increase_storage_pool_capacity`, `decrease_storage_pool_unused_capacity_by_percent`,
+   `create_storage_pool_with_storage`, `increase_storage_pool_capacity_with_storage`,
+   `decrease_storage_pool_capacity_by_size`, `burn_expired_pooled_blob`).
+2. `Move.toml` pinned to a specific commit
+   (`9c5590a81e29e1141b05a2481c677fe1e2b73b29` on the testnet branch) builds
+   green and pulls `storage_pool.move` into the compiled dependency set.
+3. End-to-end gas measurements for the pool lifecycle ops on testnet (full
+   numbers in [/docs/walrus-calibration.md](walrus-calibration.md)):
+   - `create_storage_pool`: 6.74M MIST net
+   - `increase_storage_pool_capacity`: 2.66M MIST net
+   - `extend_storage_pool`: 2.66M MIST net
+   - `decrease_storage_pool_unused_capacity_by_percent`: 2.87M MIST net
+
+   All operations are under 0.007 SUI (~$0.018 at SUI=$2.50). Confirms the
+   Walrus docs' "size-independent, ~constant" claim for the management
+   operations.
+
+**Pinned constants** added to `packages/shared/src/constants.ts`:
+`WALRUS_PACKAGE_PUBLISHED_AT_TESTNET` and `WALRUS_PACKAGE_VERSION_TESTNET`.
+Needed because Sui RPC's `sui_getNormalizedMoveModule` does NOT follow the
+upgrade chain — querying the original-id (`0xd84704c1...`) returns the v1
+surface, which doesn't have `storage_pool`. For tx submission, Sui resolves
+the upgrade chain automatically; for introspection (admin tooling,
+calibration), use the published-at directly.
+
+**Consequences:**
+
+- Phase B (TS thin-wrappers) and Phase C (`pool_vault.move` + refactor of
+  `kraterion.move`) are unblocked.
+- The calibration script `apps/gateway/scripts/walrus-pool-baseline.ts` is
+  the canonical reference for "is the pool primitive working on testnet
+  today?" — run it before any Phase C work to confirm no upstream changes.
+- `register_pooled_blob` / `certify_pooled_blob` / `delete_pooled_blob` /
+  `burn_expired_pooled_blob` gas numbers deferred to Phase K (full E2E) when
+  the wrapper module + relay-upload pipeline are wired.
+- One pool now sits on testnet at
+  `0x68b7b90c4b0bb877ef7ad52069c423dd674471c30ffafcccb6c0428556dda396`
+  (deployer-owned, 2 MiB encoded capacity, 3 epochs ahead). Orphan — no
+  way to call the package-internal `destroy` from outside. Expires
+  naturally; cost is a rounding error.

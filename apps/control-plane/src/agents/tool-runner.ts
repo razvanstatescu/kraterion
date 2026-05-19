@@ -31,7 +31,7 @@ export interface ToolCallFrame {
   output_json?: Record<string, unknown>;
   tx_digest?: string;
   walrus_blob_id?: string;
-  shared_blob_object_id?: string;
+  pooled_blob_object_id?: string;
   error_detail?: string;
   latency_ms?: number;
 }
@@ -133,8 +133,8 @@ export async function executeToolCall(args: {
           : {}),
         ...(result.txDigest ? { tx_digest: result.txDigest } : {}),
         ...(result.walrusBlobId ? { walrus_blob_id: result.walrusBlobId } : {}),
-        ...(result.sharedBlobObjectId
-          ? { shared_blob_object_id: result.sharedBlobObjectId }
+        ...(result.pooledBlobObjectId
+          ? { pooled_blob_object_id: result.pooledBlobObjectId }
           : {}),
         latency_ms: latencyMs,
         finished_at: new Date(),
@@ -157,8 +157,8 @@ export async function executeToolCall(args: {
         ...(result.structured ? { output_json: result.structured } : {}),
         ...(result.txDigest ? { tx_digest: result.txDigest } : {}),
         ...(result.walrusBlobId ? { walrus_blob_id: result.walrusBlobId } : {}),
-        ...(result.sharedBlobObjectId
-          ? { shared_blob_object_id: result.sharedBlobObjectId }
+        ...(result.pooledBlobObjectId
+          ? { pooled_blob_object_id: result.pooledBlobObjectId }
           : {}),
         latency_ms: latencyMs,
       },

@@ -50,8 +50,10 @@ export interface ToolResult {
   txDigest?: string;
   /** Walrus content-addressed id (writes only). */
   walrusBlobId?: string;
-  /** Sui object id of the SharedBlob wrapper (writes only). */
-  sharedBlobObjectId?: string;
+  /** Sui object id of the PooledBlob inside the project's storage pool
+   *  (writes only). Renamed from `sharedBlobObjectId` at the
+   *  storage-pool migration cutover. */
+  pooledBlobObjectId?: string;
 }
 
 export interface ToolDef<Schema extends z.ZodTypeAny = z.ZodTypeAny> {

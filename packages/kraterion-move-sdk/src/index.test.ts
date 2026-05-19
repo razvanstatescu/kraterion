@@ -18,8 +18,8 @@ describe("@kraterion/kraterion-move-sdk", () => {
     expect(EVENT_TYPE.bucketCreated).toBe(
       `${KRATERION_PACKAGE_ID}::events::KraterionBucketCreated`,
     );
-    expect(EVENT_TYPE.objectCreated).toBe(
-      `${KRATERION_PACKAGE_ID}::events::KraterionObjectCreated`,
+    expect(EVENT_TYPE.pooledBlobRegistered).toBe(
+      `${KRATERION_PACKAGE_ID}::events::KraterionPooledBlobRegistered`,
     );
     expect(EVENT_TYPE.bucketVisibilityChanged).toBe(
       `${KRATERION_PACKAGE_ID}::events::BucketVisibilityChanged`,
@@ -28,8 +28,11 @@ describe("@kraterion/kraterion-move-sdk", () => {
 
   it("exposes BCS schemas for every event", () => {
     expect(events.KraterionBucketCreated).toBeDefined();
-    expect(events.KraterionObjectCreated).toBeDefined();
-    expect(events.KraterionObjectExtended).toBeDefined();
+    expect(events.KraterionVaultCreated).toBeDefined();
+    expect(events.KraterionPooledBlobRegistered).toBeDefined();
+    expect(events.KraterionPooledBlobCertified).toBeDefined();
+    expect(events.KraterionPooledBlobDeleted).toBeDefined();
+    expect(events.KraterionPoolExtended).toBeDefined();
     expect(events.ApiAccessGranted).toBeDefined();
     expect(events.ApiAccessRevoked).toBeDefined();
     expect(events.BucketVisibilityChanged).toBeDefined();
@@ -85,6 +88,7 @@ describe.skipIf(process.env["KRATERION_LIVE"] !== "1")(
         "access",
         "events",
         "kraterion",
+        "pool_vault",
         "reserve",
       ]);
     });

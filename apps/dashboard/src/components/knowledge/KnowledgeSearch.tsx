@@ -170,16 +170,18 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
             <Icon name="link" size={14} />
             Source blob
           </a>
-          <a
-            className="ks-hit-link"
-            href={suiscanObjectUrl(hit.source_shared_blob_object_id, env.network)}
-            target="_blank"
-            rel="noreferrer"
-            title="Open the on-chain SharedBlob on Sui explorer"
-          >
-            <Icon name="arrow-up-right" size={14} />
-            On chain
-          </a>
+          {hit.source_pooled_blob_object_id ? (
+            <a
+              className="ks-hit-link"
+              href={suiscanObjectUrl(hit.source_pooled_blob_object_id, env.network)}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the on-chain PooledBlob on Sui explorer"
+            >
+              <Icon name="arrow-up-right" size={14} />
+              On chain
+            </a>
+          ) : null}
           {hit.manifest_walrus_blob_id ? (
             <a
               className="ks-hit-link"

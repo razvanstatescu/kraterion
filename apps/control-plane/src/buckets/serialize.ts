@@ -100,16 +100,32 @@ export interface S3ObjectJson {
   content_type: string | null;
   etag: string;
   walrus_blob_id: string;
-  shared_blob_object_id: string;
-  storage_end_epoch: number;
+  /**
+   * Sui object ID of the `walrus::storage_pool::PooledBlob` row inside
+   * the project's pool. Nullable during the brief register → certify
+   * window. Replaces the SharedBlob-era `shared_blob_object_id` field
+   * (storage-pool migration, see /docs/storage-pool-migration.md).
+   */
+  pooled_blob_object_id: string | null;
+  /**
+   * Encoded byte size (post-RS expansion), rounded up to whole MiB for
+   * pool accounting. Useful for dashboard "storage cost" estimates;
+   * may differ from `size_bytes` (which is plaintext / S3-API).
+   */
+  encoded_size_bytes: string;
   seal_identity_b64: string;
   /** User-provided `x-amz-meta-*` headers captured at PUT time. */
   metadata: Record<string, string> | null;
   uploaded_at: string;
   deleted_at: string | null;
+  // NOTE: `storage_end_epoch` was per-blob under SharedBlob; under
+  // pools, lifetime is shared across the whole pool. Read it from a
+  // future `GET /projects/:id/storage-pool` endpoint (Phase I) instead.
 }
 
-export function serializeObject(o: S3Object): S3ObjectJson {
+export function serializeObject(
+  o: S3Object & { pooled_blob?: { pooled_blob_object_id: string } | null },
+): S3ObjectJson {
   return {
     id: o.id,
     bucket_id: o.bucket_id,
@@ -118,8 +134,8 @@ export function serializeObject(o: S3Object): S3ObjectJson {
     content_type: o.content_type,
     etag: o.etag,
     walrus_blob_id: o.walrus_blob_id,
-    shared_blob_object_id: o.shared_blob_object_id,
-    storage_end_epoch: o.storage_end_epoch,
+    pooled_blob_object_id: o.pooled_blob?.pooled_blob_object_id ?? null,
+    encoded_size_bytes: o.encoded_size_bytes.toString(),
     seal_identity_b64: Buffer.from(o.seal_identity).toString("base64"),
     metadata: filterStringMap(o.metadata),
     uploaded_at: o.uploaded_at.toISOString(),

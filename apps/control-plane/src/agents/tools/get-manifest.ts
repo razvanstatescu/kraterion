@@ -67,7 +67,7 @@ export const getManifestTool: ToolDef<typeof schema> = {
           bytes_in: manifest.bytes_in.toString(),
           bytes_indexed: manifest.bytes_indexed.toString(),
           walrus_blob_id: manifest.manifest_walrus_blob_id,
-          shared_blob_object_id: manifest.manifest_shared_blob_object_id,
+          pooled_blob_object_id: manifest.manifest_pooled_blob_object_id,
           started_at: manifest.started_at?.toISOString() ?? null,
           finished_at: manifest.finished_at?.toISOString() ?? null,
         },

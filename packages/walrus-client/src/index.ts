@@ -133,6 +133,122 @@ export function getEncodedBlobLength(unencodedLength: number, nShards: number): 
   return nShards * (nShards * DIGEST_LEN * 2 + BLOB_ID_LEN) + sliverSize;
 }
 
+// === Storage pool pricing helpers (Phase B — see /docs/storage-pool-migration.md) ===
+
+/**
+ * Walrus's smallest storage-unit size — every blob's encoded length is
+ * rounded UP to a whole multiple of this when computing storage cost.
+ * Mirrors `walrus::system_state_inner::BYTES_PER_UNIT_SIZE` (1 MiB).
+ */
+const BYTES_PER_UNIT_SIZE = 1024 * 1024;
+
+/**
+ * Storage price per MiB per epoch on Walrus testnet v3. Read off the
+ * deployed System object's inner state via the testnet smoke (2026-05-18):
+ * `storage_price_per_unit_size = 1446`. Governance-set; pegged to
+ * $0.023/GB-month via the storage-node price vote. Re-confirm with the
+ * baseline calibration before assuming this is current — source of truth
+ * lives on-chain at `system_state_inner.storage_price_per_unit_size`.
+ *
+ * We hard-code WELL ABOVE the observed value (3000 vs 1446) so peg drift
+ * doesn't immediately abort PTBs. Combined with the SAFETY_MULTIPLIER
+ * below, this gives ~4× headroom over current. Bump or move to live
+ * reads if the gap closes.
+ */
+const STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST = 3000n;
+
+/**
+ * One-time write fee per encoded MiB. Observed testnet value:
+ * `write_price_per_unit_size = 2891`. Hard-coded at 5000 for the same
+ * peg-drift headroom rationale.
+ */
+const WRITE_PRICE_PER_MIB_FROST = 5_000n;
+
+/**
+ * Safety multiplier applied to every WAL-cost estimate. Over-pulled WAL
+ * is returned to the reserve via `reserve::deposit_wal`, so over-budgeting
+ * is free. Under-budgeting aborts the PTB with `EInsufficientReserve` (or
+ * Walrus's own balance assertion). 2× absorbs:
+ *   - peg drift between governance votes (~10–20%)
+ *   - any rounding mismatch between our off-chain estimate and Walrus's
+ *     on-chain compute
+ *   - future modest price increases
+ */
+const SAFETY_MULTIPLIER = 2n;
+
+function encodedBytesToMib(encodedSizeBytes: number | bigint): bigint {
+  const bytes = typeof encodedSizeBytes === "bigint" ? encodedSizeBytes : BigInt(encodedSizeBytes);
+  // Divide-and-round-up. Walrus does the same in `storage_units_from_size!`.
+  const unit = BigInt(BYTES_PER_UNIT_SIZE);
+  return (bytes + unit - 1n) / unit;
+}
+
+/**
+ * Per-blob write fee in FROST, suitable as the `payment_budget_frost`
+ * argument to `pool_vault::register_blob`. Includes the safety multiplier.
+ *
+ * The caller passes ENCODED size (what `getEncodedBlobLength()` returns).
+ * Walrus rounds up to whole MiB internally, so we mirror that.
+ */
+export function getWriteFeeFrost(encodedSizeBytes: number | bigint): bigint {
+  const mib = encodedBytesToMib(encodedSizeBytes);
+  return mib * WRITE_PRICE_PER_MIB_FROST * SAFETY_MULTIPLIER;
+}
+
+/**
+ * WAL cost in FROST to reserve `reservedEncodedBytes` of pool capacity
+ * for `epochs` epochs. Suitable as the `payment_budget_frost` argument
+ * to `pool_vault::create_vault` (with `epochs = epochs_ahead`) and
+ * `pool_vault::resize_grow` (with `epochs = remaining epochs in pool's
+ * lifetime`). Includes the safety multiplier.
+ */
+export function getPoolStorageCostFrost(
+  reservedEncodedBytes: number | bigint,
+  epochs: number | bigint,
+): bigint {
+  const mib = encodedBytesToMib(reservedEncodedBytes);
+  const epochsBig = typeof epochs === "bigint" ? epochs : BigInt(epochs);
+  return mib * STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST * epochsBig * SAFETY_MULTIPLIER;
+}
+
+/**
+ * Combined budget for `pool_vault::extend` — extending the pool's
+ * end_epoch by `additionalEpochs` over its already-reserved capacity.
+ * Identical formula to `getPoolStorageCostFrost`; named separately for
+ * intent.
+ */
+export function getPoolExtendCostFrost(
+  reservedEncodedBytes: number | bigint,
+  additionalEpochs: number | bigint,
+): bigint {
+  return getPoolStorageCostFrost(reservedEncodedBytes, additionalEpochs);
+}
+
+/**
+ * Pack a list of committee signer indices into the bitmap format
+ * `walrus::system::certify_pooled_blob` expects. Inlined from the
+ * SDK's private `utils/signersToBitmap` (the SDK uses it internally
+ * for `walrus.certifyBlob` against SharedBlobs but doesn't export it
+ * for callers who build their own PTBs against the pool primitives).
+ *
+ * `committeeSize` = `systemState.committee.members.length` (the
+ * `members` array length, NOT `n_shards`). Verify with
+ * `(await getWalrusClient().systemState()).committee.members.length`.
+ */
+export function signersToBitmap(signers: number[], committeeSize: number): Uint8Array {
+  const bitmapSize = Math.ceil(committeeSize / 8);
+  const bitmap = new Uint8Array(bitmapSize);
+  for (const signer of signers) {
+    const byteIndex = Math.floor(signer / 8);
+    const bitIndex = signer % 8;
+    // `bitmap` is freshly allocated with `bitmapSize` bytes; `signer < committeeSize`
+    // is the precondition. `byteIndex` is in-bounds; non-null assertion silences
+    // tsconfig's `noUncheckedIndexedAccess`.
+    bitmap[byteIndex]! |= 1 << bitIndex;
+  }
+  return bitmap;
+}
+
 // === Re-exports of public SDK helpers callers will want ===
 
 /**
@@ -140,5 +256,14 @@ export function getEncodedBlobLength(unencodedLength: number, nShards: number): 
  * blobId string to a BigInt for use as a `u256` Move argument.
  */
 export { blobIdToInt as blobIdStringToU256 } from "@mysten/walrus";
+
+/**
+ * Re-exported from `@mysten/walrus`. The inverse of `blobIdStringToU256`:
+ * converts a `u256` (as bigint) from an on-chain event payload back into
+ * Walrus's canonical URL-safe-base64 blobId string. Used by the indexer
+ * to write `S3Object.walrus_blob_id` in the form that walruscan and the
+ * aggregator both expect (anything else and the dashboard links 404).
+ */
+export { blobIdFromInt as blobIdU256ToString } from "@mysten/walrus";
 
 export type { WalrusClient };

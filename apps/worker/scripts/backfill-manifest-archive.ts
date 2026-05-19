@@ -62,11 +62,11 @@ async function main() {
     });
     const after = await prisma.knowledgeManifest.findUnique({
       where: { id },
-      select: { manifest_walrus_blob_id: true, manifest_shared_blob_object_id: true },
+      select: { manifest_walrus_blob_id: true, manifest_pooled_blob_object_id: true },
     });
     if (after?.manifest_walrus_blob_id) {
       logger.log(
-        `  ok: blob_id=${after.manifest_walrus_blob_id} shared=${after.manifest_shared_blob_object_id ?? "(none)"}`,
+        `  ok: blob_id=${after.manifest_walrus_blob_id} pooled=${after.manifest_pooled_blob_object_id ?? "(none)"}`,
       );
     } else {
       logger.warn(`  failed: row still has no manifest_walrus_blob_id`);

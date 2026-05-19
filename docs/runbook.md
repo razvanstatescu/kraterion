@@ -1066,3 +1066,119 @@ many calls. **Rule of thumb:** never pass the same `AbortSignal` to
 more than a handful of `client.*Service.*(..., { abort: signal })`
 calls. Use the `AbortPool` helper or create per-call controllers
 manually. Worth revisiting if/when protobuf-ts patches the leak.
+
+---
+
+## Symptom: `sui_getNormalizedMoveModule(<walrus_original_id>, "storage_pool")` returns `No module found with module name storage_pool`
+
+**Cause:** Sui RPC's `sui_getNormalizedMoveModule` / `sui_getNormalizedMoveModulesByPackage`
+do NOT follow the package upgrade chain. They return the surface of the
+SPECIFIC package version you query by ID. Walrus on testnet is at v3 (which
+ships `storage_pool`), but the `walrus` address in our `move/kraterion/Move.toml`
+`[addresses]` block is the v1 original-id `0xd84704c1...` — that's the
+right value for type identity in Move source, but the wrong one for RPC
+introspection.
+
+**Fix:** For introspection (admin tooling, calibration scripts, debugging),
+query the **current published-at** address directly. Use the constant
+`WALRUS_PACKAGE_PUBLISHED_AT_TESTNET` from
+[packages/shared/src/constants.ts](../packages/shared/src/constants.ts).
+For actual tx submission, Sui resolves the upgrade chain automatically when
+you build a `moveCall` against the original-id — both work, but published-at
+is more explicit.
+
+To find the current published-at: query the System object's `package_id`
+field via `sui_getObject` with `showContent: true` on
+`WALRUS_SYSTEM_OBJECT_ID`. Or read it from
+`https://raw.githubusercontent.com/MystenLabs/walrus/main/testnet-contracts/walrus/Published.toml`.
+
+**Observed:** 2026-05-18 during Phase A storage-pool calibration.
+
+**Notes:** Same applies to mainnet — original-id and published-at diverge
+once a package is upgraded. Pin both in `constants.ts` when you start
+caring about mainnet. Bumping the pinned `Move.toml` commit will usually
+mean the published-at changes too — re-run the calibration script
+(`pnpm -F @kraterion/gateway exec tsx scripts/walrus-pool-baseline.ts`)
+to confirm storage_pool is still live and gas hasn't drifted.
+
+---
+
+## Procedure: storage-pool migration hard reset
+
+**When to run:** at the cutover from the SharedBlob model to the
+storage-pool model, and any time you want to redeploy the Kraterion
+Move package against a fresh database in development.
+
+**One-shot script:** `scripts/hard-reset.sh` (`--yes-i-know` to skip
+interactive confirm). The script gates on `sui client envs` being
+`testnet` or `localnet` — refuses to run against mainnet.
+
+**Manual procedure** (if the script fails partway):
+
+1. Stop services (gateway, control-plane, worker, dashboard) so they
+   release Postgres connections — `migrate reset` will block on active
+   sessions otherwise.
+
+2. **DB reset.** From repo root:
+   ```bash
+   pnpm prisma migrate reset --force
+   ```
+   Drops + recreates every table, replays every migration from
+   `prisma/migrations/`, including
+   `20260518100000_p7_storage_pools/`.
+
+3. **Republish Move package.**
+   ```bash
+   scripts/setup-testnet.sh --force
+   ```
+   Publishes a fresh Kraterion Move package, extracts the new
+   `KRATERION_PACKAGE_ID` + `KRATERION_UPGRADE_CAP_ID` + the new
+   `PlatformReserve` object ID, writes them to
+   `packages/shared/src/constants.ts`.
+
+4. **Gateway bootstrap.**
+   ```bash
+   pnpm -F @kraterion/gateway bootstrap
+   ```
+   Generates new sub-wallets (`api_decryption`, `knowledge_indexer`),
+   authorizes them on the new reserve via
+   `reserve::authorize_caller`, deposits initial WAL into the reserve.
+
+5. **Verify.** Optional smoke against the new package:
+   ```bash
+   pnpm -F @kraterion/gateway smoke:baseline   # bare-Walrus pool ops
+   pnpm -F @kraterion/gateway smoke            # full encrypt+pool round-trip
+   ```
+
+6. **Restart services** (`pnpm dev` at repo root or per-app).
+
+**Things that DON'T need manual cleanup:**
+
+- The old Kraterion package is now orphaned on testnet but doesn't
+  cost anything ongoing — its `SharedBlob`s expire at their original
+  `end_epoch` and the package itself is just a record on chain.
+- The old reserve still holds whatever WAL was in it. If you want to
+  recover the WAL, sign a `reserve::withdraw` tx against the OLD
+  `KRATERION_RESERVE_ID` from `git log -p packages/shared/src/constants.ts`
+  before the constants update — done as the original deployer who has
+  the `admin` field.
+- The old sub-wallets (mnemonics in the now-dropped `SubWallet` rows)
+  still have any SUI they held. Same recovery pattern if you wrote the
+  KMS-wrapped seeds to backup before reset (we didn't, in testnet —
+  abandoned).
+
+**Recovery from a partial reset:**
+
+If step 2 succeeds but step 3 fails, the DB is empty but constants.ts
+still points at the OLD package. Re-run from step 3. The setup script
+is idempotent and refuses to re-publish unless `--force` is set —
+which is what hard-reset.sh passes.
+
+If step 3 succeeds but step 4 fails, the new package is published and
+constants are updated, but there's no gateway wallet yet. Re-run
+step 4 manually:
+```bash
+pnpm -F @kraterion/gateway bootstrap
+```
+
+**Observed:** 2026-05-18 during storage-pool migration Phase K.

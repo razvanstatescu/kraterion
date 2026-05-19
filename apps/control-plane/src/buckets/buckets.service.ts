@@ -110,14 +110,26 @@ export class BucketsService {
       orderBy: [{ s3_key: "asc" }, { id: "asc" }],
       take: opts.limit + 1,
       ...(cursor ? { cursor: { id: cursor.after }, skip: 1 } : {}),
+      // `serializeObject` reads `pooled_blob.pooled_blob_object_id` for the
+      // dashboard's "On-chain details" Sui-object link. Without this
+      // include the FK exists but the nested object is undefined, and the
+      // serializer emits `null` for every row.
+      include: { pooled_blob: { select: { pooled_blob_object_id: true } } },
     });
     return makePage(rows, opts.limit);
   }
 
-  async getObject(accountId: string, objectId: string): Promise<S3Object> {
+  async getObject(
+    accountId: string,
+    objectId: string,
+  ): Promise<S3Object & { pooled_blob: { pooled_blob_object_id: string } | null }> {
     const row = await this.prisma.s3Object.findUnique({
       where: { id: objectId },
-      include: { bucket: { select: { project: { select: { account_id: true } } } } },
+      include: {
+        bucket: { select: { project: { select: { account_id: true } } } },
+        // Needed by `serializeObject` — see comment in `listObjects`.
+        pooled_blob: { select: { pooled_blob_object_id: true } },
+      },
     });
     if (!row || row.bucket.project.account_id !== accountId) {
       throw new ControlPlaneError("NotFound", "Object not found");

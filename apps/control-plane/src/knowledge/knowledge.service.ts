@@ -49,9 +49,11 @@ export interface ChunkHit {
   /** Source object's Walrus blob id (base-N string). Renders as the
    *  Walruscan deep-link on the dashboard's citation row. */
   source_walrus_blob_id: string;
-  /** Source object's on-chain SharedBlob id. Pairs with the above
-   *  for callers that want the Sui-explorer link instead. */
-  source_shared_blob_object_id: string;
+  /** Source object's on-chain PooledBlob id. Pairs with the above
+   *  for callers that want the Sui-explorer link instead. Nullable
+   *  during the brief register → certify window after upload, when
+   *  the indexer hasn't yet written the PooledBlob row. */
+  source_pooled_blob_object_id: string | null;
   /** Manifest's Walrus blob id, once K5 has archived it. Null on
    *  every row until that lands; the dashboard hides the link when
    *  null. */
@@ -76,7 +78,7 @@ interface RawHybridRow {
   content: string;
   content_hash: Buffer;
   source_walrus_blob_id: string;
-  source_shared_blob_object_id: string;
+  source_pooled_blob_object_id: string | null;
   manifest_walrus_blob_id: string | null;
   vector_distance: number | null;
   bm25_score: number | null;
@@ -204,8 +206,8 @@ export class KnowledgeService {
           c.id,
           c.s3_object_id,
           s.s3_key,
-          s.walrus_blob_id        AS source_walrus_blob_id,
-          s.shared_blob_object_id AS source_shared_blob_object_id,
+          s.walrus_blob_id         AS source_walrus_blob_id,
+          pb.pooled_blob_object_id AS source_pooled_blob_object_id,
           m.manifest_walrus_blob_id,
           c.bucket_id,
           c.manifest_id,
@@ -225,6 +227,9 @@ export class KnowledgeService {
         -- this filter a no-op, but the join guard keeps stale chunks
         -- out of /search if any path ever forgets to clean up.
         JOIN "S3Object" s ON s.id = c.s3_object_id AND s.deleted_at IS NULL
+        -- LEFT join: nullable during the brief register → certify
+        -- indexer-ack window; rendered as "(pending)" by the dashboard.
+        LEFT JOIN "PooledBlob" pb ON pb.id = s.pooled_blob_id
         LEFT JOIN "KnowledgeManifest" m ON m.id = c.manifest_id
         LEFT JOIN vec_leg v ON v.id = c.id
         LEFT JOIN bm_leg  b ON b.id = c.id
@@ -244,7 +249,7 @@ export class KnowledgeService {
       content: r.content,
       content_hash: Buffer.from(r.content_hash).toString("hex"),
       source_walrus_blob_id: r.source_walrus_blob_id,
-      source_shared_blob_object_id: r.source_shared_blob_object_id,
+      source_pooled_blob_object_id: r.source_pooled_blob_object_id,
       manifest_walrus_blob_id: r.manifest_walrus_blob_id,
       vector_distance: r.vector_distance,
       bm25_score: r.bm25_score,

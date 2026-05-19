@@ -176,6 +176,10 @@ export class ObjectBytesService {
     void reply.header("Accept-Ranges", "none");
     // SSE marker (the actual cipher is Seal IBE → AES-GCM-256).
     void reply.header("x-amz-server-side-encryption", "AES256");
+    // Operational debugging — surfaces which Walrus storage primitive
+    // the object is in. Always "pooled" after the storage-pool migration;
+    // distinct value if/when we add additional storage classes later.
+    void reply.header("x-kraterion-storage-kind", "pooled");
     void reply.header("x-amz-request-id", requestId);
     void reply.header("x-amz-id-2", requestId);
 
