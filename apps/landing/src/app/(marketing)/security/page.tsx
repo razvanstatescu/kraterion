@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import { ButtonLink } from "@/components/ui/Button";
 import { FadeUp } from "@/components/motion/FadeUp";
-import { SectionFrame } from "@/components/marketing/SectionFrame";
+import { NumberedEyebrow } from "@/components/marketing/rich/NumberedEyebrow";
+import { StatStrip } from "@/components/marketing/rich/StatStrip";
+import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
+import { SealingFlow } from "@/components/marketing/SealingFlow";
+import { EnvelopeSealingSchema } from "@/components/marketing/visuals/EnvelopeSealingSchema";
+import { BeforeAfterOwnership } from "@/components/marketing/visuals/BeforeAfterOwnership";
+import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
+import { BookOpen, Layers, MessageCircle } from "lucide-react";
 
 export const dynamic = "force-static";
 
@@ -13,57 +20,63 @@ export const metadata: Metadata = {
 
 const CLAIMS = [
   {
-    n: 1,
-    title: "You can leave anytime — your bytes don't vanish.",
+    n: "01",
+    title: "You can leave anytime.",
     body: "Files are stored as plain bytes addressed by a stable ID. Any S3-compatible client can pull them. You don't need our tools to leave us.",
   },
   {
-    n: 2,
+    n: "02",
     title: "Sealed before it leaves you.",
     body: "Files are encrypted on your device before they ever reach the platform. The platform sees only encrypted bytes.",
   },
   {
-    n: 3,
+    n: "03",
     title: "Revocable access — enforced, not promised.",
     body: "When you remove access, the decryption keys stop being issued. The ciphertext sitting on disk becomes unreadable to the revoked party.",
   },
   {
-    n: 4,
+    n: "04",
     title: "A verifiable audit log.",
     body: "Every artifact — upload, indexing run, agent answer, citation — is bound to a uniquely-IDed, version-tracked record. Anyone can independently verify the history.",
   },
 ];
 
-const SEALING = [
-  { step: "Encrypt locally", detail: "Your client encrypts the file before upload." },
-  { step: "Upload ciphertext", detail: "Only encrypted bytes leave your machine." },
-  { step: "Store ciphertext", detail: "We hold encrypted bytes; we cannot decrypt them." },
-  { step: "Decrypt locally on read", detail: "Your client requests the key and decrypts after retrieval." },
-];
-
 const REVOCATION = [
-  { step: "Define a policy", detail: "Who can decrypt; under what conditions." },
-  { step: "Key servers enforce it", detail: "Independent servers check the policy on every request." },
-  { step: "Request access", detail: "Authorized clients receive key shares; unauthorized clients receive nothing." },
-  { step: "Revoke", detail: "Remove access — key servers stop issuing shares. Existing ciphertext stays unreadable to the revoked party." },
+  { n: "01", step: "Define a policy", detail: "Who can decrypt; under what conditions." },
+  { n: "02", step: "Key servers enforce it", detail: "Independent servers check the policy on every request." },
+  { n: "03", step: "Request access", detail: "Authorized clients receive key shares; unauthorized clients receive nothing." },
+  { n: "04", step: "Revoke", detail: "Remove access — key servers stop issuing shares. Existing ciphertext stays unreadable." },
 ];
 
 const AUDIT_ROWS = [
-  ["upload_a4f2", "v12", "0x9c4a…b21f"],
-  ["index_run_91", "v7", "0x4d2f…0e9c"],
-  ["agent_answer_22", "v3", "0x4f…1ab3"],
-  ["citation_07", "v2", "0xfa…0012"],
+  { id: "upload_a4f2c8…", version: "v12", digest: "0x9c4a8b21f0e7c2…", actor: "you@acme-co.com", action: "Put object", time: "2026-05-20 14:02:11" },
+  { id: "index_run_91…", version: "v7", digest: "0x4d2f0e9c7b81a…", actor: "system", action: "Index bucket", time: "2026-05-20 14:02:14" },
+  { id: "agent_answer_22…", version: "v3", digest: "0x4f1ab3a0e7c2f…", actor: "support-agent", action: "Cite chunk", time: "2026-05-20 14:02:18" },
+  { id: "citation_07…", version: "v2", digest: "0xfa0012a4e7c2f…", actor: "support-agent", action: "Bind source", time: "2026-05-20 14:02:18" },
+  { id: "access_grant_3…", version: "v1", digest: "0xa1b2c3d4e5f6a…", actor: "you@acme-co.com", action: "Grant team-read", time: "2026-05-20 13:58:42" },
+];
+
+const SECURITY_STATS = [
+  { value: "0", label: "plaintext bytes leave your device", sub: "Encryption is the default" },
+  { value: "TLS 1.3", label: "in transit", sub: "Modern ciphers only" },
+  { value: "t-of-n", label: "threshold encryption", sub: "Multiple key servers" },
+  { value: "90 days", label: "access log retention", sub: "Audit-ready" },
 ];
 
 export default function Page() {
   return (
     <>
+      {/* Hero */}
       <section className="relative overflow-hidden bg-cream pt-40 pb-16">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
-            <p className="micro text-stone-500">Security & ownership</p>
-            <h1 className="mt-4 max-w-[860px] text-[40px] leading-[1.05] tracking-[-0.02em] md:text-[72px]">
-              Your data. Your keys. Your exit.
+            <NumberedEyebrow n="SO" label="Security & ownership" />
+            <h1 className="mt-6 max-w-[1100px] text-[44px] leading-[1.05] tracking-[-0.02em] md:text-[88px]">
+              Your data.
+              <br />
+              Your keys.
+              <br />
+              <span className="text-stone-500">Your exit.</span>
             </h1>
             <p className="mt-8 max-w-[640px] text-[18px] text-stone-700">
               Most storage products promise ownership in a marketing line. We make it a property of the system.
@@ -72,126 +85,268 @@ export default function Page() {
         </div>
       </section>
 
-      <SectionFrame
-        eyebrow="Four claims"
-        headline="What ownership actually means here."
-      >
-        <div className="grid gap-12 md:grid-cols-2">
-          {CLAIMS.map((c) => (
-            <FadeUp key={c.n}>
-              <div className="flex gap-4">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-stone-200/60 text-[13px] font-medium text-stone-600">
-                  {c.n}
-                </span>
-                <div>
-                  <h3 className="text-[20px] leading-[1.3] text-ink">{c.title}</h3>
-                  <p className="mt-2 text-[15px] leading-[1.6] text-stone-700">{c.body}</p>
-                </div>
-              </div>
-            </FadeUp>
-          ))}
+      <section className="bg-cream pb-24">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <StatStrip stats={SECURITY_STATS} />
         </div>
-      </SectionFrame>
+      </section>
 
-      <SectionFrame
-        tone="ink"
-        eyebrow="How sealing works"
-        headline="Encrypted before it leaves you."
-        lede="Encryption happens on your device. We store only what we can't read."
-      >
-        <div className="grid gap-4 md:grid-cols-4">
-          {SEALING.map((s, i) => (
-            <FadeUp key={s.step} delay={i * 0.05}>
-              <div className="h-full rounded-lg border border-stone-800 bg-stone-900/40 p-5">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Step {i + 1}</div>
-                <div className="mt-3 text-[16px] font-medium text-cream">{s.step}</div>
-                <p className="mt-2 text-[13px] text-stone-300">{s.detail}</p>
-              </div>
-            </FadeUp>
-          ))}
-        </div>
-      </SectionFrame>
-
-      <SectionFrame
-        eyebrow="How revocable access works"
-        headline="Policy is the gate, not a promise."
-        lede="When you revoke access, the system stops issuing the keys needed to decrypt. Existing ciphertext doesn't have to be deleted to be unreadable to a revoked party."
-      >
-        <div className="grid gap-4 md:grid-cols-4">
-          {REVOCATION.map((s, i) => (
-            <FadeUp key={s.step} delay={i * 0.05}>
-              <div className="h-full rounded-lg border border-stone-200/60 bg-cream p-5">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-stone-500">Step {i + 1}</div>
-                <div className="mt-3 text-[16px] font-medium text-ink">{s.step}</div>
-                <p className="mt-2 text-[13px] text-stone-700">{s.detail}</p>
-              </div>
-            </FadeUp>
-          ))}
-        </div>
-      </SectionFrame>
-
-      <SectionFrame
-        eyebrow="Verifiable audit log"
-        headline="A tamper-evident history."
-        lede="Every artifact has a uniquely-IDed, version-tracked record. The history is independently verifiable."
-      >
-        <div className="overflow-hidden rounded-lg border border-stone-200/60 bg-cream font-mono">
-          <div className="grid grid-cols-[1.2fr_0.6fr_1.4fr] gap-2 border-b border-stone-200/60 bg-stone-50 px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-stone-500">
-            <span>Manifest ID</span>
-            <span>Version</span>
-            <span>Last digest</span>
-          </div>
-          {AUDIT_ROWS.map((row) => (
-            <div
-              key={row[0]}
-              className="grid grid-cols-[1.2fr_0.6fr_1.4fr] items-center gap-2 border-b border-stone-200/60 px-4 py-3 text-[13px] last:border-b-0"
-            >
-              <span className="text-ink">{row[0]}</span>
-              <span className="text-stone-600">{row[1]}</span>
-              <span className="text-stone-600">{row[2]}</span>
-            </div>
-          ))}
-        </div>
-      </SectionFrame>
-
-      <SectionFrame
-        eyebrow="Compliance & operational practice"
-        headline="Plain English."
-      >
-        <ul className="grid gap-3 text-[15px] text-stone-700 md:grid-cols-2">
-          <li className="flex items-start gap-3 rounded-lg border border-stone-200/60 bg-cream p-4">
-            <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--color-success)]" />
-            Encrypted in transit (TLS 1.3).
-          </li>
-          <li className="flex items-start gap-3 rounded-lg border border-stone-200/60 bg-cream p-4">
-            <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--color-success)]" />
-            Server-side access logs retained for 90 days.
-          </li>
-          <li className="flex items-start gap-3 rounded-lg border border-stone-200/60 bg-cream p-4">
-            <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--color-warning)]" />
-            SOC 2 in progress — on the roadmap.
-          </li>
-          <li className="flex items-start gap-3 rounded-lg border border-stone-200/60 bg-cream p-4">
-            <span aria-hidden className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-stone-300" />
-            Not for HIPAA / PHI / regulated personal data.
-          </li>
-        </ul>
-      </SectionFrame>
-
-      <section className="bg-cream">
-        <div className="mx-auto max-w-[1280px] px-6 py-32 text-center">
+      {/* Before / After ownership */}
+      <section className="bg-cream pb-24">
+        <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
-            <h2 className="mx-auto max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-              Take a closer look.
-            </h2>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="00a" label="The shift" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Same files. Different perimeter.
+              </h2>
+            </div>
           </FadeUp>
           <FadeUp delay={0.1}>
-            <div className="mt-10 flex justify-center">
-              <ButtonLink href="/signup" variant="primary" size="lg">Start free →</ButtonLink>
+            <div className="mt-12">
+              <BeforeAfterOwnership />
             </div>
           </FadeUp>
         </div>
       </section>
+
+      {/* Four claims */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="01" label="Four claims" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
+                What ownership
+                <br />
+                actually means here.
+              </h2>
+            </div>
+          </FadeUp>
+          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-2">
+            {CLAIMS.map((c) => (
+              <FadeUp key={c.n} className="bg-cream p-8 md:p-10">
+                <div className="font-mono text-[12px] tabular-nums text-krater">{c.n}</div>
+                <h3 className="mt-4 text-[24px] leading-[1.25] text-ink">{c.title}</h3>
+                <p className="mt-3 text-[15px] leading-[1.65] text-stone-700">{c.body}</p>
+              </FadeUp>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <BridgeHeadline tone="ink" align="left">
+        Plaintext never leaves
+        <br />
+        <span className="text-stone-500">the laptop.</span>
+      </BridgeHeadline>
+
+      {/* Sealing flow */}
+      <section className="bg-ink py-24 md:py-32 text-cream">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="02" label="How sealing works" tone="ink" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Encrypted before it leaves you.
+              </h2>
+              <p className="mt-6 max-w-[620px] text-[16px] text-stone-300">
+                Encryption happens on your device. We store only what we can&apos;t read.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <EnvelopeSealingSchema />
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.15}>
+            <div className="mt-8">
+              <SealingFlow />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Revocation */}
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="03" label="How revocable access works" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Policy is the gate. Not a promise.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] text-stone-700">
+                When you revoke access, the system stops issuing the keys needed to decrypt. Existing ciphertext doesn&apos;t have to be deleted to be unreadable to a revoked party.
+              </p>
+            </div>
+          </FadeUp>
+          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-4">
+            {REVOCATION.map((s) => (
+              <FadeUp key={s.n} className="bg-cream p-6 md:p-7">
+                <div className="font-mono text-[12px] tabular-nums text-krater">{s.n}</div>
+                <div className="mt-3 text-[16px] font-medium text-ink">{s.step}</div>
+                <p className="mt-2 text-[13px] leading-[1.6] text-stone-700">{s.detail}</p>
+              </FadeUp>
+            ))}
+          </div>
+
+          {/* Policy diagram */}
+          <FadeUp delay={0.1}>
+            <div className="mt-12 overflow-hidden rounded-lg border border-stone-200/60 bg-stone-50">
+              <div className="border-b border-stone-200/60 bg-cream px-4 py-3 text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                Policy · bucket.support-docs
+              </div>
+              <div className="p-6 font-mono text-[12px] leading-[1.7] text-stone-700">
+                <div className="text-stone-500">// stored as a public, verifiable record</div>
+                <div>
+                  <span className="text-krater">policy</span> bucket.support-docs &#123;
+                </div>
+                <div className="pl-4">
+                  <span className="text-stone-500">allow</span>{" "}
+                  <span className="text-ink">team@acme-co.com</span>{" "}
+                  <span className="text-stone-500">→</span> read, write
+                </div>
+                <div className="pl-4">
+                  <span className="text-stone-500">allow</span>{" "}
+                  <span className="text-ink">pk_share_3f4d…</span>{" "}
+                  <span className="text-stone-500">→</span> read (origin: acme-co.com)
+                </div>
+                <div className="pl-4 line-through opacity-50">
+                  <span className="text-stone-500">allow</span>{" "}
+                  <span className="text-ink">ex-employee@acme-co.com</span>{" "}
+                  <span className="text-stone-500">→</span> read
+                </div>
+                <div className="pl-4 text-[color:var(--color-error)]">
+                  <span className="text-stone-500">// </span>
+                  revoked 2026-05-12 · ciphertext now unreadable to this party
+                </div>
+                <div>&#125;</div>
+              </div>
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Audit log */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="04" label="Verifiable audit log" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                A tamper-evident history.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] text-stone-700">
+                Every artifact has a uniquely-IDed, version-tracked record. The history is independently verifiable.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12 overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+              <div className="grid grid-cols-[1.4fr_0.5fr_1.4fr_1.2fr_1fr_1fr] gap-2 border-b border-stone-200/60 bg-stone-50 px-4 py-3 text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                <span>Manifest ID</span>
+                <span>Ver</span>
+                <span>Digest</span>
+                <span>Actor</span>
+                <span>Action</span>
+                <span>Time</span>
+              </div>
+              {AUDIT_ROWS.map((row, i) => (
+                <div
+                  key={row.id}
+                  className={`grid grid-cols-[1.4fr_0.5fr_1.4fr_1.2fr_1fr_1fr] items-center gap-2 px-4 py-3 text-[12px] hover:bg-stone-50 ${
+                    i < AUDIT_ROWS.length - 1 ? "border-b border-stone-200/60" : ""
+                  }`}
+                >
+                  <span className="font-mono text-ink">{row.id}</span>
+                  <span className="font-mono text-stone-500">{row.version}</span>
+                  <span className="font-mono text-stone-600">{row.digest}</span>
+                  <span className="text-stone-700">{row.actor}</span>
+                  <span className="text-stone-700">{row.action}</span>
+                  <span className="font-mono text-stone-500">{row.time}</span>
+                </div>
+              ))}
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Compliance */}
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="05" label="Compliance" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Plain English.
+              </h2>
+            </div>
+          </FadeUp>
+          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-2">
+            <ComplianceItem
+              tone="success"
+              title="Encrypted in transit"
+              detail="TLS 1.3 with modern cipher suites."
+            />
+            <ComplianceItem
+              tone="success"
+              title="Access logs"
+              detail="Server-side access logs retained for 90 days."
+            />
+            <ComplianceItem
+              tone="warning"
+              title="SOC 2"
+              detail="In progress — on the roadmap."
+            />
+            <ComplianceItem
+              tone="stone"
+              title="HIPAA / PHI"
+              detail="Not suitable for regulated personal data. See limits below."
+            />
+          </div>
+        </div>
+      </section>
+
+      <PremiumCTA
+        eyebrow="Trust by structure"
+        headline={
+          <>
+            Storage that earns trust
+            <br />
+            <span className="text-stone-500">by structure, not promise.</span>
+          </>
+        }
+        sub="Sealed before upload. Revocable by policy. Verifiable end-to-end."
+        satellites={[
+          { icon: BookOpen, label: "Read the security docs", detail: "How sealing, policy, and audit work.", href: "/docs" },
+          { icon: Layers, label: "Compliance", detail: "TLS 1.3 · access logs · SOC 2 in progress.", href: "#" },
+          { icon: MessageCircle, label: "Talk to security", detail: "Custom DPAs and reviews.", href: "mailto:security@kraterion.com" },
+        ]}
+      />
     </>
+  );
+}
+
+function ComplianceItem({
+  tone,
+  title,
+  detail,
+}: {
+  tone: "success" | "warning" | "stone";
+  title: string;
+  detail: string;
+}) {
+  const dotColor =
+    tone === "success" ? "#5C7A3F" : tone === "warning" ? "#C28A3C" : "#C9BFA8";
+  return (
+    <FadeUp className="flex items-start gap-4 bg-cream p-8">
+      <span aria-hidden className="mt-2 h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor }} />
+      <div>
+        <div className="text-[16px] font-medium text-ink">{title}</div>
+        <p className="mt-1.5 text-[14px] leading-[1.6] text-stone-700">{detail}</p>
+      </div>
+    </FadeUp>
   );
 }

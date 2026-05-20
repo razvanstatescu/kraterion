@@ -1,6 +1,6 @@
 import React from "react";
 import { color } from "../tokens/color";
-import { fonts, size as fs, weight } from "../tokens/type";
+import { fonts, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
 
 type Props = {
@@ -24,31 +24,25 @@ export const BucketRow: React.FC<Props> = ({
         justifyContent: "space-between",
         padding: `${space[2]}px ${space[3]}px`,
         borderRadius: radius.chip,
-        background: active ? color.stone[100] : "transparent",
+        background: active ? color.ink : "transparent",
+        border: active ? `1.5px solid ${color.ink}` : "1.5px solid transparent",
         fontFamily: fonts.sans,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: space[3],
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: space[3] }}>
         <div
           style={{
-            width: 6,
-            height: 6,
+            width: 8,
+            height: 8,
             borderRadius: 999,
             background: active ? color.krater : color.stone[300],
           }}
         />
         <span
           style={{
-            fontSize: fs.caption,
-            fontWeight: active ? weight.medium : weight.regular,
-            color: color.ink,
-            letterSpacing: 0,
+            fontSize: 18,
+            fontWeight: active ? weight.semibold : weight.medium,
+            color: active ? color.cream : color.ink,
             fontFamily: fonts.mono,
           }}
         >
@@ -59,8 +53,9 @@ export const BucketRow: React.FC<Props> = ({
         <span
           style={{
             fontSize: 14,
-            color: color.stone[500],
+            color: active ? color.stone[300] : color.stone[500],
             fontVariantNumeric: "tabular-nums",
+            fontWeight: weight.medium,
           }}
         >
           {objects !== undefined ? `${objects}` : size}

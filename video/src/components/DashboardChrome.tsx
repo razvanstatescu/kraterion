@@ -1,5 +1,5 @@
 import React from "react";
-import { color } from "../tokens/color";
+import { color, cardShadow } from "../tokens/color";
 import { fonts, size as fs, tracking, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
 
@@ -13,8 +13,8 @@ type Props = {
 };
 
 export const DashboardChrome: React.FC<Props> = ({
-  width = 1620,
-  height = 920,
+  width = 1500,
+  height = 860,
   sidebar,
   content,
   account = "rs",
@@ -27,16 +27,17 @@ export const DashboardChrome: React.FC<Props> = ({
         height,
         background: color.cream,
         borderRadius: radius.window,
-        border: `1px solid ${color.hairlineLight}`,
+        border: `2px solid ${color.ink}`,
+        boxShadow: cardShadow({ offset: 14, color: color.krater }),
         overflow: "hidden",
         display: "grid",
-        gridTemplateRows: "56px 1fr",
-        gridTemplateColumns: "260px 1fr",
+        gridTemplateRows: "60px 1fr",
+        gridTemplateColumns: "280px 1fr",
         fontFamily: fonts.sans,
         color: color.ink,
       }}
     >
-      {/* Title bar — spans both columns */}
+      {/* Title bar */}
       <div
         style={{
           gridColumn: "1 / span 2",
@@ -44,27 +45,43 @@ export const DashboardChrome: React.FC<Props> = ({
           alignItems: "center",
           justifyContent: "space-between",
           padding: `0 ${space[6]}px`,
-          borderBottom: `1px solid ${color.hairlineLight}`,
+          borderBottom: `2px solid ${color.ink}`,
           background: color.cream,
         }}
       >
         <div
           style={{
-            fontSize: fs.caption,
-            fontWeight: weight.medium,
-            letterSpacing: tracking.body,
-            color: color.stone[500],
+            display: "flex",
+            alignItems: "center",
+            gap: space[3],
           }}
         >
-          {title}
+          {/* Tiny aperture mark */}
+          <svg width={22} height={22} viewBox="0 0 22 22">
+            <circle cx={11} cy={11} r={9} fill="none" stroke={color.ink} strokeWidth={1.5} />
+            <circle cx={11} cy={11} r={5.5} fill="none" stroke={color.ink} strokeWidth={1.5} />
+            <circle cx={11} cy={11} r={2.5} fill={color.krater} />
+          </svg>
+          <div
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 20,
+              fontWeight: weight.bold,
+              letterSpacing: tracking.title,
+              color: color.ink,
+            }}
+          >
+            {title}
+          </div>
         </div>
+
         <div
           style={{
             display: "flex",
             alignItems: "center",
             gap: space[3],
-            padding: `${space[1]}px ${space[3]}px`,
-            border: `1px solid ${color.hairlineLight}`,
+            padding: `6px ${space[3]}px`,
+            border: `1.5px solid ${color.ink}`,
             borderRadius: 999,
             background: color.cream,
           }}
@@ -74,10 +91,10 @@ export const DashboardChrome: React.FC<Props> = ({
               width: 24,
               height: 24,
               borderRadius: 999,
-              background: color.stone[100],
-              color: color.stone[500],
+              background: color.ink,
+              color: color.cream,
               fontSize: 11,
-              fontWeight: weight.medium,
+              fontWeight: weight.semibold,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -88,9 +105,9 @@ export const DashboardChrome: React.FC<Props> = ({
           </div>
           <span
             style={{
-              fontSize: fs.caption,
-              color: color.stone[500],
-              fontWeight: weight.regular,
+              fontSize: 14,
+              color: color.ink,
+              fontWeight: weight.medium,
             }}
           >
             Signed in with Google
@@ -101,7 +118,7 @@ export const DashboardChrome: React.FC<Props> = ({
       {/* Sidebar */}
       <div
         style={{
-          borderRight: `1px solid ${color.hairlineLight}`,
+          borderRight: `2px solid ${color.ink}`,
           padding: space[6],
           display: "flex",
           flexDirection: "column",

@@ -101,7 +101,7 @@ export function KraterionChatWidget({
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
             className={cn(
-              "flex h-[480px] w-[360px] flex-col overflow-hidden rounded-lg border",
+              "flex h-[420px] w-[320px] flex-col overflow-hidden rounded-lg border",
               isDark
                 ? "border-stone-800 bg-stone-900 text-cream"
                 : "border-stone-200/60 bg-cream text-ink"

@@ -1,9 +1,9 @@
 import React from "react";
-import { useCurrentFrame, interpolate } from "remotion";
-import { color } from "../tokens/color";
+import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
+import { color, cardShadow } from "../tokens/color";
 import { fonts, size as fs, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
-import { LINEAR_EASE } from "../motion/easings";
+import { BOUNCE } from "../motion/springs";
 
 type Props = {
   width?: number;
@@ -24,12 +24,13 @@ const TOOLS = [
 ] as const;
 
 export const MCPWindow: React.FC<Props> = ({
-  width = 640,
-  height = 520,
+  width = 620,
+  height = 560,
   toolStaggerStart = 8,
-  toolStaggerStep = 6,
+  toolStaggerStep = 5,
 }) => {
   const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
 
   return (
     <div
@@ -37,8 +38,9 @@ export const MCPWindow: React.FC<Props> = ({
         width,
         height,
         background: color.ink,
-        border: `1px solid ${color.hairlineDark}`,
+        border: `2px solid ${color.ink}`,
         borderRadius: radius.window,
+        boxShadow: cardShadow({ offset: 12, color: color.cream }),
         overflow: "hidden",
         fontFamily: fonts.sans,
         color: color.cream,
@@ -49,30 +51,31 @@ export const MCPWindow: React.FC<Props> = ({
       {/* Window chrome */}
       <div
         style={{
-          height: 38,
+          height: 42,
           display: "flex",
           alignItems: "center",
           gap: space[2],
           padding: `0 ${space[4]}px`,
-          borderBottom: `1px solid ${color.hairlineDark}`,
+          borderBottom: `1.5px solid ${color.stone[700]}`,
         }}
       >
-        {[0, 1, 2].map((i) => (
+        {[color.krater, color.stone[500], color.stone[700]].map((c, i) => (
           <div
             key={i}
             style={{
-              width: 10,
-              height: 10,
+              width: 12,
+              height: 12,
               borderRadius: 999,
-              background: color.stone[700],
+              background: c,
             }}
           />
         ))}
         <span
           style={{
             marginLeft: space[3],
-            fontSize: 13,
+            fontSize: 14,
             color: color.stone[300],
+            fontWeight: weight.medium,
           }}
         >
           Claude Desktop · MCP servers
@@ -97,10 +100,11 @@ export const MCPWindow: React.FC<Props> = ({
         >
           <div
             style={{
-              fontSize: fs.body,
-              fontWeight: weight.medium,
-              letterSpacing: "-0.01em",
-              fontFamily: fonts.mono,
+              fontSize: 28,
+              fontWeight: weight.bold,
+              letterSpacing: "-0.02em",
+              fontFamily: fonts.display,
+              color: color.cream,
             }}
           >
             kraterion
@@ -110,16 +114,17 @@ export const MCPWindow: React.FC<Props> = ({
               display: "flex",
               alignItems: "center",
               gap: space[2],
-              fontSize: fs.caption,
+              fontSize: 14,
               color: color.stone[300],
+              fontWeight: weight.medium,
             }}
           >
             <div
               style={{
-                width: 8,
-                height: 8,
+                width: 10,
+                height: 10,
                 borderRadius: 999,
-                background: "#5C7A3F",
+                background: "#9BC265",
               }}
             />
             Connected
@@ -128,10 +133,11 @@ export const MCPWindow: React.FC<Props> = ({
 
         <div
           style={{
-            fontSize: fs.caption,
+            fontSize: 14,
             color: color.stone[500],
-            letterSpacing: "0.04em",
+            letterSpacing: "0.08em",
             textTransform: "uppercase",
+            fontWeight: weight.semibold,
             marginTop: space[3],
           }}
         >
@@ -145,22 +151,22 @@ export const MCPWindow: React.FC<Props> = ({
             gap: space[2],
             marginTop: space[2],
             fontFamily: fonts.mono,
-            fontSize: fs.codeSmall,
+            fontSize: 20,
           }}
         >
           {TOOLS.map((tool, i) => {
-            const localFrame =
-              frame - (toolStaggerStart + i * toolStaggerStep);
-            const opacity = interpolate(localFrame, [0, 8], [0, 1], {
+            const local = frame - (toolStaggerStart + i * toolStaggerStep);
+            const sProg = spring({
+              frame: local,
+              fps,
+              config: BOUNCE,
+            });
+            const opacity = interpolate(sProg, [0, 0.6], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
-              easing: LINEAR_EASE,
             });
-            const translate = interpolate(localFrame, [0, 8], [4, 0], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-              easing: LINEAR_EASE,
-            });
+            const x = interpolate(sProg, [0, 1], [-12, 0]);
+            const scale = interpolate(sProg, [0, 1], [0.92, 1]);
             return (
               <div
                 key={tool}
@@ -169,12 +175,13 @@ export const MCPWindow: React.FC<Props> = ({
                   alignItems: "center",
                   gap: space[3],
                   opacity,
-                  transform: `translateY(${translate}px)`,
+                  transform: `translateX(${x}px) scale(${scale})`,
+                  transformOrigin: "left center",
                   color: color.cream,
                   willChange: "transform, opacity",
                 }}
               >
-                <span style={{ color: color.stone[500] }}>·</span>
+                <span style={{ color: color.krater, fontWeight: weight.bold }}>·</span>
                 <span>{tool}</span>
               </div>
             );

@@ -1,17 +1,27 @@
 import { Hero } from "./Hero";
-import { SocialProof } from "./SocialProof";
 import { SectionFrame } from "./SectionFrame";
-import { PillarGrid } from "./PillarGrid";
+import { PillarBento } from "./PillarBento";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { BucketFlowRibbon } from "./BucketFlowRibbon";
 import { S3ScrubBeatServer } from "./S3ScrubBeatServer";
 import { AgentTools } from "./AgentTools";
 import { EmbedSnippet } from "./EmbedSnippet";
 import { OwnershipClaims } from "./OwnershipClaims";
+import { SdkFanout } from "./visuals/SdkFanout";
+import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
+import { UploadPipeline } from "./visuals/UploadPipeline";
+import { MetricCard } from "./visuals/MetricCard";
+import { PremiumCTA } from "./visuals/PremiumCTA";
+import { BookOpen, ScrollText, MessageCircle } from "lucide-react";
 import { TerminalSim, type TerminalLine } from "./TerminalSim";
 import { PricingTeaser } from "./PricingTeaser";
 import { ButtonLink } from "@/components/ui/Button";
 import { FadeUp } from "@/components/motion/FadeUp";
+import { NumberedEyebrow } from "./rich/NumberedEyebrow";
+import { StatStrip } from "./rich/StatStrip";
+import { LogoMarquee } from "./rich/LogoMarquee";
+import { BridgeHeadline } from "./rich/BridgeHeadline";
+import { CustomerRail } from "./rich/CustomerRail";
 
 const S3_TABS = [
   {
@@ -68,7 +78,7 @@ const AGENT_TABS = [
     code: `curl https://api.kraterion.com/v1/agents/support/chat/completions \\
   -H "Authorization: Bearer $KRATERION_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"messages":[{"role":"user","content":"What's our refund policy?"}]}'`,
+  -d '{"messages":[{"role":"user","content":"What is our refund policy?"}]}'`,
   },
   {
     lang: "typescript",
@@ -82,7 +92,7 @@ const client = new OpenAI({
 
 const r = await client.chat.completions.create({
   model: "support",
-  messages: [{ role: "user", content: "What's our refund policy?" }],
+  messages: [{ role: "user", content: "What is our refund policy?" }],
 });`,
   },
 ];
@@ -97,32 +107,141 @@ const TERMINAL_LINES: TerminalLine[] = [
   { kind: "success", text: "✓ indexed 1 file • ready to query" },
 ];
 
+const LOGOS = [
+  "Quanta Labs",
+  "Northhaven",
+  "Atelier OS",
+  "Loomstack",
+  "Saltworks",
+  "Pier 14",
+  "Brightwell",
+  "Kilnworks",
+  "Mossridge",
+  "Halecraft",
+];
+
+const STATS = [
+  { value: "$0", label: "egress fees", sub: "Read what you store, free" },
+  { value: "11", label: "S3 ops, fully compatible", sub: "boto3, aws-cli, rclone" },
+  { value: "5 GB", label: "free, forever", sub: "No card required" },
+  { value: "99.9%", label: "object durability", sub: "Erasure-coded across nodes" },
+];
+
+const CUSTOMERS = [
+  {
+    company: "Quanta Labs",
+    metric: "4h → 22m",
+    metricLabel: "Backup pipeline cut from four hours to twenty-two minutes.",
+    chips: ["S3 API", "Multipart", "Pro"],
+  },
+  {
+    company: "Northhaven",
+    metric: "$0",
+    metricLabel: "Egress bill the month they migrated off AWS S3.",
+    chips: ["Storage", "S3 API", "Scale"],
+  },
+  {
+    company: "Atelier OS",
+    metric: "1 day",
+    metricLabel: "From signup to a customer-facing chat over their docs bucket.",
+    chips: ["Knowledge", "Embed", "Pro"],
+  },
+];
+
 export function Landing() {
   return (
     <>
       <Hero />
-      <SocialProof />
 
-      {/* Pillars */}
+      {/* Logo marquee */}
+      <section className="border-y border-stone-200/60 bg-cream py-14">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <p className="text-center text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+            Built by teams shipping at
+          </p>
+          <div className="mt-8">
+            <LogoMarquee logos={LOGOS} />
+          </div>
+        </div>
+      </section>
+
+      {/* Stat strip */}
+      <section className="bg-cream pt-24 pb-12 md:pt-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[640px]">
+              <NumberedEyebrow n="00" label="At a glance" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
+                Four numbers, no marketing math.
+              </h2>
+            </div>
+          </FadeUp>
+          <div className="mt-12">
+            <StatStrip stats={STATS} />
+          </div>
+        </div>
+      </section>
+
+      {/* Pillars bento */}
       <SectionFrame
-        eyebrow="What you get"
+        eyebrow="01 — What you get"
         headline="Four parts, one bucket."
         lede="Storage, search, agents, and a chat widget — built so they reinforce each other, not so they sell as a bundle."
       >
-        <PillarGrid />
+        <PillarBento />
       </SectionFrame>
 
-      {/* S3 deep beat — pinned, scrubbed */}
+      {/* Bridge */}
+      <BridgeHeadline align="left">
+        Same SDK.
+        <br />
+        Same commands.
+        <br />
+        <span className="text-stone-500">The bucket lives somewhere new.</span>
+      </BridgeHeadline>
+
+      {/* S3 scrubbed beat */}
       <S3ScrubBeatServer tabs={S3_TABS} />
 
-      {/* Knowledge ribbon — pinned, scrubbed */}
+      {/* SDK fanout + upload pipeline */}
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="01a" label="Ecosystem" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Every S3 client lands on the same endpoint.
+              </h2>
+              <p className="mt-6 max-w-[560px] text-[16px] text-stone-700">
+                One URL. Eight first-class clients. No SDK rewrites.
+              </p>
+            </div>
+          </FadeUp>
+          <div className="mt-12 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
+            <FadeUp>
+              <SdkFanout />
+            </FadeUp>
+            <FadeUp delay={0.1} className="flex flex-col gap-4">
+              <UploadPipeline />
+              <div className="grid grid-cols-2 gap-4">
+                <MetricCard value="11" label="S3 ops, supported" hint="Put, Get, List, Multipart…" />
+                <MetricCard value="0 ms" label="rewrite needed" hint="One env var changes" />
+              </div>
+            </FadeUp>
+          </div>
+        </div>
+      </section>
+
+      {/* Knowledge ribbon */}
       <section className="bg-ink text-cream">
         <div className="mx-auto max-w-[1280px] px-6 pt-24 pb-12">
-          <p className="micro text-stone-400">Knowledge layer</p>
-          <h2 className="mt-4 max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-            From file rows to citations.
+          <NumberedEyebrow n="02" label="Knowledge layer" tone="ink" />
+          <h2 className="mt-4 max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
+            From file rows
+            <br />
+            to citations.
           </h2>
-          <p className="mt-6 max-w-[760px] text-[18px] text-stone-300">
+          <p className="mt-6 max-w-[640px] text-[18px] text-stone-300">
             Flip a switch on a bucket. We chunk, embed, retrieve, and bind every answer to a citation in your own files.
           </p>
         </div>
@@ -130,23 +249,91 @@ export function Landing() {
       </section>
 
       {/* Agents */}
-      <SectionFrame
-        eyebrow="Agents"
-        headline="OpenAI-compatible, with your data baked in."
-        lede="Point any OpenAI client at /v1/agents/{id} and your agent runs over the bucket's index. Tools, citations, quotas, all built in."
-      >
-        <div className="grid gap-12">
-          <CodeBlock tabs={AGENT_TABS} />
-          <AgentTools />
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="03" label="Agents" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
+                OpenAI-compatible.
+                <br />
+                <span className="text-stone-500">Your data, baked in.</span>
+              </h2>
+              <p className="mt-6 max-w-[560px] text-[18px] text-stone-700">
+                Point any OpenAI client at /v1/agents/&#123;id&#125;. The agent runs over the bucket&apos;s index — tools, citations, quotas, all built in.
+              </p>
+            </div>
+          </FadeUp>
+          <div className="mt-16 grid items-stretch gap-4 md:grid-cols-[1.15fr_0.85fr]">
+            <FadeUp className="flex">
+              <div className="w-full">
+                <CodeBlock tabs={AGENT_TABS} />
+              </div>
+            </FadeUp>
+            <FadeUp delay={0.1} className="flex flex-col gap-4">
+              {/* Agent metadata card */}
+              <div className="hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+                <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
+                  <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                    Agent · support
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-600">
+                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)]" />
+                    ready
+                  </span>
+                </div>
+                <dl className="divide-y divide-stone-200/60">
+                  <Row label="Endpoint" value="/v1/agents/support" />
+                  <Row label="Bucket" value="support-docs · 18 files" />
+                  <Row label="Model" value="claude-haiku-4-5" />
+                  <Row label="Tools" value="5 · search, read, list, write, manifest" />
+                  <Row label="Quota" value="100k / mo" />
+                  <Row label="Last call" value="3 minutes ago" />
+                </dl>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <MetricCard value="0" label="vendor lock-in" hint="Drop-in OpenAI client" />
+                <MetricCard value="5" label="built-in tools" hint="Override or extend" accent />
+              </div>
+            </FadeUp>
+          </div>
+          <div className="mt-12">
+            <AgentTools />
+          </div>
         </div>
-      </SectionFrame>
+      </section>
+
+      {/* Customer rail */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="flex flex-wrap items-end justify-between gap-6">
+              <div className="max-w-[640px]">
+                <NumberedEyebrow n="04" label="In production" />
+                <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
+                  Numbers from teams already shipping.
+                </h2>
+              </div>
+              <a
+                href="#"
+                className="text-[14px] underline underline-offset-4 decoration-stone-400 hover:decoration-ink"
+              >
+                Read customer stories →
+              </a>
+            </div>
+          </FadeUp>
+          <div className="mt-12">
+            <CustomerRail cases={CUSTOMERS} />
+          </div>
+        </div>
+      </section>
 
       {/* Embed widget beat */}
-      <section className="bg-stone-50">
-        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-6 py-24 md:grid-cols-2 md:gap-16 md:py-32">
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 gap-12 px-6 md:grid-cols-2 md:gap-16">
           <div className="flex flex-col justify-center">
             <FadeUp>
-              <p className="micro text-stone-500">Embed widget</p>
+              <NumberedEyebrow n="05" label="Embed widget" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Drop a chat on any site. One line.
               </h2>
@@ -162,55 +349,97 @@ export function Landing() {
       </section>
 
       {/* Ownership beat */}
-      <SectionFrame
-        tone="ink"
-        eyebrow="Ownership"
-        headline="Your data. Your keys. Your exit."
-        lede="Most storage products promise ownership in a marketing line. We make it a property of the system."
-      >
-        <OwnershipClaims />
-      </SectionFrame>
-
-      {/* Developer quickstart */}
-      <SectionFrame
-        eyebrow="Quickstart"
-        headline="Five lines to a queryable bucket."
-        lede="Same SDK. Same commands. The bucket lives somewhere new."
-      >
-        <FadeUp>
-          <TerminalSim lines={TERMINAL_LINES} interactive />
-        </FadeUp>
-      </SectionFrame>
-
-      {/* Pricing teaser */}
-      <SectionFrame
-        eyebrow="Pricing"
-        headline="No egress traps."
-        lede="You store; you pay for storage. We don't penalize you for reading what you put in."
-      >
-        <PricingTeaser />
-      </SectionFrame>
-
-      {/* Final CTA */}
-      <section className="bg-cream">
-        <div className="mx-auto max-w-[1280px] px-6 py-32 text-center">
+      <section className="bg-ink text-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
-            <h2 className="mx-auto max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-              Start a bucket in 30 seconds.
-            </h2>
-          </FadeUp>
-          <FadeUp delay={0.1}>
-            <div className="mt-10 flex justify-center">
-              <ButtonLink href="/signup" variant="primary" size="lg">
-                Start free →
-              </ButtonLink>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="06" label="Ownership" tone="ink" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
+                Your data.
+                <br />
+                Your keys.
+                <br />
+                <span className="text-stone-500">Your exit.</span>
+              </h2>
+              <p className="mt-6 max-w-[560px] text-[18px] text-stone-300">
+                Most storage products promise ownership in a marketing line. We make it a property of the system.
+              </p>
             </div>
           </FadeUp>
-          <FadeUp delay={0.15}>
-            <p className="mt-6 text-[14px] text-stone-600">No card. 5 GB free forever.</p>
+          <div className="mt-16">
+            <BeforeAfterOwnership />
+          </div>
+          <div className="mt-12">
+            <OwnershipClaims />
+          </div>
+        </div>
+      </section>
+
+      {/* Developer quickstart */}
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[640px]">
+              <NumberedEyebrow n="07" label="Quickstart" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
+                Five lines to a queryable bucket.
+              </h2>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <TerminalSim lines={TERMINAL_LINES} interactive />
+            </div>
           </FadeUp>
         </div>
       </section>
+
+      {/* Pricing teaser */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[640px]">
+              <NumberedEyebrow n="08" label="Pricing" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                No egress traps.
+              </h2>
+              <p className="mt-6 text-[18px] text-stone-700">
+                You store; you pay for storage. We don&apos;t penalize you for reading what you put in.
+              </p>
+            </div>
+          </FadeUp>
+          <div className="mt-12">
+            <PricingTeaser />
+          </div>
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <PremiumCTA
+        eyebrow="Get started"
+        headline={
+          <>
+            Start a bucket
+            <br />
+            <span className="text-stone-500">in 30 seconds.</span>
+          </>
+        }
+        sub="No card. 5 GB free forever. Bring the S3 client you already use."
+        satellites={[
+          { icon: BookOpen, label: "Read the docs", detail: "Quickstart, SDKs, full S3 compatibility map.", href: "/docs" },
+          { icon: ScrollText, label: "See pricing", detail: "Predictable storage. No egress traps.", href: "/pricing" },
+          { icon: MessageCircle, label: "Talk to sales", detail: "Custom regions, SSO, SLAs.", href: "mailto:hello@kraterion.com" },
+        ]}
+      />
     </>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-2.5 text-[12px]">
+      <dt className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">{label}</dt>
+      <dd className="font-mono text-stone-800">{value}</dd>
+    </div>
   );
 }

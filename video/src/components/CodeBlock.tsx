@@ -1,22 +1,16 @@
 import React from "react";
 import { useCurrentFrame, interpolate } from "remotion";
-import { color } from "../tokens/color";
+import { color, cardShadow } from "../tokens/color";
 import { fonts, size as fs, tracking } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
 
 export type CodeLine = {
   text: string;
-  /** Frame at which this line begins typing. */
   startFrame: number;
-  /** Optional inline highlight: replace a substring with a colored span. */
   highlight?: {
-    /** Substring to find in the line. */
     find: string;
-    /** Frame at which the swap starts (per-character reveal). */
     swapStartFrame: number;
-    /** Replacement text, same logical position. */
     replaceWith: string;
-    /** Color for replaced text (Krater orange). */
     replaceColor: string;
   };
 };
@@ -24,24 +18,25 @@ export type CodeLine = {
 type Props = {
   lines: CodeLine[];
   msPerChar?: number;
-  background?: "ink" | "cream";
+  surface?: "ink" | "cream";
   width?: number;
+  showShadow?: boolean;
 };
 
-const TYPE_MS_PER_CHAR_DEFAULT = 35;
-const MAX_TYPE_FRAMES_PER_LINE = 18; // ~600ms @ 30fps cap
+const TYPE_MS_PER_CHAR_DEFAULT = 30;
+const MAX_TYPE_FRAMES_PER_LINE = 16;
 
 export const CodeBlock: React.FC<Props> = ({
   lines,
   msPerChar = TYPE_MS_PER_CHAR_DEFAULT,
-  background = "ink",
-  width = 1100,
+  surface = "ink",
+  width = 1080,
+  showShadow = true,
 }) => {
   const frame = useCurrentFrame();
-  const bg = background === "ink" ? color.ink : color.cream;
-  const fg = background === "ink" ? color.cream : color.ink;
-  const border =
-    background === "ink" ? color.hairlineDark : color.hairlineLight;
+  const bg = surface === "ink" ? color.ink : color.cream;
+  const fg = surface === "ink" ? color.cream : color.ink;
+  const border = surface === "ink" ? color.cream : color.ink;
 
   const framesPerChar = Math.max(1, Math.round((msPerChar / 1000) * 30));
 
@@ -51,9 +46,12 @@ export const CodeBlock: React.FC<Props> = ({
         width,
         background: bg,
         color: fg,
-        border: `1px solid ${border}`,
+        border: `2px solid ${border}`,
         borderRadius: radius.card,
-        padding: `${space[8]}px ${space[8]}px`,
+        boxShadow: showShadow
+          ? cardShadow({ offset: 12, color: color.krater })
+          : undefined,
+        padding: `${space[6]}px ${space[8]}px`,
         fontFamily: fonts.mono,
         fontSize: fs.code,
         lineHeight: 1.55,
@@ -62,14 +60,9 @@ export const CodeBlock: React.FC<Props> = ({
       }}
     >
       {lines.map((line, lineIdx) => {
-        // Blank lines act as vertical spacers — no interpolate, just a sized gap.
         if (line.text.length === 0) {
           return (
-            <div
-              key={lineIdx}
-              style={{ height: "1.55em" }}
-              aria-hidden
-            />
+            <div key={lineIdx} style={{ height: "1.55em" }} aria-hidden />
           );
         }
 
@@ -98,20 +91,21 @@ export const CodeBlock: React.FC<Props> = ({
           const swapLocalFrame = frame - line.highlight.swapStartFrame;
           const findLen = line.highlight.find.length;
           const replaceLen = line.highlight.replaceWith.length;
+          const swapSpan = Math.max(findLen, replaceLen);
 
-          if (findIdx >= 0 && typed >= findIdx + findLen) {
+          if (findIdx >= 0 && swapSpan > 0 && typed >= findIdx + findLen) {
             const beforeSwap = line.text.slice(0, findIdx);
             const afterSwap = line.text.slice(findIdx + findLen);
 
             const replaceChars = Math.max(
               0,
               Math.min(
-                Math.max(findLen, replaceLen),
+                swapSpan,
                 Math.round(
                   interpolate(
                     swapLocalFrame,
-                    [0, Math.max(findLen, replaceLen) * framesPerChar],
-                    [0, Math.max(findLen, replaceLen)],
+                    [0, swapSpan * framesPerChar],
+                    [0, swapSpan],
                     {
                       extrapolateLeft: "clamp",
                       extrapolateRight: "clamp",
@@ -121,7 +115,6 @@ export const CodeBlock: React.FC<Props> = ({
               ),
             );
 
-            // Mixed display: replaced prefix in orange, leftover original (light) trails
             const replacedPart = line.highlight.replaceWith.slice(
               0,
               replaceChars,
@@ -134,10 +127,10 @@ export const CodeBlock: React.FC<Props> = ({
             return (
               <div key={lineIdx} style={{ whiteSpace: "pre" }}>
                 <span>{beforeSwap}</span>
-                <span style={{ color: line.highlight.replaceColor }}>
+                <span style={{ color: line.highlight.replaceColor, fontWeight: 700 }}>
                   {replacedPart}
                 </span>
-                <span style={{ opacity: 0.55 }}>{remainingOriginal}</span>
+                <span style={{ opacity: 0.45 }}>{remainingOriginal}</span>
                 <span>{afterSwap}</span>
               </div>
             );

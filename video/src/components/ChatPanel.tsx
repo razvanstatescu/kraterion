@@ -1,7 +1,7 @@
 import React from "react";
 import { useCurrentFrame, interpolate } from "remotion";
-import { color } from "../tokens/color";
-import { fonts, size as fs, weight } from "../tokens/type";
+import { color, cardShadow } from "../tokens/color";
+import { fonts, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
 
 export type AssistantBullet = {
@@ -19,6 +19,7 @@ type Props = {
   assistantStartFrame: number;
   bullets: AssistantBullet[];
   caretOn?: boolean;
+  shadowColor?: string;
 };
 
 const TYPE_CHARS_PER_FRAME = 1.6;
@@ -37,17 +38,17 @@ const TypedLine: React.FC<{
 };
 
 export const ChatPanel: React.FC<Props> = ({
-  width = 760,
-  height = 520,
+  width = 880,
+  height = 580,
   userMessage,
   userMessageStartFrame,
   assistantStartFrame,
   bullets,
   caretOn = true,
+  shadowColor,
 }) => {
   const frame = useCurrentFrame();
 
-  // Blinking caret — visible while assistant is typing the last bullet
   const lastBullet = bullets[bullets.length - 1];
   const lastBulletEnd = lastBullet
     ? lastBullet.startFrame +
@@ -60,7 +61,7 @@ export const ChatPanel: React.FC<Props> = ({
     caretOn &&
     frame >= assistantStartFrame &&
     frame <= lastBulletEnd + 8 &&
-    Math.floor(frame / 12) % 2 === 0;
+    Math.floor(frame / 8) % 2 === 0;
 
   const userAppear = interpolate(
     frame - userMessageStartFrame,
@@ -75,8 +76,9 @@ export const ChatPanel: React.FC<Props> = ({
         width,
         height,
         background: color.cream,
-        border: `1px solid ${color.hairlineLight}`,
+        border: `2px solid ${color.ink}`,
         borderRadius: radius.window,
+        boxShadow: cardShadow({ offset: 12, color: shadowColor ?? color.krater }),
         padding: space[8],
         display: "flex",
         flexDirection: "column",
@@ -88,11 +90,11 @@ export const ChatPanel: React.FC<Props> = ({
     >
       <div
         style={{
-          fontSize: fs.caption,
+          fontSize: 14,
           color: color.stone[500],
-          letterSpacing: "0.04em",
+          letterSpacing: "0.08em",
           textTransform: "uppercase",
-          fontWeight: weight.medium,
+          fontWeight: weight.bold,
         }}
       >
         Chat · research-assistant
@@ -104,10 +106,12 @@ export const ChatPanel: React.FC<Props> = ({
           alignSelf: "flex-end",
           maxWidth: "75%",
           padding: `${space[3]}px ${space[4]}px`,
-          background: color.stone[100],
-          border: `1px solid ${color.hairlineLight}`,
+          background: color.ink,
+          color: color.cream,
+          border: `2px solid ${color.ink}`,
           borderRadius: radius.card,
-          fontSize: fs.body,
+          fontSize: 22,
+          fontWeight: weight.medium,
           opacity: userAppear,
         }}
       >
@@ -120,22 +124,22 @@ export const ChatPanel: React.FC<Props> = ({
           display: "flex",
           flexDirection: "column",
           gap: space[3],
-          color: color.stone[500],
-          fontSize: fs.small,
-          lineHeight: 1.55,
+          color: color.ink,
+          fontSize: 22,
+          lineHeight: 1.4,
+          fontWeight: weight.medium,
         }}
       >
         {bullets.map((b, i) => {
           const isLast = i === bullets.length - 1;
           const bulletLineEnd =
-            b.startFrame +
-            Math.ceil(b.text.length / TYPE_CHARS_PER_FRAME);
+            b.startFrame + Math.ceil(b.text.length / TYPE_CHARS_PER_FRAME);
           return (
             <div key={i} style={{ display: "flex", gap: space[3] }}>
-              <span style={{ color: color.stone[300] }}>—</span>
+              <span style={{ color: color.krater, fontWeight: weight.bold }}>—</span>
               <span>
                 <TypedLine text={b.text} startFrame={b.startFrame} />
-                <span style={{ color: color.stone[300], marginLeft: 6 }}>
+                <span style={{ color: color.stone[500], marginLeft: 6, fontFamily: fonts.mono, fontSize: 18 }}>
                   <TypedLine
                     text={` ${b.citation}`}
                     startFrame={bulletLineEnd}
@@ -145,10 +149,10 @@ export const ChatPanel: React.FC<Props> = ({
                   <span
                     style={{
                       display: "inline-block",
-                      width: 2,
-                      height: 22,
+                      width: 3,
+                      height: 24,
                       background: color.krater,
-                      marginLeft: 4,
+                      marginLeft: 6,
                       verticalAlign: "middle",
                     }}
                   />

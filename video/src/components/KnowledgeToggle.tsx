@@ -3,8 +3,7 @@ import { useCurrentFrame, interpolate, spring, useVideoConfig } from "remotion";
 import { color } from "../tokens/color";
 import { fonts, size as fs, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
-import { LINEAR_EASE } from "../motion/easings";
-import { SNAP } from "../motion/springs";
+import { BOUNCE, SNAP } from "../motion/springs";
 
 type Props = {
   /** Frame at which the toggle flips from Off → On (relative to scene). */
@@ -15,30 +14,23 @@ export const KnowledgeToggle: React.FC<Props> = ({ toggleFrame }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const swap = interpolate(
-    frame - toggleFrame,
-    [0, 18],
-    [0, 1],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-      easing: LINEAR_EASE,
-    },
-  );
-
   const pillSnap = spring({
     frame: frame - toggleFrame,
     fps,
     config: SNAP,
   });
 
-  const fill = swap;
-  const offColor = color.stone[300];
-  const onColor = color.krater;
-  const pillBg = `rgba(196,91,54, ${fill})`;
-
-  // Knob position: 0 → left, 1 → right
-  const knobX = interpolate(pillSnap, [0, 1], [0, 22]);
+  const on = pillSnap > 0.5;
+  // Knob moves 28 px right when on
+  const knobX = interpolate(pillSnap, [0, 1], [0, 28]);
+  // Bounce overshoot on the pill itself
+  const pillScale = spring({
+    frame: frame - toggleFrame,
+    fps,
+    config: BOUNCE,
+    from: 1,
+    to: 1.05,
+  });
 
   return (
     <div
@@ -47,57 +39,57 @@ export const KnowledgeToggle: React.FC<Props> = ({ toggleFrame }) => {
         alignItems: "center",
         justifyContent: "space-between",
         padding: `${space[4]}px ${space[6]}px`,
-        border: `1px solid ${color.hairlineLight}`,
+        border: `2px solid ${color.ink}`,
         borderRadius: radius.card,
         background: color.cream,
         fontFamily: fonts.sans,
-        width: 520,
+        width: 620,
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span
           style={{
-            fontSize: fs.body,
-            fontWeight: weight.medium,
+            fontSize: 26,
+            fontWeight: weight.bold,
             color: color.ink,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.02em",
+            fontFamily: fonts.display,
           }}
         >
           Knowledge
         </span>
-        <span style={{ fontSize: fs.caption, color: color.stone[500] }}>
+        <span style={{ fontSize: 16, color: color.stone[500], fontWeight: weight.medium }}>
           Index this bucket for chat & MCP.
         </span>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: space[4] }}>
-        <span
+        <div
           style={{
-            fontSize: fs.caption,
-            fontWeight: weight.medium,
-            color: fill > 0.5 ? onColor : offColor,
+            transform: `scale(${pillScale})`,
+            fontSize: 16,
+            fontWeight: weight.bold,
+            color: on ? color.cream : color.stone[500],
             textTransform: "uppercase",
             letterSpacing: "0.08em",
-            fontVariantNumeric: "tabular-nums",
-            padding: `${space[1]}px ${space[3]}px`,
-            border: `1px solid ${fill > 0.5 ? onColor : color.hairlineLight}`,
+            padding: `6px 14px`,
+            border: `2px solid ${color.ink}`,
             borderRadius: 999,
-            background:
-              fill > 0.5 ? `rgba(196,91,54,0.08)` : "transparent",
+            background: on ? color.krater : color.cream,
+            willChange: "transform",
           }}
         >
-          {fill > 0.5 ? "On" : "Off"}
-        </span>
+          {on ? "On" : "Off"}
+        </div>
 
         <div
           style={{
             position: "relative",
-            width: 52,
-            height: 30,
+            width: 64,
+            height: 36,
             borderRadius: 999,
-            background: fill > 0 ? pillBg : color.stone[100],
-            border: `1px solid ${fill > 0.5 ? onColor : color.hairlineLight}`,
-            transition: "none",
+            background: on ? color.krater : color.stone[100],
+            border: `2px solid ${color.ink}`,
           }}
         >
           <div
@@ -105,12 +97,12 @@ export const KnowledgeToggle: React.FC<Props> = ({ toggleFrame }) => {
               position: "absolute",
               top: 3,
               left: 3,
-              width: 22,
-              height: 22,
+              width: 26,
+              height: 26,
               borderRadius: 999,
               background: color.cream,
+              border: `2px solid ${color.ink}`,
               transform: `translateX(${knobX}px)`,
-              boxShadow: "none",
             }}
           />
         </div>
