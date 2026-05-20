@@ -4430,3 +4430,51 @@ expects `storage_v2`; a fresh sign-up + add-card on the dashboard
 will create a subscription on the new price. Existing test customer
 should be wiped + re-bootstrapped if interaction with `/billing`
 becomes inconsistent.
+
+### 2026-05-20 (later) — upload flow analysis written down
+
+- `[docs]` New: [`/docs/upload-flow-analysis.md`](upload-flow-analysis.md).
+  Diagnostic + roadmap for the upload-to-bucket pipeline. Inventories
+  the current gateway PUT path (15 steps, 2 GiB cap, no multipart),
+  the dashboard upload UX (drag-drop + presigned URL via XHR, no
+  cancel/retry/folder/collision-warn), and the cross-cutting gaps
+  (no rate-limit, no orphan reaper, indexer-ack 503 causing WAL
+  leaks on retry). Compares to S3 / R2 / B2 / tus. Proposes 22
+  improvements grouped by impact × effort across four tiers
+  (quick wins, medium investments, strategic bets,
+  stop-the-bleeding). Suggested 4-week sequencing inside. Not
+  committed scope — when the user picks an item, each gets its own
+  scoped plan.
+
+### 2026-05-20 (later) — marketing site rebuilt from website-plan.md
+
+- `[landing]` Replaced the single "coming soon" page with the
+  full 8-surface architecture from
+  [`/docs/website-plan.md`](website-plan.md). New routes: `/`,
+  `/s3`, `/knowledge`, `/embed`, `/pricing`, `/security`, `/docs`,
+  `/docs/quickstart`. All marketing pages prerender as static
+  HTML; only `/api/og` is dynamic (edge).
+- Stack added (with user approval): motion, lenis, gsap, @gsap/react,
+  three, @react-three/fiber, @react-three/drei, shiki,
+  @shikijs/transformers, @next/mdx + remark/rehype, lucide-react,
+  clsx, class-variance-authority, @vercel/analytics,
+  @vercel/speed-insights, next-sitemap, @next/bundle-analyzer.
+- Motion split: GSAP owns pinned/scrubbed timelines
+  (`<BucketFlowRibbon>` ~120 vh pin on landing + /knowledge,
+  `<S3ScrubBeat>` scrubbed SDK-tab autoplay on landing); Motion
+  owns declarative motion (`<FadeUp>`, `<Reveal>`, `<KraterionChatWidget>`
+  AnimatePresence, code-tab `layoutId` underline); R3F lazy-loaded
+  for `<ApertureHero>` with SVG fallback below 768 px and under
+  `prefers-reduced-motion`; Lenis 1.3 root smooth-scroll RAF-synced
+  with `gsap.ticker`, also short-circuited under reduced motion.
+- Brand tokens mirrored from
+  [`/design-system/colors_and_type.css`](../design-system/colors_and_type.css)
+  into `apps/landing/src/app/globals.css` via Tailwind v4 `@theme`.
+  `box-shadow: none` is enforced site-wide; elevation is a hairline
+  utility. Reduced-motion blanket kills transitions globally.
+- Shiki recolored to the warm palette at build time (no client JS).
+- Per-page OG: subpages reference `/api/og?surface=…&title=…`;
+  root keeps the elaborate `app/opengraph-image.tsx`. `sitemap.xml`
+  covers all 8 surfaces.
+- Build is green; all 8 routes return 200 in dev and prerender in
+  prod. README at `apps/landing/README.md` documents the layout.

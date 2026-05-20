@@ -3767,3 +3767,62 @@ until the package is redeployed on testnet (current package version
 doesn't have it). Until then the renewal worker shrinks only when
 `KRATERION_ENABLE_POOL_SHRINK=true`. After redeploy, flip the env
 flag.
+
+---
+
+## 2026-05-20 — Marketing site stack: Motion + GSAP + Lenis + R3F (lazy), Tailwind v4 @theme
+
+**Status:** Adopted.
+
+**Context:** Rebuilt `apps/landing` from a single "coming soon" page to
+the 8-surface marketing site spec'd in
+[`/docs/website-plan.md`](website-plan.md). The spec demands premium,
+motion-rich pages on par with Stripe/Linear/Vercel without leaning on
+crypto/web3 vocabulary. Stack picks below.
+
+**Decision:**
+
+- **Tailwind v4 CSS-first config.** All design tokens declared in
+  `apps/landing/src/app/globals.css` via `@theme inline { ... }`,
+  mirroring `/design-system/colors_and_type.css` verbatim. No JS
+  Tailwind config. Hard brand rules (no shadows, no font weight ≥ 600,
+  reduced-motion blanket) enforced as global CSS.
+- **Motion library split.** GSAP 3.13 + ScrollTrigger owns
+  scroll-pinned timelines (BucketFlowRibbon, S3ScrubBeat). Motion
+  (formerly Framer Motion) owns declarative motion (FadeUp, Reveal,
+  AnimatePresence, layoutId). They never animate the same property on
+  the same element.
+- **Lenis 1.3 RAF-synced with GSAP** via `gsap.ticker.add`, the
+  ticker pattern Lenis docs require. Lenis is fully disabled under
+  `prefers-reduced-motion` (native scroll instead).
+- **R3F is the only WebGL on the site,** lazy-loaded via a client
+  wrapper (Next.js 16 forbids `ssr: false` in server components) for
+  `<ApertureHero>`. SVG fallback below 768 px and under reduced motion.
+- **Shiki for code highlighting,** server-rendered at build time with
+  a recolor pass to map github-light tokens to the warm-stone palette.
+  Zero client highlight JS shipped.
+- **Per-surface OG via `/api/og`** (edge route). Root keeps the more
+  elaborate `app/opengraph-image.tsx`.
+
+**Why these picks (not the alternatives):**
+
+- GSAP-only would have meant rewriting Motion's `AnimatePresence` and
+  `layoutId` ergonomics by hand. Motion-only can't pin/scrub at the
+  pixel-perfect quality the plan demands.
+- Lenis is the de-facto "Linear feel" smooth-scroll. Native CSS scroll
+  is fine for accessibility but doesn't match the brand's premium tier.
+- Shiki ships zero runtime JS for syntax highlighting — Prism/highlight.js
+  do. Build-time HTML matches the marketing-site goal: as little JS as
+  possible on the landing route.
+
+**Consequences:**
+
+- Bundle has GSAP (~70 KB gzipped), Motion (~15 KB), Lenis (~5 KB),
+  and a lazy R3F chunk (~90 KB) that only desktops with motion enabled
+  download.
+- Anyone editing landing UI must respect the GSAP/Motion split rule
+  (documented in `apps/landing/README.md`).
+- The `design-system/` tokens are now duplicated as Tailwind v4
+  `@theme` declarations in landing's `globals.css`. If a token value
+  changes in the design system, mirror it manually. (Future improvement:
+  generate `@theme` from `colors_and_type.css`.)
