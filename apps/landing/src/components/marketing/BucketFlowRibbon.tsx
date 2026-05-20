@@ -53,7 +53,19 @@ export function BucketFlowRibbon() {
 
   return (
     <div ref={containerRef} className="relative h-screen w-full overflow-hidden bg-ink">
-      <div className="mx-auto grid h-full max-w-[1280px] grid-cols-1 items-center gap-4 px-6 md:grid-cols-3 md:gap-5">
+      {/* Top eyebrow band — anchors the top of the pinned section */}
+      <div className="absolute inset-x-0 top-0 z-10 border-b border-stone-800/60 bg-ink/80 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-6 px-6 py-4">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500">
+            Pipeline · bucket → indexed → answer
+          </span>
+          <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500 md:inline">
+            {activeStage === 0 ? "files" : activeStage === 1 ? "chunks" : "citations"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mx-auto grid h-full max-w-[1280px] grid-cols-1 items-stretch gap-4 px-6 pt-24 pb-24 md:grid-cols-3 md:gap-5">
         {/* Stage 1 — bucket files */}
         <Stage
           n="01"
@@ -179,10 +191,10 @@ function Stage({
   return (
     <div
       className={cn(
-        "h-fit max-h-[80vh] rounded-lg border bg-stone-900/40 p-5",
+        "flex h-full max-h-[70vh] min-h-[420px] flex-col rounded-lg border bg-stone-900/40 p-6",
         "transition-all duration-500",
         active
-          ? "border-krater/40 opacity-100"
+          ? "border-krater/40 opacity-100 shadow-[0_0_0_1px_rgba(196,91,54,0.18)]"
           : "border-stone-800 opacity-50"
       )}
     >
@@ -200,7 +212,7 @@ function Stage({
         <span className="text-[14px] font-medium text-cream">{label}</span>
       </div>
       <div className="text-[11px] text-stone-400">{detail}</div>
-      <div className="mt-4">{children}</div>
+      <div className="mt-6 flex-1">{children}</div>
     </div>
   );
 }

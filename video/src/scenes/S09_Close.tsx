@@ -50,6 +50,13 @@ export const S09_Close: React.FC = () => {
     [0, 1, 0],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
   );
+  // Width of the strike span — collapses to 0 so the period sits flush after "storage."
+  const strikeWidth = interpolate(
+    frame,
+    [callbackFrame + 16, resolveFrame - 4, resolveFrame + 12],
+    [0, 1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 
   // URL typing
   const urlText = "kraterion.xyz";
@@ -105,26 +112,23 @@ export const S09_Close: React.FC = () => {
               opacity: callbackOpacity,
             }}
           >
-            Your storage{" "}
+            Your storage
             <span
               style={{
+                display: "inline-block",
+                verticalAlign: "baseline",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
                 opacity: strikeOpacity,
                 color: color.stone[500],
                 textDecoration: "line-through",
+                maxWidth: `${strikeWidth * 11}em`,
+                willChange: "max-width, opacity",
               }}
             >
-              isn't&nbsp;yours
+              &nbsp;isn't&nbsp;yours
             </span>
-            <span
-              style={{
-                opacity: interpolate(frame, [resolveFrame, resolveFrame + 12], [0, 1], {
-                  extrapolateLeft: "clamp",
-                  extrapolateRight: "clamp",
-                }),
-              }}
-            >
-              .
-            </span>
+            <span>.</span>
           </div>
 
           {/* "Yours." in krater orange */}

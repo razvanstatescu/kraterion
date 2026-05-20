@@ -51,7 +51,8 @@ export function StateTransition({
         className={cn(
           "relative overflow-hidden rounded-lg border",
           dark ? "border-stone-800 bg-stone-900" : "border-stone-200/60 bg-cream",
-          size === "compact" ? "min-h-[220px]" : "min-h-[300px]"
+          // Locked height — eliminates page-jump as frames cycle through
+          size === "compact" ? "h-[320px] md:h-[360px]" : "h-[460px] md:h-[500px]"
         )}
       >
         <AnimatePresence mode="wait">
@@ -61,7 +62,7 @@ export function StateTransition({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.32, ease: [0.4, 0, 0.2, 1] }}
-            className="h-full"
+            className="absolute inset-0 overflow-auto"
           >
             {frames[idx].node}
           </motion.div>

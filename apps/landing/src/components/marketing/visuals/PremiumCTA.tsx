@@ -37,16 +37,16 @@ export function PremiumCTA({
   className?: string;
 }) {
   return (
-    <section className={cn("relative bg-cream py-32", className)}>
+    <section className={cn("relative bg-cream py-20 md:py-24", className)}>
       <div className="mx-auto max-w-[1280px] px-6">
         {/* Inner panel */}
         <div
-          className="relative mx-auto max-w-[1040px] rounded-[20px] border border-stone-200/80 px-8 py-16 md:px-14 md:py-20"
+          className="relative mx-auto max-w-[1040px] rounded-[20px] border border-stone-200/80 px-8 py-12 md:px-14 md:py-14"
           style={{
             background: "rgba(196, 91, 54, 0.035)",
           }}
         >
-          <CornerTicks color="#A89C82" size={12} inset={-1} />
+          <CornerTicks color="#A89C82" size={12} inset={10} />
 
           {/* Eyebrow chip */}
           <div className="flex items-center justify-center">
@@ -57,18 +57,18 @@ export function PremiumCTA({
           </div>
 
           {/* Headline */}
-          <h2 className="mx-auto mt-6 max-w-[820px] text-center text-[40px] leading-[1.05] tracking-[-0.02em] md:text-[64px]">
+          <h2 className="mx-auto mt-5 max-w-[820px] text-center text-[36px] leading-[1.05] tracking-[-0.02em] md:text-[56px]">
             {headline}
           </h2>
 
           {sub && (
-            <p className="mx-auto mt-6 max-w-[560px] text-center text-[16px] leading-[1.6] text-stone-700">
+            <p className="mx-auto mt-5 max-w-[560px] text-center text-[16px] leading-[1.6] text-stone-700">
               {sub}
             </p>
           )}
 
           {/* CTAs */}
-          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row sm:gap-5">
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row sm:gap-5">
             <ButtonLink href={primaryHref} variant="primary" size="lg">
               {primaryLabel}
             </ButtonLink>
@@ -81,7 +81,7 @@ export function PremiumCTA({
           </div>
 
           {/* Bottom band — build tag · status */}
-          <div className="mt-12 flex items-center justify-center gap-3 text-[11px]">
+          <div className="mt-8 flex items-center justify-center gap-3 text-[11px]">
             <span className="font-mono uppercase tracking-[0.12em] text-stone-500">
               {buildTag}
             </span>

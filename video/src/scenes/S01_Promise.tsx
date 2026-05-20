@@ -43,23 +43,23 @@ export const S01_Promise: React.FC = () => {
             justifyContent: "center",
           }}
         >
+          {/* Aperture is already full-size at scene start (match-cut from S00's morph).
+              We only animate the move-up + scale-down. No spring-in. */}
           <div
             style={{
               transform: `translateY(${apertureY}px) scale(${apertureScale})`,
               willChange: "transform",
             }}
           >
-            <SpringBounce startFrame={0} fromScale={0.2} toScale={1} rotateDeg={6}>
-              <ApertureMark
-                size={420}
-                stroke={color.cream}
-                drawDurationFrames={1}
-                staggerFrames={0}
-                fillInner
-                fillStartFrame={0}
-                fillColor={color.krater}
-              />
-            </SpringBounce>
+            <ApertureMark
+              size={420}
+              stroke={color.cream}
+              drawDurationFrames={1}
+              staggerFrames={0}
+              fillInner
+              fillStartFrame={0}
+              fillColor={color.krater}
+            />
           </div>
 
           {frame >= taglineFrame && (

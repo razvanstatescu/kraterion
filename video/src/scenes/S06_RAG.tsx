@@ -106,87 +106,82 @@ export const S06_RAG: React.FC = () => {
           )}
         </AbsoluteFill>
 
-        {/* Latency counter — bottom-left, attached to chat panel position */}
+        {/* Stats row — bottom-center, three-up arrangement so nothing clips */}
         {frame >= counterAt && (
           <div
             style={{
               position: "absolute",
-              left: 180,
-              bottom: 100,
+              left: 0,
+              right: 0,
+              bottom: 80,
               display: "flex",
-              flexDirection: "column",
-              gap: 4,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <Counter
-                startFrame={counterAt}
-                to={1.4}
-                decimals={1}
-                fontSize={84}
-                fg={color.cream}
-              />
-              <span
-                style={{
-                  fontSize: 36,
-                  color: color.stone[500],
-                  fontWeight: 700,
-                }}
-              >
-                s
-              </span>
-            </div>
-            <span
-              style={{
-                fontSize: 14,
-                color: color.stone[500],
-                fontWeight: 700,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-              }}
-            >
-              ANSWERED · GROUNDED
-            </span>
-          </div>
-        )}
-
-        {/* CITED · 3 chip — bottom-right */}
-        {frame >= citedChipAt && (
-          <div style={{ position: "absolute", right: 180, bottom: 110 }}>
-            <Chip
-              startFrame={citedChipAt}
-              surface="cream"
-              shadowColor={color.krater}
-              dotColor={color.krater}
-              mono
-              tiltDeg={-2}
-            >
-              CITED · 3 CHUNKS
-            </Chip>
-          </div>
-        )}
-
-        {/* GROUNDED tagline — top center */}
-        {frame >= groundedAt && (
-          <AbsoluteFill
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
               justifyContent: "center",
-              paddingTop: 80,
+              alignItems: "center",
+              gap: 56,
               pointerEvents: "none",
             }}
           >
-            <Chip
-              startFrame={groundedAt}
-              surface="ink"
-              shadowColor={color.krater}
-              dotColor={color.krater}
-              mono
-            >
-              GROUNDED · NO HALLUCINATIONS
-            </Chip>
-          </AbsoluteFill>
+            {/* Latency */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <Counter
+                  startFrame={counterAt}
+                  to={1.4}
+                  decimals={1}
+                  fontSize={72}
+                  fg={color.cream}
+                />
+                <span
+                  style={{
+                    fontSize: 32,
+                    color: color.stone[500],
+                    fontWeight: 700,
+                  }}
+                >
+                  s
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: color.stone[500],
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                }}
+              >
+                ANSWERED
+              </span>
+            </div>
+
+            {/* Cited */}
+            {frame >= citedChipAt && (
+              <Chip
+                startFrame={citedChipAt}
+                surface="cream"
+                shadowColor={color.krater}
+                dotColor={color.krater}
+                mono
+                tiltDeg={-2}
+              >
+                CITED · 3 CHUNKS
+              </Chip>
+            )}
+
+            {/* Grounded */}
+            {frame >= groundedAt && (
+              <Chip
+                startFrame={groundedAt}
+                surface="ink"
+                shadowColor={color.krater}
+                dotColor={color.krater}
+                mono
+                tiltDeg={2}
+              >
+                GROUNDED · NO HALLUCINATIONS
+              </Chip>
+            )}
+          </div>
         )}
 
         {/* Cursor moves to a citation and clicks it */}

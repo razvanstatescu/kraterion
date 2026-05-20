@@ -127,6 +127,13 @@ const STATS = [
   { value: "99.9%", label: "object durability", sub: "Erasure-coded across nodes" },
 ];
 
+const RECENT_CALLS = [
+  { id: "1", t: "14:02:11", q: "What is our refund policy?", ms: "184ms" },
+  { id: "2", t: "14:01:48", q: "How long does annual proration last?", ms: "212ms" },
+  { id: "3", t: "13:58:22", q: "Compare Pro and Team tiers", ms: "198ms" },
+  { id: "4", t: "13:55:07", q: "Cancel mid-cycle?", ms: "171ms" },
+];
+
 const CUSTOMERS = [
   {
     company: "Quanta Labs",
@@ -217,9 +224,9 @@ export function Landing() {
               </p>
             </div>
           </FadeUp>
-          <div className="mt-12 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
-            <FadeUp>
-              <SdkFanout />
+          <div className="mt-12 grid items-stretch gap-4 md:grid-cols-2">
+            <FadeUp className="flex">
+              <SdkFanout className="w-full" />
             </FadeUp>
             <FadeUp delay={0.1} className="flex flex-col gap-4">
               <UploadPipeline />
@@ -270,9 +277,9 @@ export function Landing() {
                 <CodeBlock tabs={AGENT_TABS} />
               </div>
             </FadeUp>
-            <FadeUp delay={0.1} className="flex flex-col gap-4">
-              {/* Agent metadata card */}
-              <div className="hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+            <FadeUp delay={0.1} className="flex">
+              {/* Agent metadata card — fills the full column height */}
+              <div className="hairline flex w-full flex-col overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
                 <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
                   <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
                     Agent · support
@@ -290,10 +297,41 @@ export function Landing() {
                   <Row label="Quota" value="100k / mo" />
                   <Row label="Last call" value="3 minutes ago" />
                 </dl>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <MetricCard value="0" label="vendor lock-in" hint="Drop-in OpenAI client" />
-                <MetricCard value="5" label="built-in tools" hint="Override or extend" accent />
+
+                {/* Recent calls trace — fills remaining height */}
+                <div className="flex flex-1 flex-col border-t border-stone-200/60">
+                  <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50/60 px-4 py-2">
+                    <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                      Recent calls
+                    </span>
+                    <span className="font-mono text-[10px] text-stone-500">last 24h</span>
+                  </div>
+                  <ul className="flex-1 divide-y divide-stone-200/60">
+                    {RECENT_CALLS.map((c) => (
+                      <li
+                        key={c.id}
+                        className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2.5 text-[12px]"
+                      >
+                        <span className="font-mono tabular-nums text-[10px] text-stone-500">
+                          {c.t}
+                        </span>
+                        <span className="truncate text-stone-700">{c.q}</span>
+                        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-stone-500">
+                          <span
+                            aria-hidden
+                            className="h-1 w-1 rounded-full bg-[color:var(--color-success)]"
+                          />
+                          {c.ms}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
+                    <Stat label="P50" value="184 ms" />
+                    <Stat label="Tools" value="5" accent />
+                    <Stat label="Lock-in" value="0" />
+                  </div>
+                </div>
               </div>
             </FadeUp>
           </div>
@@ -440,6 +478,29 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-2.5 text-[12px]">
       <dt className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">{label}</dt>
       <dd className="font-mono text-stone-800">{value}</dd>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 px-4 py-3">
+      <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+        {label}
+      </span>
+      <span
+        className={`font-mono tabular-nums text-[14px] ${accent ? "text-krater" : "text-ink"}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
