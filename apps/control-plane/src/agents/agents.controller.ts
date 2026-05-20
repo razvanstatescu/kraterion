@@ -55,6 +55,7 @@ import {
 } from "./tool-runner.js";
 import {
   ShareTokenUsageService,
+  approximateEgressBytes,
   computeSpendUsdMicros,
 } from "./share-token-usage.js";
 import type OpenAI from "openai";
@@ -570,6 +571,7 @@ export class AgentsController {
         await this.shareTokenUsage.record(
           user.shareTokenId,
           computeSpendUsdMicros(answered.completion_tokens, requestedModel),
+          approximateEgressBytes(answered.completion_tokens),
         );
       }
 
@@ -1001,6 +1003,7 @@ export class AgentsController {
         await this.shareTokenUsage.record(
           args.shareTokenId,
           computeSpendUsdMicros(completionTokens, args.requestedModel),
+          approximateEgressBytes(completionTokens),
         );
       }
     } catch (err) {

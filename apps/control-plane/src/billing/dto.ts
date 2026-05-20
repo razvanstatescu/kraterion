@@ -1,19 +1,7 @@
 import { z } from "zod";
 
-/** Body shape for `POST /v1/billing/checkout-session`. The
- *  `project_id` is required so a session-auth caller can disambiguate
- *  which project to bill (one account owns many); bearer tokens have
- *  their `project_id` baked into the principal but we still accept it
- *  in the body and cross-check. */
-export const checkoutSessionSchema = z.object({
-  project_id: z.string().uuid(),
-  success_url: z.string().url(),
-  cancel_url: z.string().url(),
-});
-export type CheckoutSessionDto = z.infer<typeof checkoutSessionSchema>;
-
 /** Body shape for `POST /v1/billing/portal-session`. Same scoping
- *  rules as the Checkout request. */
+ *  rules as the inline setup-intent request. */
 export const portalSessionSchema = z.object({
   project_id: z.string().uuid(),
   return_url: z.string().url(),
@@ -22,10 +10,14 @@ export type PortalSessionDto = z.infer<typeof portalSessionSchema>;
 
 /** Body shape for `POST /v1/billing/storage/resize`. Direction
  *  (upgrade vs downgrade) is inferred by the server based on the
- *  current pool reservation; the client only states the target. */
+ *  current pool reservation; the client only states the target.
+ *
+ *  Quantity is in **MiB** (Stripe subscription-item quantity unit
+ *  matches our 500 MB free tier). Caps at 100 TiB which is well above
+ *  any sandbox testing need; lift if a real customer asks. */
 export const resizeStorageSchema = z.object({
   project_id: z.string().uuid(),
-  new_reserved_gb: z.number().int().min(10).max(100_000),
+  new_reserved_mb: z.number().int().min(500).max(100_000_000),
 });
 export type ResizeStorageDto = z.infer<typeof resizeStorageSchema>;
 

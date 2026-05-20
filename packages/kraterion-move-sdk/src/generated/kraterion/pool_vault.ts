@@ -434,6 +434,60 @@ export function extend(options: ExtendOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
+export interface ResizeShrinkArguments {
+    vault: RawTransactionArgument<string>;
+    reserve: RawTransactionArgument<string>;
+    system: RawTransactionArgument<string>;
+    percent: RawTransactionArgument<number>;
+}
+export interface ResizeShrinkOptions {
+    package?: string;
+    arguments: ResizeShrinkArguments | [
+        vault: RawTransactionArgument<string>,
+        reserve: RawTransactionArgument<string>,
+        system: RawTransactionArgument<string>,
+        percent: RawTransactionArgument<number>
+    ];
+}
+/**
+ * Shrink the pool's reserved capacity by `percent` of its **unused** portion.
+ * Called by the pool-renewal worker when a customer has a
+ * `PendingStorageDowngrade` past its effective_at — we shrink first, then extend
+ * at the new smaller size in the same tx batch (or the next renewal tick).
+ *
+ * `percent` must be 1..=100. Walrus's
+ * `decrease_storage_pool_unused_capacity_by_percent` returns the freed reservation
+ * as a `Storage` object — pre-paid Walrus capacity that can in theory be reused
+ * for another pool, but we don't have the inter-pool reuse logic and don't want to
+ * build it. So we transfer the `Storage` to `@0x0` and accept that the pre-paid
+ * portion is abandoned to the network. The trade-off is documented in
+ * `/docs/decisions.md` ("Pool lifetime tracks billing cycle") — short pool
+ * lifetimes mean the abandoned slice is at most one billing cycle's worth of WAL,
+ * far less than the previous "pay for 2 years of unused capacity" gap.
+ *
+ * Aborts:
+ *
+ * - `ERevoked` if the user has revoked platform authorization.
+ * - Caller must be on the reserve whitelist.
+ * - Walrus aborts if `percent == 0` or the computed extract size rounds to zero
+ *   (e.g. nothing is unused).
+ */
+export function resizeShrink(options: ResizeShrinkOptions) {
+    const packageAddress = options.package ?? '@local-pkg/kraterion';
+    const argumentsTypes = [
+        null,
+        null,
+        null,
+        'u8'
+    ] satisfies (string | null)[];
+    const parameterNames = ["vault", "reserve", "system", "percent"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'pool_vault',
+        function: 'resize_shrink',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
 export interface ResizeGrowArguments {
     vault: RawTransactionArgument<string>;
     reserve: RawTransactionArgument<string>;

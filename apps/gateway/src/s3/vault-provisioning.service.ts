@@ -27,7 +27,9 @@ import { Transaction } from "@mysten/sui/transactions";
 import {
   KRATERION_PACKAGE_ID,
   KRATERION_RESERVE_ID,
+  STORAGE_DEFAULT_MB,
   WALRUS_SYSTEM_OBJECT_ID,
+  initialPoolEpochsAhead,
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import { getSuiClient, getPoolStorageCostFrost } from "@kraterion/walrus-client";
@@ -36,14 +38,26 @@ import { GatewayKeypairService } from "../auth/gateway-keypair.service.js";
 import { S3Error } from "./s3-error.js";
 
 /**
- * Initial vault capacity for new projects. Sized for early demos
- * (~200 MiB raw, given ~5x Walrus encoding overhead). The admin endpoint
- * (Phase I) lets users resize larger when needed. Phase J adds reactive
- * auto-grow.
+ * Initial vault capacity for new projects. Anchored to
+ * `STORAGE_DEFAULT_MB` so the on-chain pool matches the billing free
+ * tier — no over-provisioning before the customer reserves more. Each
+ * Stripe quantity unit = 1 MiB of encoded capacity. The dashboard
+ * resize modal lets the customer go higher; the pool-renewal worker
+ * extends every billing cycle.
  */
-const INITIAL_RESERVED_ENCODED_BYTES = BigInt(1024 * 1024 * 1024); // 1 GiB encoded
-/** ~2 years on mainnet (14-day epochs). Walrus mainnet maximum. */
-const INITIAL_EPOCHS_AHEAD = 53;
+const INITIAL_RESERVED_ENCODED_BYTES = BigInt(STORAGE_DEFAULT_MB) * 1024n * 1024n;
+/**
+ * Initial pool lifetime — one billing cycle + renewal buffer.
+ * Computed from `BILLING_CYCLE_DAYS` + `POOL_RENEWAL_BUFFER_DAYS` /
+ * per-network epoch length in `@kraterion/shared`. See the comment on
+ * `initialPoolEpochsAhead` for the reasoning.
+ *
+ * Previously hardcoded at 53 epochs (~2 years on mainnet) which left
+ * downsized pools pre-paid for years of unused capacity. The new model
+ * relies on `PoolRenewalProcessor` to extend monthly; this constant
+ * just buys headroom for the first cycle.
+ */
+const INITIAL_EPOCHS_AHEAD = initialPoolEpochsAhead();
 /** 15s — matches `waitForS3Object` for the indexer-ack timeout. */
 const INDEXER_WAIT_TIMEOUT_MS = 15_000;
 const INDEXER_POLL_INTERVAL_MS = 250;

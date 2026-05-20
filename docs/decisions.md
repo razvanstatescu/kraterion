@@ -3554,3 +3554,216 @@ fire later).
 - Tradeoff considered: stacking with a 1-banner-visible-at-a-time `<Drawer>`.
   Rejected — banners need to be visible without interaction. Priority
   picking is simpler.
+
+---
+
+## 2026-05-19 — Share-token egress measured as `completion_tokens × 4`, not by HTTP byte count
+
+**Status:** Accepted.
+
+**Context:** The Stripe catalog has a `share_token_egress_bytes` meter
+that we never wired in the original P6 build. The plan said "use
+`ShareTokenUsageDay.egress_bytes`" — that column didn't exist. The
+real question was how to count "egress through a public agent share
+link" cheaply enough to bump on every chat completion.
+
+**Decision:** Add `bytes_out BigInt` to `ShareTokenUsageDay`, bumped
+in `ShareTokenUsageService.record(...)` with the value
+`completion_tokens × 4` (UTF-8 chat tokens average ~4 bytes per
+token). Stripe meter source is a new
+`share-token-egress-rollup.processor.ts` that drains the delta on
+each tick.
+
+**Alternatives considered:**
+
+- **Count actual HTTP response bytes.** Accurate but requires
+  threading a byte counter through Fastify's reply stream + the SSE
+  framing. Drag for ~5% precision improvement.
+- **Use the existing `agent_messages` meter and skip share-token-
+  egress entirely.** Loses the per-token granularity that's the
+  point of tracking public-link traffic separately (abuse detection
+  on third-party-embed widgets).
+
+**Consequences:**
+
+- Share-token egress reports approximate-but-correct numbers within
+  ~5% of actual bytes-on-the-wire. Good enough for the meter.
+- The `bytes_out_at_last_emit` cursor on the same row lets the
+  rollup processor compute deltas idempotently — a crashed tick
+  re-emits the same delta and Stripe dedupes it via the meter
+  event identifier.
+- If we ever want byte-accurate counting (e.g., for SLA reporting),
+  the column can be replaced with a real bytes counter without
+  schema churn.
+
+---
+
+## 2026-05-19 — UsageEvent retention via DELETE cron, not native partitioning
+
+**Status:** Accepted (sandbox-mode); reconsider when traffic warrants.
+
+**Context:** The billing plan called for converting `UsageEvent` to a
+Postgres declarative-partitioned table (day-partitioned, drop
+partitions older than 35 days). At scale this is the right answer —
+DROP PARTITION is O(1), DELETE is O(rows). Today's volumes are well
+under 1M rows/day.
+
+**Decision:** Ship a plain `DELETE WHERE occurred_at < cutoff` cron
+(`UsageEventTtlProcessor`, 1h tick, 35-day retention). Document
+partitioning as a future operation. Partitioning requires:
+
+- a multi-step migration (rename → create partitioned → migrate
+  data → swap → drop old);
+- composite PK that includes the partition key, which breaks any
+  FK assumption Prisma encoded;
+- a separate "create tomorrow's partition" cron alongside the
+  "drop old" one.
+
+**Trigger to revisit:**
+
+- sustained traffic > ~10M UsageEvent rows/day, or
+- daily DELETE shows up in slow-query logs, or
+- compliance need for point-in-time partition drop.
+
+Until then: 60 lines of TTL beats 500 lines of migration.
+
+---
+
+## 2026-05-19 — Server-side remove-payment-method guard is unnecessary
+
+**Status:** Rejected (planning gap, not feature decision).
+
+**Context:** The billing plan called for a server-side check that
+blocks `payment_method.detach` while a project has unbilled usage,
+plus a "billing-locked" Customer Portal configuration that hides the
+remove action.
+
+**Decision:** Don't build it. Stripe Customer Portal does **not**
+expose `payment_method.detach` as a user action — it supports adding
+new payment methods + setting a different one as default (swap), but
+the "delete card" action lives only in the Stripe Dashboard (operator
+side) and the Stripe API (programmatic). Our dashboard exposes
+neither. The threat model the guard would defend against (a user
+detaching their card before getting billed) is not reachable via the
+surfaces we ship.
+
+**Consequences:**
+
+- One fewer Customer Portal Configuration to manage.
+- The `cancel_at_period_end` flow + `past_due` state already cover
+  the legitimate "user wants to stop billing" path — Stripe drafts
+  + collects from the on-file PM through the boundary regardless.
+- If we ever build a "remove card" UI in our own dashboard, the
+  guard becomes load-bearing — that's the trigger to revisit.
+
+---
+
+## 2026-05-19 — Per-day chart axis is dollars, not raw units
+
+**Status:** Accepted.
+
+**Context:** The stacked daily bar chart on `/usage` mixes meters
+with wildly different natural units — bytes, bytes-seconds, ops,
+messages. Stacking them by raw value makes a 1 GB byte-second swamp
+a 1k op count visually, while the actual cost contribution is
+inverted.
+
+**Decision:** Per-day, per-meter cost is computed server-side
+(extended `UsageService.getByDay` to attach `cost_usd_cents` to each
+meter cell). The chart stacks dollars, not raw units. The legend
+shows the same labels as the meter table. Per-meter free bands are
+intentionally NOT subtracted at the per-day level — the chart shows
+where the money is coming from across the period, including bands
+the meter table reports as "already covered free".
+
+**Consequences:**
+
+- Heterogeneous meters compare visually correctly.
+- The chart and the meter table use the same dollar denomination,
+  so a user clicking through "this day is $0.50" reads consistently
+  with the period-wide "cost" column.
+- The free-band-aware breakdown lives in the period-wide meter
+  table only. If we ever want a per-day "billable above free band"
+  view, it's a separate chart mode.
+
+---
+
+## 2026-05-19 — Pool lifetime tracks billing cycle (~1 month), not horizon-based
+
+**Status:** Accepted.
+
+**Context:** The storage-pool migration design (and the original
+`vault-provisioning.service.ts`) created every new Walrus pool with a
+~2-year `end_epoch`. The reasoning was "fewer renewals to worry about,
+naturally outlives any subscription churn." That choice interacted
+badly with the billing model two ways:
+
+1. **Downsize gap.** Walrus's
+   `decrease_storage_pool_unused_capacity_by_percent` returns a
+   `Storage` reservation receipt, not WAL. So a customer dropping
+   from 100 GB to 50 GB at the billing boundary still leaves us
+   paying Walrus for 100 GB × remaining-pool-life — up to 2 years.
+
+2. **Cancellation gap.** A cancelled customer's pool stays alive on
+   chain (with no further renewals) for whatever fraction of 2 years
+   was left at cancel time. WAL was already pre-paid, but we couldn't
+   reclaim it.
+
+**Decision:** Pool reservation lifetime now ≈ 1 billing cycle + 5-day
+renewal buffer. A daily `PoolRenewalProcessor` extends every active
+pool one cycle ahead of `end_epoch`, drawing WAL from the platform
+reserve as it goes. Cancelled or past-due subscriptions don't get
+renewed; their pools decay naturally over the remaining ~1 cycle.
+
+Downsizes use a new `pool_vault::resize_shrink` Move entry that
+calls Walrus's decrease and abandons the returned `Storage` to
+`@0x0`. We don't try to compose those receipts across pools — the
+operational complexity isn't worth it when the abandoned slice is
+bounded by one cycle's residual capacity.
+
+**Alternatives considered:**
+
+- **Keep the 2-year horizon, add `resize_shrink` only.** Still leaks
+  on cancellations. And the larger the lifetime, the larger the
+  abandoned slice when a downsize happens late in the cycle.
+
+- **Per-blob lifetime instead of per-pool.** That's the
+  pre-pool-migration SharedBlob model — already rejected (see
+  `/docs/decisions.md` 2026-05-15 "Walrus storage-pool migration").
+  Pool primitive is cheaper to manage, the downsize gap is fixable.
+
+- **Push lifetime down further to ~1 week.** Operational risk
+  multiplies: a renewal worker that's down for 1 week loses every
+  pool. 1 month + 5-day buffer puts the alert horizon at "down for
+  5+ days" which is comfortably long for an operator response.
+
+**Consequences:**
+
+- WAL over-payment on a downsize drops from "up to 2 years × delta
+  GB × rate" to "up to ~1 month × delta GB × rate."
+
+- A new operational dependency: the `PoolRenewalProcessor` must run
+  every day. If it's down for `POOL_RENEWAL_BUFFER_DAYS = 5` days,
+  every active pool starts expiring. Monitoring: log line
+  `pool-renewal armed` at boot + a per-tick summary; absence of
+  either is the alert signal.
+
+- Cancellation cleanup is now automatic: cancelled subscription →
+  no renewal → pool naturally decays over the remaining ~1 cycle.
+  Customer data stays readable through that window so they can
+  export. After decay, the on-chain `PooledBlob` rows become
+  un-recoverable from Walrus storage nodes.
+
+- The `Storage` receipt abandoned to `@0x0` represents pre-paid
+  Walrus capacity we no longer claim. Walrus storage nodes treat
+  it as "held by someone, eventually expires" — the storage is
+  effectively returned to the network when the receipt's
+  `end_epoch` passes. We don't lose WAL we hadn't already paid;
+  we just lose the ability to USE that pre-paid slice.
+
+**Move ABI change scheduled:** the Move-side
+`pool_vault::resize_shrink` entry is in the source but won't fire
+until the package is redeployed on testnet (current package version
+doesn't have it). Until then the renewal worker shrinks only when
+`KRATERION_ENABLE_POOL_SHRINK=true`. After redeploy, flip the env
+flag.

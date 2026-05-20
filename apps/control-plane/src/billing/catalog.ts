@@ -213,8 +213,12 @@ export interface PriceSpec {
  */
 export const PRICES: PriceSpec[] = [
   {
+    // Archived: GB-granularity with 10 GB free. Kept in the catalog
+    // file so the sync script doesn't mistakenly try to delete it —
+    // any subscription still on `storage_v1` keeps its pricing until
+    // explicitly migrated.
     lookup_key: "storage_v1",
-    nickname: "Storage reservation $0.06/GB-mo",
+    nickname: "Storage reservation $0.06/GB-mo (legacy GB tier)",
     product_id: PRODUCTS.storage.id,
     recurring_interval: "month",
     recurring_usage_type: "licensed",
@@ -223,6 +227,28 @@ export const PRICES: PriceSpec[] = [
     tiers: [
       { up_to: 10, unit_amount_decimal: "0" }, // 10 GB free
       { up_to: null, unit_amount_decimal: "6" }, // $0.06 = 6 cents
+    ],
+  },
+  {
+    // Active: MB-granularity, 500 MB free, then $0.06/GB-mo
+    // (= 0.005859375 cents/MB at 1 MB = 1/1024 GB). Subscription
+    // `quantity` is integer MB so a customer can pick anything from
+    // 500 MB up to whatever number their wallet tolerates.
+    //
+    // Math sanity check at 1 GB (quantity=1024):
+    //   tier 1: 500 MB × $0      = $0
+    //   tier 2: 524 MB × 0.0586¢ = 3.07¢
+    // ≈ $0.06/GB × (1 GB − 0.5 GB) = $0.03 ✓
+    lookup_key: "storage_v2",
+    nickname: "Storage reservation $0.06/GB-mo (500 MB free)",
+    product_id: PRODUCTS.storage.id,
+    recurring_interval: "month",
+    recurring_usage_type: "licensed",
+    billing_scheme: "tiered",
+    tiers_mode: "graduated",
+    tiers: [
+      { up_to: 500, unit_amount_decimal: "0" }, // 500 MB free
+      { up_to: null, unit_amount_decimal: "0.005859375" }, // 0.06¢/GB ÷ 1024 MB
     ],
   },
   {
@@ -326,7 +352,7 @@ export const PRICES: PriceSpec[] = [
 /** Convenience accessor — used by the subscription bootstrap to look up
  *  the active price for each line. Keep in sync with `PRICES`. */
 export const ACTIVE_PRICE_LOOKUP_KEYS = {
-  storage: "storage_v1",
+  storage: "storage_v2",
   gateway_class_a: "gateway_class_a_v1",
   gateway_class_b: "gateway_class_b_v1",
   gateway_egress: "gateway_egress_v1",

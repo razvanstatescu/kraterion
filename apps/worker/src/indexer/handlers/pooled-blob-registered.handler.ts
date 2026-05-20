@@ -1,6 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { blobIdU256ToString } from "@kraterion/walrus-client";
+import {
+  blobIdU256ToString,
+  readPoolUsedEncodedBytes,
+  readPooledBlobRegisteredEpoch,
+} from "@kraterion/walrus-client";
 import { EmbeddingsService } from "../../embeddings/embeddings.service.js";
 import { KraterionPooledBlobRegisteredSchema } from "../event-types.js";
 import type { EventHandler, ParsedEvent } from "./handler.interface.js";
@@ -58,7 +62,11 @@ export class PooledBlobRegisteredHandler implements EventHandler {
     // means we missed the vault-created event).
     const pool = await tx.storagePool.findUnique({
       where: { vault_object_id: parsed.vault_id },
-      select: { id: true },
+      select: {
+        id: true,
+        pool_object_id: true,
+        used_encoded_bytes: true,
+      },
     });
     if (!pool) {
       throw new Error(
@@ -86,12 +94,48 @@ export class PooledBlobRegisteredHandler implements EventHandler {
       );
     }
 
-    // Encoded size isn't in this event (it's known on chain via the
-    // pool's used_encoded_bytes delta). For accurate per-blob accounting
-    // we'd want it; for v1 we leave it 0 here and the
-    // pool-resized/auto-sync code can backfill. The plaintext size
-    // (`parsed.size_bytes`) goes into the `S3Object` row directly.
-    const encodedSizeBytes = 0n;
+    // Encoded size + registered_epoch aren't carried by the event
+    // (the Move-side `KraterionPooledBlobRegistered` keeps the
+    // event payload tight — plaintext metadata only). Read them off
+    // chain after the register tx lands:
+    //
+    //   - `pool.used_encoded_bytes` post-register = previous + this
+    //     blob's encoded size, so the delta is the per-blob value.
+    //   - `pooled_blob.registered_epoch` is set on the register tx
+    //     and never changes.
+    //
+    // Failure mode: if the RPC read fails, we still write the row
+    // (encoded_size = 0, registered_epoch = 0) so the gateway's
+    // `waitForS3Object` poll completes — a backfill probe can patch
+    // the missing fields later (see scripts/probe-backfill-pooled-
+    // blob-sizes.ts). Better to ship an incomplete row than to
+    // wedge the upload.
+    let encodedSizeBytes = 0n;
+    let postRegisterUsedBytes = pool.used_encoded_bytes;
+    let registeredEpoch = 0;
+    try {
+      const liveUsed = await readPoolUsedEncodedBytes(pool.pool_object_id);
+      if (liveUsed !== null) {
+        postRegisterUsedBytes = liveUsed;
+        const delta = liveUsed - pool.used_encoded_bytes;
+        if (delta > 0n) encodedSizeBytes = delta;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to read pool ${pool.pool_object_id} state: ${(err as Error).message}. ` +
+          `Falling back to encoded_size=0; row will need backfill.`,
+      );
+    }
+    try {
+      const epoch = await readPooledBlobRegisteredEpoch(
+        parsed.pooled_blob_object_id,
+      );
+      if (epoch !== null) registeredEpoch = epoch;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to read pooled blob ${parsed.pooled_blob_object_id} epoch: ${(err as Error).message}`,
+      );
+    }
 
     const contentType = parsed.content_type.toString("utf8") || null;
     const etagHex = parsed.etag_md5.toString("hex");
@@ -111,14 +155,32 @@ export class PooledBlobRegisteredHandler implements EventHandler {
         walrus_blob_id: walrusBlobId,
         pooled_blob_object_id: parsed.pooled_blob_object_id,
         encoded_size_bytes: encodedSizeBytes,
-        registered_epoch: 0, // No current-epoch on the event; certify handler
-                             // refreshes via `certified_epoch` if needed.
+        registered_epoch: registeredEpoch,
       },
       update: {
-        // Idempotent re-application; nothing to change.
+        // Idempotent re-application — overwrite encoded_size_bytes
+        // and registered_epoch with what's now on chain (helps with
+        // replay after a backfill).
+        encoded_size_bytes: encodedSizeBytes,
+        registered_epoch: registeredEpoch,
       },
       select: { id: true },
     });
+
+    // Sync StoragePool.used_encoded_bytes with the post-register
+    // on-chain value. The chain is the authoritative source; if we
+    // missed prior events or if two registers race, mirroring keeps
+    // the dashboard's "X MB used" honest.
+    if (postRegisterUsedBytes !== pool.used_encoded_bytes) {
+      await tx.storagePool.update({
+        where: { id: pool.id },
+        data: {
+          used_encoded_bytes: postRegisterUsedBytes,
+          blob_count: { increment: 1 },
+          last_synced_at: new Date(),
+        },
+      });
+    }
 
     // Upsert S3Object keyed on (bucket_id, s3_key). On overwrite (same
     // key, different blob), the previous row is soft-deleted by the

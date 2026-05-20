@@ -130,3 +130,14 @@ export const KraterionPoolResizedGrow = new MoveStruct({ name: `${$moduleName}::
         new_reserved_encoded_capacity_bytes: bcs.u64(),
         resized_by: bcs.Address
     } });
+export const KraterionPoolResizedShrink = new MoveStruct({ name: `${$moduleName}::KraterionPoolResizedShrink`, fields: {
+        vault_id: bcs.Address,
+        /**
+         * Percent of unused capacity that was decreased — Walrus's
+         * `decrease_storage_pool_unused_capacity_by_percent` takes a `u8` 1..=100; we
+         * mirror.
+         */
+        percent_shrunk: bcs.u8(),
+        new_reserved_encoded_capacity_bytes: bcs.u64(),
+        resized_by: bcs.Address
+    } });

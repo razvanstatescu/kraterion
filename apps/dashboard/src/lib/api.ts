@@ -411,14 +411,14 @@ export type { StoredSession };
  *  `/billing` storage card. Mirrors the CP `getStorageState` shape;
  *  `null` when the project hasn't been through Checkout yet. */
 export interface StorageBillingStateJson {
-  reserved_gb: number;
-  used_gb: number;
-  pool_reserved_gb: number;
-  stripe_quantity_gb: number;
+  reserved_mb: number;
+  used_mb: number;
+  pool_reserved_mb: number;
+  stripe_quantity_mb: number;
   monthly_cost_usd_cents: number;
   next_bill_at: string | null;
   pending_downgrade: {
-    new_gb: number;
+    new_mb: number;
     effective_at: string;
   } | null;
 }
@@ -497,6 +497,16 @@ export interface SetupIntentResponse {
   setup_intent_id: string;
 }
 
+/** Per-day usage breakdown for the stacked daily bar chart on /usage.
+ *  One entry per UTC day, with the meter name → `{ value, cost_usd_cents }`.
+ *  Missing meters on a given day mean zero. */
+export interface UsageByDayJson {
+  days: Array<{
+    day: string; // YYYY-MM-DD
+    meters: Record<string, { value: string; cost_usd_cents: number }>;
+  }>;
+}
+
 export interface UsageCurrentPeriodJson {
   period: {
     start: string;
@@ -507,8 +517,8 @@ export interface UsageCurrentPeriodJson {
   total_accrued_usd_cents: number;
   projected_total_usd_cents: number;
   storage: {
-    used_gb: number;
-    reserved_gb: number;
+    used_mb: number;
+    reserved_mb: number;
     monthly_cost_usd_cents: number;
   };
   meters: UsageMeterJson[];

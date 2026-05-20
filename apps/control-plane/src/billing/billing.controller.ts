@@ -9,7 +9,6 @@ import { BillingService } from "./billing.service.js";
 import {
   cancelDowngradeSchema,
   cancelSubscriptionSchema,
-  checkoutSessionSchema,
   portalSessionSchema,
   resizeStorageSchema,
   setupIntentSchema,
@@ -17,7 +16,6 @@ import {
   updateSpendCapSchema,
   type CancelDowngradeDto,
   type CancelSubscriptionDto,
-  type CheckoutSessionDto,
   type PortalSessionDto,
   type ResizeStorageDto,
   type SetupIntentDto,
@@ -79,31 +77,6 @@ export class BillingController {
         stripe_customer_id: this.stripe.getStripeCustomerId(row),
       },
     };
-  }
-
-  /**
-   * Build a Stripe Checkout session for a project. Returns the
-   * hosted-page URL the dashboard redirects to. On completion Stripe
-   * fires `checkout.session.completed`; the webhook handler patches
-   * the `BillingAccount` row and the subscription is live.
-   */
-  @Post("checkout-session")
-  @HttpCode(200)
-  async createCheckout(
-    @Req() req: FastifyRequest,
-    @Body(parseBody(checkoutSessionSchema)) dto: CheckoutSessionDto,
-  ) {
-    const user = requireAccountPrincipal(req);
-    const project = await this.assertProjectOwned(user.accountId, dto.project_id);
-    const { url, sessionId } = await this.billing.createCheckoutSession({
-      projectId: dto.project_id,
-      accountEmail: project.account.email,
-      accountSuiAddress: project.account.sui_address,
-      projectName: project.name,
-      successUrl: dto.success_url,
-      cancelUrl: dto.cancel_url,
-    });
-    return { url, session_id: sessionId };
   }
 
   /**
@@ -177,7 +150,7 @@ export class BillingController {
     await this.assertProjectOwned(user.accountId, dto.project_id);
     return this.storageBilling.resize({
       projectId: dto.project_id,
-      newReservedGb: dto.new_reserved_gb,
+      newReservedMb: dto.new_reserved_mb,
     });
   }
 

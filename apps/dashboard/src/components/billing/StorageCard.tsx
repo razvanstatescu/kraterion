@@ -6,6 +6,7 @@ import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import type { StorageBillingStateJson } from "@/lib/api";
+import { formatStorageMb } from "@/lib/format";
 import { useCancelPendingDowngrade } from "@/lib/queries";
 import { ResizeStorageModal } from "./ResizeStorageModal";
 
@@ -42,16 +43,16 @@ export function StorageCard({ projectId, state }: Props) {
         </div>
         <div className="ks-card-body">
           <div className="muted" style={{ fontSize: 13 }}>
-            Storage is a monthly reservation in GB. The first 10 GB
-            are free; you only pay for what you reserve above that.
+            Storage is a monthly reservation. The first 500 MB are
+            free; you only pay for what you reserve above that.
           </div>
         </div>
       </section>
     );
   }
 
-  const fillPct = state.reserved_gb > 0
-    ? Math.min(100, (state.used_gb / state.reserved_gb) * 100)
+  const fillPct = state.reserved_mb > 0
+    ? Math.min(100, (state.used_mb / state.reserved_mb) * 100)
     : 0;
   const monthlyUsd = (state.monthly_cost_usd_cents / 100).toFixed(2);
   const nextBill = state.next_bill_at
@@ -114,7 +115,7 @@ export function StorageCard({ projectId, state }: Props) {
                 lineHeight: 1.2,
               }}
             >
-              {state.used_gb} <span className="muted" style={{ fontSize: 16, fontWeight: 400 }}>used of</span> {state.reserved_gb} GB
+              {formatStorageMb(state.used_mb)} <span className="muted" style={{ fontSize: 16, fontWeight: 400 }}>used of</span> {formatStorageMb(state.reserved_mb)}
             </div>
             <div
               style={{
@@ -140,7 +141,7 @@ export function StorageCard({ projectId, state }: Props) {
           <div style={{ display: "grid", gap: 12 }}>
             <Field label="Monthly cost" value={`$${monthlyUsd}`} />
             <Field label="Next bill" value={nextBill} />
-            <Field label="Free tier covers" value="10 GB" />
+            <Field label="Free tier covers" value="500 MB" />
           </div>
         </div>
 
@@ -159,7 +160,7 @@ export function StorageCard({ projectId, state }: Props) {
           >
             <div style={{ fontSize: 13 }}>
               <Pill tone="warning">Scheduled</Pill>{" "}
-              Drops to <strong>{state.pending_downgrade.new_gb} GB</strong> on{" "}
+              Drops to <strong>{formatStorageMb(state.pending_downgrade.new_mb)}</strong> on{" "}
               <strong>
                 {new Date(state.pending_downgrade.effective_at).toLocaleDateString(
                   undefined,

@@ -26,6 +26,34 @@ export function formatBytes(input: string | number | bigint): string {
   return `${formatted} ${UNITS[i]}`;
 }
 
+/** Format a MiB count using the smallest readable unit. Mirrors the
+ *  `formatBytes` ladder (`1 MB`, `1.5 GB`, `2.1 TB`) so storage values
+ *  read identically whether they came from raw bytes or from MB-typed
+ *  fields on the wire.
+ *
+ *  Use this for `reserved_mb`, `used_mb`, resize tier labels — i.e.
+ *  anywhere the dashboard talks about storage size. */
+export function formatStorageMb(mb: number | string): string {
+  const n = typeof mb === "string" ? Number(mb) : mb;
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n === 0) return "0 MB";
+  // Promote to bytes so the standard ladder handles the unit pick. We
+  // start the cursor at "MB" so values < 1 MB still read in MB (the
+  // smallest unit the storage system tracks), not in KB.
+  let v = n;
+  let i = 2; // MB
+  while (v >= 1024 && i < UNITS.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  const formatted = v >= 100 ? Math.round(v).toString() : v.toFixed(v >= 10 ? 1 : 2);
+  return `${stripTrailingZero(formatted)} ${UNITS[i]}`;
+}
+
+function stripTrailingZero(s: string): string {
+  return s.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
 /** Truncate a Sui address / object id to `0x1234…abcd`. */
 export function formatAddress(addr: string, lead = 6, trail = 4): string {
   if (!addr) return "";

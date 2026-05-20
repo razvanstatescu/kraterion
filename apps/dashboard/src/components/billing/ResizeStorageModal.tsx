@@ -7,6 +7,7 @@ import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import type { StorageBillingStateJson } from "@/lib/api";
+import { formatStorageMb } from "@/lib/format";
 import { useResizeStorage } from "@/lib/queries";
 
 /**
@@ -15,10 +16,24 @@ import { useResizeStorage } from "@/lib/queries";
  * right copy per case.
  *
  * Tier presets are pinned in `packages/shared/src/billing-constants.ts`
- * (`STORAGE_TIER_PRESETS_GB`); we duplicate the list here so the
+ * (`STORAGE_TIER_PRESETS_MB`); we duplicate the list here so the
  * dashboard doesn't reach into a server-only package. Keep in sync.
+ *
+ * All values flow as **MiB** (matches Stripe subscription-item
+ * quantity); the modal renders them via `formatStorageMb()` so the
+ * unit reads naturally (e.g. "500 MB" → "1 GB" → "1 TB").
  */
-const TIER_PRESETS_GB = [10, 50, 100, 250, 500, 1000, 2000, 5000];
+const TIER_PRESETS_MB = [
+  500,        // 500 MB (== free tier)
+  1_024,      // 1 GB
+  5_120,      // 5 GB
+  10_240,     // 10 GB
+  51_200,     // 50 GB
+  102_400,    // 100 GB
+  256_000,    // 250 GB
+  512_000,    // 500 GB
+  1_048_576,  // 1 TB
+];
 
 interface Props {
   projectId: string;
@@ -27,20 +42,20 @@ interface Props {
 }
 
 export function ResizeStorageModal({ projectId, state, onClose }: Props) {
-  // Minimum is current usage × 1.1 (10 % indexer-lag buffer), clamped to
-  // the 10 GB tier-1 floor. Cannot drop below it.
-  const minGb = Math.max(10, Math.ceil(state.used_gb * 1.1));
-  const currentGb = state.reserved_gb;
+  // Minimum is current usage × 1.1 (10 % indexer-lag buffer), clamped
+  // to the 500 MB tier-1 floor. Cannot drop below it.
+  const minMb = Math.max(500, Math.ceil(state.used_mb * 1.1));
+  const currentMb = state.reserved_mb;
   const [selected, setSelected] = useState<number>(
-    pickInitialTier(currentGb, minGb),
+    pickInitialTier(currentMb, minMb),
   );
   const [customMode, setCustomMode] = useState(false);
-  const [customGb, setCustomGb] = useState<string>(String(currentGb));
+  const [customMb, setCustomMb] = useState<string>(String(currentMb));
   const resize = useResizeStorage(projectId);
   const { show } = useToast();
 
-  // Escape to close. Matches the convention from ConfirmModal so the
-  // modal feels native to the rest of the dashboard.
+  // Escape to close. Matches ConfirmModal so the interaction is
+  // identical across the dashboard.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !resize.isPending) onClose();
@@ -49,26 +64,31 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose, resize.isPending]);
 
-  const targetGb = customMode ? Number(customGb) : selected;
+  const targetMb = customMode ? Number(customMb) : selected;
   const direction = useMemo(() => {
-    if (!Number.isFinite(targetGb) || targetGb < minGb) return "invalid";
-    if (targetGb === currentGb) return "noop";
-    return targetGb > currentGb ? "upgrade" : "downgrade";
-  }, [targetGb, currentGb, minGb]);
+    if (!Number.isFinite(targetMb) || targetMb < minMb) return "invalid";
+    if (targetMb === currentMb) return "noop";
+    return targetMb > currentMb ? "upgrade" : "downgrade";
+  }, [targetMb, currentMb, minMb]);
 
-  // Stripe storage is $0.06/GB-mo above the 10 GB free tier.
-  const delta = Math.max(0, targetGb - 10) - Math.max(0, currentGb - 10);
-  const monthlyDeltaUsd = (delta * 6) / 100; // cents → dollars
+  // Stripe storage is $0.06/GB-mo = 0.005859375¢/MB above the 500 MB
+  // free tier. Subtract the band from both sides to get the price
+  // delta the customer actually pays.
+  const billableNew = Math.max(0, targetMb - 500);
+  const billableOld = Math.max(0, currentMb - 500);
+  const deltaMb = billableNew - billableOld;
+  // cents = mb × 6 / 1024; dollars = cents / 100
+  const monthlyDeltaUsd = (deltaMb * 6) / 1024 / 100;
 
   const onSubmit = async () => {
     if (direction === "invalid" || direction === "noop") return;
     try {
-      const result = await resize.mutateAsync({ new_reserved_gb: targetGb });
+      const result = await resize.mutateAsync({ new_reserved_mb: targetMb });
       if (result.direction === "upgrade") {
         show({
           tone: "success",
           title: "Storage upgraded",
-          body: `${currentGb} GB → ${targetGb} GB. Prorated charge added to this period.`,
+          body: `${formatStorageMb(currentMb)} → ${formatStorageMb(targetMb)}. Prorated charge added to this period.`,
         });
       } else if (result.direction === "downgrade") {
         const when = result.effective_at
@@ -77,7 +97,7 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
         show({
           tone: "success",
           title: "Downgrade scheduled",
-          body: `Will drop to ${targetGb} GB on ${when}.`,
+          body: `Will drop to ${formatStorageMb(targetMb)} on ${when}.`,
         });
       }
       onClose();
@@ -114,7 +134,7 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
                 className="muted"
                 style={{ fontSize: 13, marginTop: 4 }}
               >
-                Choose a new monthly reservation. Currently {currentGb} GB.
+                Choose a new monthly reservation. Currently {formatStorageMb(currentMb)}.
               </div>
             </div>
             <IconButton
@@ -129,21 +149,21 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
+                gridTemplateColumns: "repeat(3, 1fr)",
                 gap: 8,
               }}
             >
-              {TIER_PRESETS_GB.map((g) => {
-                const disabled = g < minGb;
-                const active = !customMode && selected === g;
+              {TIER_PRESETS_MB.map((mb) => {
+                const disabled = mb < minMb;
+                const active = !customMode && selected === mb;
                 return (
                   <button
-                    key={g}
+                    key={mb}
                     type="button"
                     disabled={disabled}
                     onClick={() => {
                       setCustomMode(false);
-                      setSelected(g);
+                      setSelected(mb);
                     }}
                     style={{
                       padding: "10px 12px",
@@ -164,7 +184,7 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
                       transition: "background 120ms var(--ease), border-color 120ms var(--ease)",
                     }}
                   >
-                    {g} GB
+                    {formatStorageMb(mb)}
                   </button>
                 );
               })}
@@ -172,20 +192,20 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
 
             <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
               <span style={{ color: "var(--text-secondary)" }}>
-                Or enter a custom size (GB)
+                Or enter a custom size (MB)
               </span>
               <input
                 type="number"
-                min={minGb}
+                min={minMb}
                 step={1}
-                value={customGb}
+                value={customMb}
                 onChange={(e) => {
                   setCustomMode(true);
-                  setCustomGb(e.target.value);
+                  setCustomMb(e.target.value);
                 }}
                 onFocus={() => setCustomMode(true)}
                 className="input"
-                placeholder={`Minimum ${minGb} GB`}
+                placeholder={`Minimum ${minMb} MB`}
               />
             </label>
 
@@ -201,10 +221,10 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
             >
               <ResizeCopy
                 direction={direction}
-                targetGb={targetGb}
-                currentGb={currentGb}
+                targetMb={targetMb}
+                currentMb={currentMb}
                 monthlyDeltaUsd={monthlyDeltaUsd}
-                minGb={minGb}
+                minMb={minMb}
               />
             </div>
           </div>
@@ -249,22 +269,23 @@ export function ResizeStorageModal({ projectId, state, onClose }: Props) {
 
 function ResizeCopy({
   direction,
-  targetGb,
-  currentGb,
+  targetMb,
+  currentMb,
   monthlyDeltaUsd,
-  minGb,
+  minMb,
 }: {
   direction: "upgrade" | "downgrade" | "noop" | "invalid";
-  targetGb: number;
-  currentGb: number;
+  targetMb: number;
+  currentMb: number;
   monthlyDeltaUsd: number;
-  minGb: number;
+  minMb: number;
 }) {
+  void targetMb;
   if (direction === "invalid") {
     return (
       <>
-        Pick at least <strong>{minGb} GB</strong>. Storage cannot drop
-        below current usage plus a 10 % buffer.
+        Pick at least <strong>{formatStorageMb(minMb)}</strong>. Storage
+        cannot drop below current usage plus a 10% buffer.
       </>
     );
   }
@@ -276,20 +297,20 @@ function ResizeCopy({
       <>
         <strong>Effective immediately.</strong> Prorated charge of about
         <strong> ${monthlyDeltaUsd.toFixed(2)}</strong> for the rest of
-        this month. New reservation: {targetGb} GB.
+        this month. New reservation: {formatStorageMb(targetMb)}.
       </>
     );
   }
   return (
     <>
       Takes effect at the end of the current billing period. You keep
-      <strong> {currentGb} GB</strong> until then.
+      <strong> {formatStorageMb(currentMb)}</strong> until then.
     </>
   );
 }
 
-function pickInitialTier(currentGb: number, minGb: number): number {
-  const aboveMin = TIER_PRESETS_GB.find((g) => g >= minGb && g >= currentGb);
+function pickInitialTier(currentMb: number, minMb: number): number {
+  const aboveMin = TIER_PRESETS_MB.find((mb) => mb >= minMb && mb >= currentMb);
   if (aboveMin) return aboveMin;
-  return Math.max(currentGb, minGb);
+  return Math.max(currentMb, minMb);
 }

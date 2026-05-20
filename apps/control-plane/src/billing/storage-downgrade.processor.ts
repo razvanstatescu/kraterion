@@ -19,14 +19,15 @@ import { StripeService } from "./stripe.service.js";
  *
  *   1. Re-read the active Stripe subscription for the project. Skip
  *      if it's gone (e.g. customer cancelled in the meantime).
- *   2. `subscriptionItems.update(quantity = new_gb, proration_behavior = 'none')`
+ *   2. `subscriptionItems.update(quantity = new_mb, proration_behavior = 'none')`
  *      — new month, full new quantity, no proration.
  *   3. Mark the row `applied`. The dashboard "Pending downgrade"
  *      banner clears on next render.
  *
- * **No on-chain `resize_shrink` in v1.** The pool's
- * `reserved_encoded_bytes` stays at the larger value until the pool's
- * 53-epoch window expires naturally. Documented limitation; the
+ * **On-chain `resize_shrink` happens in `PoolRenewalProcessor`** at the
+ * next renewal tick, gated by `KRATERION_ENABLE_POOL_SHRINK=true`. The
+ * pool's `reserved_encoded_bytes` stays at the larger value until then.
+ * Documented limitation; the
  * customer's Stripe bill reflects the new (smaller) quantity but our
  * underlying Walrus reservation cost stays unchanged for ~2 years.
  *
@@ -114,8 +115,8 @@ export class StorageDowngradeProcessor implements OnModuleInit, OnModuleDestroy 
   private async applyOne(row: {
     id: string;
     project_id: string;
-    new_reserved_gb: number;
-    current_reserved_gb: number;
+    new_reserved_mb: number;
+    current_reserved_mb: number;
   }): Promise<"applied" | "skipped"> {
     const account = await this.prisma.billingAccount.findUnique({
       where: { project_id: row.project_id },
@@ -173,11 +174,11 @@ export class StorageDowngradeProcessor implements OnModuleInit, OnModuleDestroy 
 
     // The actual quantity update. No proration — new month, new
     // quantity, full price from the boundary forward.
-    const idempotencyKey = `${this.stripe.mode}:downgrade-apply:${row.project_id}:${row.new_reserved_gb}`;
+    const idempotencyKey = `${this.stripe.mode}:downgrade-apply:${row.project_id}:${row.new_reserved_mb}`;
     await this.stripe.client.subscriptionItems.update(
       storageItem.id,
       {
-        quantity: row.new_reserved_gb,
+        quantity: row.new_reserved_mb,
         proration_behavior: "none",
       },
       { idempotencyKey },
@@ -192,7 +193,7 @@ export class StorageDowngradeProcessor implements OnModuleInit, OnModuleDestroy 
       },
     });
     this.logger.log(
-      `downgrade applied: project=${row.project_id} ${row.current_reserved_gb}→${row.new_reserved_gb} GB`,
+      `downgrade applied: project=${row.project_id} ${row.current_reserved_mb}→${row.new_reserved_mb} MB`,
     );
     // Touch BillingService to satisfy DI graph linting; the service
     // is referenced for parity with the upgrade path even though the

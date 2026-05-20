@@ -37,10 +37,10 @@
 /// See /docs/storage-pool-migration.md for the migration design.
 module kraterion::pool_vault;
 
-use walrus::storage_pool::StoragePool;
-use walrus::system::{Self as walrus_system, System};
 use kraterion::events;
 use kraterion::reserve::{Self, PlatformReserve};
+use walrus::storage_pool::StoragePool;
+use walrus::system::{Self as walrus_system, System};
 
 // === Errors ===
 
@@ -318,6 +318,57 @@ public fun extend(
         object::id(vault),
         extended_epochs,
         new_end_epoch,
+        ctx.sender(),
+    );
+}
+
+/// Shrink the pool's reserved capacity by `percent` of its **unused**
+/// portion. Called by the pool-renewal worker when a customer has a
+/// `PendingStorageDowngrade` past its effective_at — we shrink first,
+/// then extend at the new smaller size in the same tx batch (or the
+/// next renewal tick).
+///
+/// `percent` must be 1..=100. Walrus's
+/// `decrease_storage_pool_unused_capacity_by_percent` returns the
+/// freed reservation as a `Storage` object — pre-paid Walrus capacity
+/// that can in theory be reused for another pool, but we don't have
+/// the inter-pool reuse logic and don't want to build it. So we
+/// transfer the `Storage` to `@0x0` and accept that the pre-paid
+/// portion is abandoned to the network. The trade-off is documented
+/// in `/docs/decisions.md` ("Pool lifetime tracks billing cycle") —
+/// short pool lifetimes mean the abandoned slice is at most one
+/// billing cycle's worth of WAL, far less than the previous "pay for
+/// 2 years of unused capacity" gap.
+///
+/// Aborts:
+///   - `ERevoked` if the user has revoked platform authorization.
+///   - Caller must be on the reserve whitelist.
+///   - Walrus aborts if `percent == 0` or the computed extract size
+///     rounds to zero (e.g. nothing is unused).
+public fun resize_shrink(
+    vault: &mut KraterionPoolVault,
+    reserve: &mut PlatformReserve,
+    system: &mut System,
+    percent: u8,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.platform_authorized, ERevoked);
+    reserve::assert_caller_authorized(reserve, ctx);
+
+    let freed_storage = walrus_system::decrease_storage_pool_unused_capacity_by_percent(
+        system,
+        &mut vault.pool,
+        percent,
+        ctx,
+    );
+
+    walrus::storage_resource::destroy(freed_storage);
+
+    let new_reserved_bytes = walrus::storage_pool::reserved_encoded_capacity_bytes(&vault.pool);
+    events::emit_pool_resized_shrink(
+        object::id(vault),
+        percent,
+        new_reserved_bytes,
         ctx.sender(),
     );
 }

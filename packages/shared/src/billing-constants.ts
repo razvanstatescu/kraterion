@@ -77,7 +77,7 @@ export interface FreeBand {
 }
 
 export const FREE_BANDS: Record<string, FreeBand> = {
-  storage: { quantity: 10, unit: "GB", meter: "storage_gb" },
+  storage: { quantity: 500, unit: "MB", meter: "storage_gb" },
   gateway_class_a: { quantity: 1_000, unit: "ops", meter: METER_NAMES.gateway_class_a },
   gateway_class_b: { quantity: 1_000_000, unit: "ops", meter: METER_NAMES.gateway_class_b },
   gateway_egress_bytes: {
@@ -119,24 +119,33 @@ export const STANDARD_PRICE_USD_MICROS: Record<string, bigint> = {
 
 // === Storage tier presets ==================================================
 //
-// Customer-visible storage size options on the resize modal. Anything
-// outside this list still works via the custom-input path, but these
-// are the four buttons most users click. Lean preset list deliberately
-// — too many options is decision paralysis.
+// Customer-visible storage size options on the resize modal, in **MB**
+// (Stripe subscription-item `quantity` is integer MB so the smallest
+// billable step is 1 MB). Anything outside this list still works via
+// the custom-input path; these are the chips on the modal. The
+// dashboard pretty-prints values ≥ 1024 MB as GB.
 
-export const STORAGE_TIER_PRESETS_GB: ReadonlyArray<number> = [
-  10, 50, 100, 250, 500, 1000, 2000, 5000,
+export const STORAGE_TIER_PRESETS_MB: ReadonlyArray<number> = [
+  500,    // 500 MB — exactly the free band
+  1_024,  // 1 GB
+  5_120,  // 5 GB
+  10_240, // 10 GB
+  51_200, // 50 GB
+  102_400, // 100 GB
+  256_000, // 250 GB
+  512_000, // 500 GB
+  1_048_576, // 1 TB
 ];
 
 /** Default `quantity` Stripe Subscription Item gets at first checkout.
- *  10 GB = exactly the free-tier 1 of the storage Price, so a project
+ *  500 MB = exactly the free tier-1 of the storage Price, so a project
  *  with no extra ask is on a $0/month subscription. */
-export const STORAGE_DEFAULT_GB = 10;
+export const STORAGE_DEFAULT_MB = 500;
 
 /** Smallest reservation a customer can ever drop below. Anchored at
  *  the free tier so canceling-by-shrinking is impossible — to leave
  *  Kraterion the customer cancels the subscription. */
-export const STORAGE_MIN_GB = 10;
+export const STORAGE_MIN_MB = 500;
 
 /** Per-write buffer the resize-validation UI keeps above current usage
  *  so indexer lag can't accidentally orphan a blob mid-shrink. */
@@ -145,6 +154,84 @@ export const STORAGE_SHRINK_HEADROOM = 1.1;
 /** Throttle on resize ops — prevents Stripe quantity-thrash and the
  *  PTB bursts that go with it. */
 export const STORAGE_RESIZE_COOLDOWN_SECONDS = 3600;
+
+// === Pool lifetime + renewal ==============================================
+//
+// Walrus storage pools have an `end_epoch` set on creation and bumped via
+// `extend_storage_pool`. The old model picked a 2-year horizon up-front
+// to avoid renewal logistics; that meant downsizes left WAL pre-paid for
+// up to ~2 years of unused capacity (Walrus's `decrease_…_unused_capacity`
+// returns a `Storage` reservation receipt, not WAL).
+//
+// New model: keep the pool's reservation aligned with the billing cycle.
+//
+//   1. Initial pool lifetime ≈ 1 cycle + buffer (so a fresh signup has
+//      headroom and the very first renewal isn't critical-path).
+//   2. A daily renewal worker extends every active pool ~10 days before
+//      its `end_epoch` by exactly one more cycle.
+//   3. A scheduled downgrade is honored at the renewal that follows the
+//      downgrade's effective_at: the worker shrinks the pool first
+//      (`pool_vault::shrink_pool`, Stage 2 — pending Move redeploy), then
+//      extends at the new smaller size.
+//   4. If the subscription is cancelled (no auto-renew), the renewal
+//      worker skips it; the pool naturally decays at end_epoch.
+//
+// Outcome: WAL over-payment on a downsize is bounded by ~1 cycle, not
+// the full ~2-year horizon. Worst-case data loss requires the renewal
+// worker to be down for the full renewal-buffer window — alertable.
+
+/** Billing cycle granularity. Calendar month is what Stripe + the
+ *  `/usage` page already use; everything aligns. */
+export const BILLING_CYCLE_DAYS = 30;
+
+/** Number of days BEFORE the pool's end_epoch that the renewal worker
+ *  starts attempting to renew. Picks up worker downtime, transient
+ *  Sui RPC failures, etc. */
+export const POOL_RENEWAL_BUFFER_DAYS = 5;
+
+/** Per-network Walrus epoch length in days. Mainnet runs 14d epochs;
+ *  testnet is 1d. Picked from public Walrus docs. If a future devnet or
+ *  custom network surfaces, extend this map — anything not in here
+ *  defaults to the mainnet length so a typo can't accidentally bill
+ *  faster than the chain settles. */
+export const WALRUS_EPOCH_DAYS: Record<string, number> = {
+  testnet: 1,
+  mainnet: 14,
+};
+
+/** Resolve the active epoch length. Reads `process.env.SUI_NETWORK`
+ *  (the same key the gateway + control-plane use for network selection)
+ *  and falls back to mainnet (the conservative direction — longer
+ *  epochs mean we lean toward fewer renewals if mis-configured). */
+export function epochDaysForCurrentNetwork(
+  env: Record<string, string | undefined> = typeof process !== "undefined"
+    ? process.env
+    : {},
+): number {
+  const network = (env["SUI_NETWORK"] ?? "testnet").toLowerCase();
+  return WALRUS_EPOCH_DAYS[network] ?? WALRUS_EPOCH_DAYS["mainnet"] ?? 14;
+}
+
+/** How many epochs to ask Walrus for at pool creation. Includes one
+ *  cycle's worth + the renewal buffer so the first renewal isn't on
+ *  hot path. */
+export function initialPoolEpochsAhead(
+  env?: Record<string, string | undefined>,
+): number {
+  const epochDays = epochDaysForCurrentNetwork(env);
+  return Math.max(
+    2,
+    Math.ceil((BILLING_CYCLE_DAYS + POOL_RENEWAL_BUFFER_DAYS) / epochDays),
+  );
+}
+
+/** How many epochs to extend by on each renewal. One billing cycle. */
+export function renewalEpochsPerCycle(
+  env?: Record<string, string | undefined>,
+): number {
+  const epochDays = epochDaysForCurrentNetwork(env);
+  return Math.max(1, Math.ceil(BILLING_CYCLE_DAYS / epochDays));
+}
 
 // === Hard cap defaults =====================================================
 

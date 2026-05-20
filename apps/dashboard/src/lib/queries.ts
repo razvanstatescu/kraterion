@@ -30,6 +30,7 @@ import {
   type S3ObjectJson,
   type SetupIntentResponse,
   type StorageBillingStateJson,
+  type UsageByDayJson,
   type UsageCurrentPeriodJson,
 } from "./api";
 import { useCpSession } from "./auth";
@@ -919,16 +920,53 @@ export function useStorageBillingState(projectId: string | undefined) {
 export function useResizeStorage(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (args: { new_reserved_gb: number }) =>
+    mutationFn: (args: { new_reserved_mb: number }) =>
       cpFetch<ResizeStorageResponse>("/v1/billing/storage/resize", {
         method: "POST",
-        body: { project_id: projectId, new_reserved_gb: args.new_reserved_gb },
+        body: { project_id: projectId, new_reserved_mb: args.new_reserved_mb },
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["v1", "billing", "storage", "state", projectId],
       });
     },
+  });
+}
+
+/** Per-day usage breakdown for the stacked-bar chart on `/usage`.
+ *  Window is exclusive on `to` and inclusive on `from`. Caller
+ *  passes ISO timestamps; the server returns one entry per UTC day
+ *  in the range, padding missing days with empty meters maps.
+ *
+ *  React Query cache key includes the window so the period selector
+ *  re-fetches when the user changes range. Stale time 60 s so
+ *  rapid period flips don't hammer the server. */
+export function useUsageByDay(
+  projectId: string | undefined,
+  fromIso: string | undefined,
+  toIso: string | undefined,
+) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: [
+      "v1",
+      "usage",
+      "by-day",
+      projectId ?? "none",
+      fromIso ?? "",
+      toIso ?? "",
+    ],
+    queryFn: () => {
+      const qs = new URLSearchParams({
+        from: fromIso!,
+        to: toIso!,
+      }).toString();
+      return cpFetch<UsageByDayJson>(
+        `/v1/usage/by-day/${projectId}?${qs}`,
+      );
+    },
+    enabled: Boolean(session?.token && projectId && fromIso && toIso),
+    staleTime: 60_000,
   });
 }
 

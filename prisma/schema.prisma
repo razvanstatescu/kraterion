@@ -1043,12 +1043,27 @@ model ShareTokenUsageDay {
   // USD spend in micro-dollars (i.e. 1e-6 USD). Aggregates the per-turn
   // (output_tokens / 1_000_000) * price_per_m_tokens_usd computation.
   spend_usd_micros BigInt   @default(0)
+  // Approximate bytes egressed through this share token today —
+  // counted as `completion_tokens × 4` per chat completion (UTF-8
+  // tokens average ~4 bytes per token). Source for the
+  // `share_token_egress_bytes` Stripe meter; kept separate from the
+  // gateway egress meter so we can detect public-link abuse without
+  // double-billing the same byte.
+  bytes_out        BigInt   @default(0)
+  // Cursor for the share-token-egress rollup processor. Each tick
+  // computes `bytes_out - bytes_out_at_last_emit` and emits the delta
+  // as a MeterEvent; afterwards this field is set to `bytes_out`.
+  // Null on first observation.
+  bytes_out_at_last_emit BigInt? @default(0)
   updated_at       DateTime @updatedAt
 
   share_token AgentShareToken @relation(fields: [share_token_id], references: [id], onDelete: Cascade)
 
   @@id([share_token_id, day_utc])
   @@index([share_token_id])
+  // Drives the daily roll-up worker: "find every row touched today
+  // that has a non-zero bytes_out delta since last emit".
+  @@index([day_utc])
 }
 
 // === Billing layer (P8 — Stripe pay-as-you-go, sandbox only for v1) ===
@@ -1161,8 +1176,11 @@ model BYOKDailySpend {
 model PendingStorageDowngrade {
   id                      String    @id @default(cuid())
   project_id              String    @unique
-  new_reserved_gb         Int
-  current_reserved_gb     Int
+  // MiB after the storage_v2 cutover (B5 follow-up — was GB-quantity
+  // for storage_v1). Stripe `subscription_item.quantity` matches this
+  // exactly because the storage Price's tiers are per-MiB graduated.
+  new_reserved_mb         Int
+  current_reserved_mb     Int
   effective_at            DateTime
   requested_at            DateTime  @default(now())
   /// Optional Stripe Subscription Schedule id, if we use one.
@@ -1189,6 +1207,48 @@ model StripeWebhookEvent {
   last_error    String?
 
   @@index([type, received_at])
+}
+
+/// Soft-cap threshold alerts. The soft-alert evaluator writes one row
+/// per (project, period, threshold) the first time accrued usage
+/// crosses that threshold; the alert-delivery worker drains pending
+/// rows to whichever channel the project has configured (email,
+/// Slack — both stubbed in B5, real providers in a follow-up).
+///
+/// Why a table rather than booleans on `BillingAccount`:
+///   - audit trail: we want to know "this user got a 50% alert on
+///     2026-05-19 14:32, delivered to ops@…";
+///   - delivery decoupling: if the email provider is down we retry;
+///   - per-channel logging: same threshold can fire on multiple
+///     channels (Slack + email) with different outcomes.
+///
+/// `(project_id, period, threshold_pct, channel)` is unique so we
+/// can't fire the same alert twice. Period rollover (new month)
+/// produces fresh rows naturally.
+model BillingAlert {
+  id              String   @id @default(cuid())
+  project_id      String
+  /// Calendar-month-UTC of the period: YYYY-MM. Matches the
+  /// `/v1/usage` window so the dashboard can correlate.
+  period          String
+  /// 50, 80, 100, etc. Matches values from
+  /// `BillingAccount.soft_alert_thresholds`.
+  threshold_pct   Int
+  /// `email`, `slack`, `log`. Stubbed channels emit to logger; real
+  /// ones swap in later.
+  channel         String
+  /// USD-cents accrued when the alert fired (snapshot for audit).
+  accrued_at_fire_usd_cents Int
+  /// USD-cents cap the threshold was a percentage of.
+  cap_usd_cents             Int
+  fired_at        DateTime @default(now())
+  delivered_at    DateTime?
+  attempt_count   Int      @default(0)
+  last_error      String?
+  payload         Json?
+  @@unique([project_id, period, threshold_pct, channel])
+  @@index([delivered_at, fired_at])
+  @@index([project_id, period])
 }
 
 /// Daily oracle snapshot + per-meter cost-floor. The cost-floor worker

@@ -160,6 +160,24 @@ public struct KraterionPoolResizedGrow has copy, drop {
     resized_by: address,
 }
 
+/// Emitted on a scheduled downsize-at-renewal. The off-chain
+/// `decrease_storage_pool_unused_capacity_by_percent` returns a
+/// `Storage` reservation receipt (pre-paid Walrus capacity); we
+/// transfer it to `@0x0` to abandon it back to the network rather
+/// than build inter-pool reuse logic. The receipt's pre-paid epochs
+/// pass through without us reusing them — that's the accepted cost
+/// of the model. See `/docs/decisions.md` "Pool lifetime tracks
+/// billing cycle".
+public struct KraterionPoolResizedShrink has copy, drop {
+    vault_id: ID,
+    /// Percent of unused capacity that was decreased — Walrus's
+    /// `decrease_storage_pool_unused_capacity_by_percent` takes a
+    /// `u8` 1..=100; we mirror.
+    percent_shrunk: u8,
+    new_reserved_encoded_capacity_bytes: u64,
+    resized_by: address,
+}
+
 public(package) fun emit_bucket_created(
     bucket_id: ID,
     owner: address,
@@ -331,6 +349,20 @@ public(package) fun emit_pool_resized_grow(
     event::emit(KraterionPoolResizedGrow {
         vault_id,
         additional_encoded_capacity_bytes,
+        new_reserved_encoded_capacity_bytes,
+        resized_by,
+    });
+}
+
+public(package) fun emit_pool_resized_shrink(
+    vault_id: ID,
+    percent_shrunk: u8,
+    new_reserved_encoded_capacity_bytes: u64,
+    resized_by: address,
+) {
+    event::emit(KraterionPoolResizedShrink {
+        vault_id,
+        percent_shrunk,
         new_reserved_encoded_capacity_bytes,
         resized_by,
     });

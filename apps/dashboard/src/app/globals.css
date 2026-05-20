@@ -356,14 +356,28 @@ code, kbd, samp {
   flex-shrink: 0;
 }
 
-/* Topbar */
+/* Topbar — composed: crumb-bar + (optional) banner stack inside one
+   sticky container. The wrapper sticks to the top of the scroll
+   column; .ks-topbar itself sits inside without its own sticky so
+   notices below it scroll-with-the-header as one unit. */
+.ks-topbar-stack {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
 .ks-topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 32px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  position: sticky; top: 0; z-index: 10;
 }
+/* Notice slot below the topbar — each banner gets matching horizontal
+   padding so it aligns with the page content, plus a 12px gap from
+   the header bar. The wrapper's `border-bottom` already separates the
+   stack from the page body, so individual banners don't need one. */
+.ks-topbar-notice {
+  padding: 12px 32px;
+  border-top: 1px solid var(--border);
+}
+.ks-topbar-notice + .ks-topbar-notice { padding-top: 0; }
 .ks-crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .ks-crumb { color: var(--text-secondary); }
 .ks-crumb-link {
@@ -1519,10 +1533,8 @@ code, kbd, samp {
 .ks-card-danger { border-color: #F4BFB6; }
 .ks-card-danger .ks-card-head { border-bottom-color: #F4BFB6; background: #FDEDEA; }
 
-/* Persistent cancellation banner — pinned just below the topbar. */
-.ks-cancelled-banner {
-  padding: 12px 32px 0;
-}
+/* Persistent cancellation banner — link styling only; the
+   container styling lives on the shared `.ks-topbar-notice` wrapper. */
 .ks-cancelled-link {
   color: var(--text-primary);
   text-decoration: underline;

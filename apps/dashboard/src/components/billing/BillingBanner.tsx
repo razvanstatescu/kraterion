@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { STORAGE_DEFAULT_MB } from "@kraterion/shared";
 import { Banner } from "@/components/ui/Banner";
+import { formatStorageMb } from "@/lib/format";
 import {
   useBillingAccount,
   useMe,
@@ -61,7 +63,7 @@ export function BillingBanner() {
   if (banner.dismissible && dismissed.includes(banner.id)) return null;
 
   return (
-    <div className="ks-billing-banner" style={{ marginBottom: 16 }}>
+    <div className="ks-topbar-notice">
       <Banner
         tone={banner.tone}
         title={banner.title}
@@ -117,7 +119,8 @@ function pickBanner(args: {
       body: (
         <>
           Reads and existing data stay open. New buckets, agents, and uploads
-          need a card on file. Free tier covers the first 10 GB and a modest
+          need a card on file. Free tier covers the first{" "}
+          {formatStorageMb(STORAGE_DEFAULT_MB)} of storage plus a modest
           usage band.
         </>
       ),

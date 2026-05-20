@@ -1337,3 +1337,217 @@ If using a deployed webhook endpoint, edit it in the Stripe dashboard
 **Notes:** The handler is idempotent (`StripeWebhookEvent.id` PK + service-
 layer upserts) so re-sending the same event with `stripe events resend
 evt_…` is safe.
+
+---
+
+## Howto: Reset a project's Stripe billing state for sandbox testing
+
+**When to use this:** repeated end-to-end tests of the inline Stripe
+Elements flow + subscription bootstrap. Without a reset, the project
+stays attached to its existing Stripe customer + subscription and
+re-running "Add card" hits the "Card on file" path.
+
+**Command:**
+
+```bash
+pnpm -F @kraterion/control-plane exec tsx \
+  scripts/probe-billing-reset.ts <projectId>
+```
+
+**What it wipes (sandbox / test-mode only):**
+
+- Stripe: every Subscription on the project's Customer, the Customer
+  itself, any draft invoices in the way.
+- Postgres: `BillingAccount` + every `MeterEvent`, `UsageDaily`,
+  `BYOKDailySpend`, `PendingStorageDowngrade` for the project.
+
+**What it doesn't touch:**
+
+- The Stripe Product / Price / Meter catalog (project-independent —
+  use `pnpm stripe:sync` to rebuild that).
+- `StripeWebhookEvent` rows (kept for the audit trail).
+- `S3Object`, `Bucket`, `Agent`, knowledge data — project stays
+  usable post-reset.
+
+**Refuses to run if:**
+
+- `STRIPE_MODE` is not `test`.
+- The secret key doesn't start with `sk_test_`.
+
+After the reset, open `/billing` in the dashboard — the PaymentMethod
+card renders the empty "Add card" state.
+
+**Observed:** 2026-05-19 alongside the B1–B5 closeout pass.
+
+---
+
+## Howto: Verify the new B4 processors are alive in dev
+
+After starting the control-plane (`pnpm dev`), the logs should show
+each processor announcing itself once at boot:
+
+```
+[Nest] LOG  ReconciliationProcessor reconciliation armed (tick=86400000ms, …)
+[Nest] LOG  CostFloorProcessor cost-floor armed (tick=86400000ms, alert_below=25%)
+[Nest] LOG  SoftAlertEvaluator soft-alert evaluator armed (tick=300000ms)
+[Nest] LOG  AlertDeliveryProcessor alert-delivery armed (tick=30000ms)
+[Nest] LOG  ShareTokenEgressRollupProcessor share-token-egress rollup armed …
+[Nest] LOG  UsageEventTtlProcessor usage-event TTL armed (retention=35d, …)
+[Nest] LOG  WebhookEventTtlProcessor webhook-event TTL armed (retention=90d, …)
+```
+
+If any line is missing, check `apps/control-plane/src/billing/billing.module.ts`
+— the provider must be in the `providers` array AND `NestJS` must
+have instantiated the class (a missing import in another module that
+depends on it is the usual cause).
+
+**Force a single tick** for diagnostics: every processor exposes a
+`tick()` method. Call it from the `ts-node` REPL or write a probe
+script:
+
+```ts
+const ctx = await NestFactory.createApplicationContext(AppModule);
+const proc = ctx.get(ReconciliationProcessor);
+await proc.tick();
+await ctx.close();
+```
+
+**Observed:** 2026-05-19 during the B4 closeout.
+
+---
+
+## Symptom: cost-floor processor logs `CoinGecko 429` or times out
+
+**Cause:** CoinGecko's free Simple Price endpoint is rate-limited to
+~30 req/min per IP. With a daily cron we're far under that, but a
+restart loop during development can exhaust the limit.
+
+**Fix:** none needed in production. The processor falls back to the
+hardcoded baselines (`WAL = $1`, `SUI = $2.50`) when the fetch fails
+and still writes a `CostFloorSnapshot` row with `oracle_sources.error`
+set. The headroom calculation uses the baseline, so a 429 just means
+"today's snapshot is approximate".
+
+If a real production deployment needs reliable WAL/SUI prices:
+
+1. Add `COINGECKO_API_KEY` and switch to the Demo / Pro endpoint at
+   `pro-api.coingecko.com` (higher rate limits).
+2. Or implement the Pyth Hermes fetch (commented in the file
+   header). Pyth has the right Sui-native feed for SUI; WAL/USD is
+   not yet on Pyth as of this writing.
+
+**Observed:** 2026-05-19 (anticipated, not yet hit in dev).
+
+---
+
+## Howto: Redeploy Move with `pool_vault::resize_shrink` (Stage 2 of the pool-lifetime change)
+
+**When to use this:** to activate the on-chain shrink path that
+matches the new pool-lifetime model (`PoolRenewalProcessor` plus
+`decisions.md` 2026-05-19 "Pool lifetime tracks billing cycle").
+Until this redeploy, the renewal worker only extends pools — never
+shrinks. Downsized projects still see the right Stripe quantity but
+keep the full on-chain reservation until the next renewal cycle.
+
+**Pre-flight:**
+
+1. Move source builds clean:
+   ```bash
+   cd move/kraterion && sui move test
+   ```
+   Expect: `Test result: OK. Total tests: 42; passed: 42`.
+
+2. TS bindings include `resizeShrink`:
+   ```bash
+   grep -n "resizeShrink\|resize_shrink" \
+     packages/kraterion-move-sdk/src/generated/kraterion/pool_vault.ts
+   ```
+   Expect two matches (the export, the moveCall string).
+
+3. Typecheck across the workspace is green:
+   ```bash
+   pnpm typecheck
+   ```
+
+**Deploy:**
+
+```bash
+# Publishes the new Move package, updates Published.toml + the TS
+# package-id constants, regenerates bindings.
+scripts/setup-testnet.sh --force
+```
+
+After the script finishes, take a quick look at the new
+`KRATERION_PACKAGE_ID` in `packages/shared/src/constants.ts` and
+sanity-check that `Published.toml` advanced.
+
+**Activate the shrink path:**
+
+```bash
+# Control-plane reads this at boot. Add it to .env, then restart.
+echo "KRATERION_ENABLE_POOL_SHRINK=true" >> .env
+```
+
+Restart the control-plane. On next `PoolRenewalProcessor` tick, any
+project with a `PendingStorageDowngrade` past its `effective_at`
+gets shrunk first, then extended at the new smaller size.
+
+**Verify it ran:**
+
+After a renewal tick, look for the shrink log line:
+```
+shrunk pool=0x… project=… N% of unused (target G GB) tx=0x…
+```
+
+And check the `PendingStorageDowngrade` row advanced:
+```sql
+SELECT status, applied_at, resize_shrink_tx_digest
+FROM "PendingStorageDowngrade"
+WHERE project_id = '<projectId>';
+```
+
+Expect `status='applied'`, `applied_at` set, `resize_shrink_tx_digest`
+populated.
+
+**If the shrink reverts:** Walrus aborts if `percent == 0` or if the
+computed extract size rounds to zero (e.g. the pool has nothing
+unused). The worker logs the abort and skips that pool; the
+`PendingStorageDowngrade` row stays `scheduled`. The Stripe quantity
+has already dropped (storage-downgrade processor ran at the period
+boundary), so this becomes a "manual reconciliation" item — either
+wait for the customer to free space and re-run, or accept the residual.
+
+**Observed:** 2026-05-19 — Stage 2 wired but not yet redeployed.
+
+---
+
+## Symptom: Pools are not getting renewed; PoolRenewalProcessor says `subscription not active; skipping`
+
+**Cause:** The renewal worker intentionally refuses to extend pools
+for subscriptions that are:
+
+- `BillingAccount.status != 'active'` (cancelled, suspended, past_due
+  with no payment method), OR
+- Stripe subscription has no `active` or `trialing` item with the
+  `storage_v1` price, OR
+- Subscription has `cancel_at_period_end = true`.
+
+This is by design — pools for non-paying customers decay naturally
+over the remaining ~1 cycle.
+
+**Fix (if you actually want to renew):**
+
+1. Confirm the customer is paying (Stripe dashboard → Customers →
+   subscription status).
+2. If they re-subscribed: `BillingAccount.status` should already be
+   `active` (the `customer.subscription.updated` webhook flips it).
+   If it's not, manually:
+   ```sql
+   UPDATE "BillingAccount" SET status = 'active'
+   WHERE project_id = '<projectId>';
+   ```
+   Then trigger a renewal tick via the admin REPL.
+3. If they didn't re-subscribe: leave the pool alone. It will decay.
+   The customer can still read existing blobs through end_epoch.
+
+**Observed:** 2026-05-19 — anticipated, not yet hit in dev.

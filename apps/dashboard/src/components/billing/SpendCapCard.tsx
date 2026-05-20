@@ -8,17 +8,26 @@ import { ControlPlaneError } from "@/lib/api";
 import type { BillingAccountJson } from "@/lib/api";
 import { useUpdateSpendCap } from "@/lib/queries";
 
+const ALL_THRESHOLDS = [50, 80, 100] as const;
+
 /**
  * Spend cap card.
  *
- * Single segmented toggle (No limit / Set a cap) plus a dollar input
- * that appears when the cap is enabled. Inline Save button. The
- * storage subscription is exempt because it's a flat reservation, not
- * a meter — copy on the card calls that out.
+ * Two controls in a single row:
  *
- * Alert thresholds are intentionally not surfaced here yet (B6 will
- * wire the email/Slack outputs); the row would just be a no-op
- * control until then.
+ *   - Cap mode segmented control (No limit / Set a cap).
+ *   - When capped: dollar input.
+ *
+ * Below: alert threshold chips. Multi-select; pre-set to [50, 80,
+ * 100] for new accounts. Crossing a configured threshold writes a
+ * `BillingAlert` row server-side; the delivery driver routes it to
+ * a channel (today: just the log channel — email/Slack land in B6).
+ *
+ * Save is one button that PATCHes both cap + thresholds in a single
+ * round-trip.
+ *
+ * Storage is exempt from the cap because it's a flat subscription;
+ * the copy on the card calls that out.
  */
 interface Props {
   projectId: string;
@@ -36,6 +45,9 @@ export function SpendCapCard({ projectId, account }: Props) {
       ? (account.hard_spend_cap_usd_cents / 100).toString()
       : "100",
   );
+  const [thresholds, setThresholds] = useState<number[]>(
+    account?.soft_alert_thresholds ?? [50, 80, 100],
+  );
 
   useEffect(() => {
     if (account == null) return;
@@ -46,7 +58,11 @@ export function SpendCapCard({ projectId, account }: Props) {
         ? (account.hard_spend_cap_usd_cents / 100).toString()
         : "100",
     );
-  }, [account?.hard_spend_cap_usd_cents]); // eslint-disable-line react-hooks/exhaustive-deps
+    setThresholds(account.soft_alert_thresholds ?? [50, 80, 100]);
+  }, [
+    account?.hard_spend_cap_usd_cents,
+    account?.soft_alert_thresholds,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSave = async () => {
     let hard_cap_usd_cents: number | null = null;
@@ -63,7 +79,10 @@ export function SpendCapCard({ projectId, account }: Props) {
       hard_cap_usd_cents = Math.round(dollars * 100);
     }
     try {
-      await update.mutateAsync({ hard_cap_usd_cents });
+      await update.mutateAsync({
+        hard_cap_usd_cents,
+        alert_thresholds: enabled ? [...thresholds].sort((a, b) => a - b) : [],
+      });
       show({
         tone: "success",
         title: enabled ? "Spend cap saved" : "Spend cap removed",
@@ -82,6 +101,12 @@ export function SpendCapCard({ projectId, account }: Props) {
     }
   };
 
+  const toggleThreshold = (t: number) => {
+    setThresholds((current) =>
+      current.includes(t) ? current.filter((x) => x !== t) : [...current, t],
+    );
+  };
+
   return (
     <section className="ks-card">
       <div className="ks-card-head">
@@ -95,38 +120,18 @@ export function SpendCapCard({ projectId, account }: Props) {
       </div>
       <div
         className="ks-card-body"
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
-          alignItems: "flex-end",
-        }}
+        style={{ display: "grid", gap: 20 }}
       >
-        <div style={{ display: "grid", gap: 6, flex: "0 0 auto" }}>
-          <label
-            className="muted"
-            style={{
-              fontSize: 11,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-            }}
-          >
-            Cap mode
-          </label>
-          <Segmented
-            value={enabled ? "capped" : "none"}
-            onChange={(v) => setEnabled(v === "capped")}
-            options={[
-              { value: "none", label: "No limit" },
-              { value: "capped", label: "Set a cap" },
-            ]}
-          />
-        </div>
-
-        {enabled ? (
-          <div style={{ display: "grid", gap: 6, flex: "0 0 200px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "flex-end",
+          }}
+        >
+          <div style={{ display: "grid", gap: 6, flex: "0 0 auto" }}>
             <label
-              htmlFor="spend-cap"
               className="muted"
               style={{
                 fontSize: 11,
@@ -134,40 +139,123 @@ export function SpendCapCard({ projectId, account }: Props) {
                 textTransform: "uppercase",
               }}
             >
-              Monthly cap (USD)
+              Cap mode
             </label>
-            <div style={{ position: "relative" }}>
-              <span
+            <Segmented
+              value={enabled ? "capped" : "none"}
+              onChange={(v) => setEnabled(v === "capped")}
+              options={[
+                { value: "none", label: "No limit" },
+                { value: "capped", label: "Set a cap" },
+              ]}
+            />
+          </div>
+
+          {enabled ? (
+            <div style={{ display: "grid", gap: 6, flex: "0 0 200px" }}>
+              <label
+                htmlFor="spend-cap"
+                className="muted"
                 style={{
-                  position: "absolute",
-                  left: 12,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  fontSize: 14,
-                  color: "var(--text-secondary)",
-                  pointerEvents: "none",
+                  fontSize: 11,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
                 }}
               >
-                $
-              </span>
-              <Input
-                id="spend-cap"
-                type="number"
-                min={1}
-                step={1}
-                value={capDollars}
-                onChange={(e) => setCapDollars(e.target.value)}
-                style={{ paddingLeft: 24 }}
-              />
+                Monthly cap (USD)
+              </label>
+              <div style={{ position: "relative" }}>
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 14,
+                    color: "var(--text-secondary)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  $
+                </span>
+                <Input
+                  id="spend-cap"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={capDollars}
+                  onChange={(e) => setCapDollars(e.target.value)}
+                  style={{ paddingLeft: 24 }}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ marginLeft: "auto" }}>
+            <Button onClick={onSave} disabled={update.isPending}>
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        {enabled ? (
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              paddingTop: 16,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div>
+              <div
+                className="muted"
+                style={{
+                  fontSize: 11,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                Alert thresholds
+              </div>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+                Notify when accrued usage crosses these percentages of
+                your cap. Multi-select. Delivery channels lands in a
+                follow-up — today thresholds are logged server-side.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {ALL_THRESHOLDS.map((t) => {
+                const active = thresholds.includes(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => toggleThreshold(t)}
+                    aria-pressed={active}
+                    style={{
+                      padding: "6px 14px",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      borderRadius: 999,
+                      border: `1px solid ${
+                        active ? "var(--krater)" : "var(--border)"
+                      }`,
+                      background: active ? "var(--krater)" : "var(--bg-elevated)",
+                      color: active ? "var(--cream)" : "var(--text-primary)",
+                      cursor: "pointer",
+                      transition:
+                        "background 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease)",
+                    }}
+                  >
+                    {t}%
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
-
-        <div style={{ marginLeft: "auto" }}>
-          <Button onClick={onSave} disabled={update.isPending}>
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
       </div>
     </section>
   );

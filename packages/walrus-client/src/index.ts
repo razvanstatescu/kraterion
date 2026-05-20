@@ -249,6 +249,126 @@ export function signersToBitmap(signers: number[], committeeSize: number): Uint8
   return bitmap;
 }
 
+// === On-chain object reads ===
+
+/**
+ * Read the `used_encoded_bytes` field off a live Walrus
+ * `StoragePool` object via Sui RPC.
+ *
+ * Walrus uses a Sui versioned-storage pattern: the outer
+ * `StoragePool` (`{ id, version: u64 }`) is just a stable shell; the
+ * real fields live in a dynamic field keyed by the version number.
+ * So we fetch `getDynamicFieldObject(parentId=pool, name={ type:"u64", value:"<v>" })`
+ * and read `value.fields.used_encoded_bytes` off the inner struct.
+ *
+ * Note the pool object **is wrapped** inside `KraterionPoolVault`,
+ * so a direct `getObject(poolId)` returns `notExists`. The dynamic
+ * field is reachable regardless because it's keyed off the pool's
+ * stable UID, not via ownership.
+ *
+ * Used by the indexer to keep `StoragePool.used_encoded_bytes` in
+ * sync with chain — the per-blob register event doesn't carry the
+ * encoded size, so we read the post-register pool state and treat it
+ * as authoritative. Returns `null` if the dynamic field is missing
+ * or the value isn't readable.
+ */
+export async function readPoolUsedEncodedBytes(
+  poolObjectId: string,
+): Promise<bigint | null> {
+  const client = getSuiClient();
+  // The dynamic field key is the version. Today's Walrus testnet
+  // ships StoragePoolInnerV1 keyed at version 1; if Walrus bumps
+  // (V2 etc.) we'd hit `null` here and need to advance the key.
+  // List dynamic fields first so a future version change doesn't
+  // silently break us — we read the FIRST u64 key, whatever it is.
+  const df = await client.getDynamicFields({
+    parentId: poolObjectId,
+    limit: 5,
+  });
+  const first = df.data?.find(
+    (f) => f.name?.type === "u64" && typeof f.name?.value === "string",
+  );
+  if (!first) return null;
+  const inner = await client.getDynamicFieldObject({
+    parentId: poolObjectId,
+    name: first.name as { type: "u64"; value: string },
+  });
+  const content = inner.data?.content;
+  if (!content || content.dataType !== "moveObject") return null;
+  const fields = (content as { fields?: Record<string, unknown> }).fields;
+  const valueWrap = fields?.["value"];
+  if (typeof valueWrap !== "object" || valueWrap === null) return null;
+  const innerFields = (valueWrap as { fields?: Record<string, unknown> })
+    .fields;
+  const raw = innerFields?.["used_encoded_bytes"];
+  if (typeof raw === "string") return BigInt(raw);
+  if (typeof raw === "number") return BigInt(raw);
+  if (typeof raw === "bigint") return raw;
+  return null;
+}
+
+/**
+ * Read the `registered_epoch` field off a Walrus `PooledBlob` object.
+ * Set on the on-chain register tx; doesn't change afterwards.
+ *
+ * Returns `null` if the object doesn't exist or the field is missing.
+ */
+export async function readPooledBlobRegisteredEpoch(
+  pooledBlobObjectId: string,
+): Promise<number | null> {
+  const res = await getSuiClient().getObject({
+    id: pooledBlobObjectId,
+    options: { showContent: true },
+  });
+  const content = res.data?.content;
+  if (!content || content.dataType !== "moveObject") return null;
+  const fields = (content as { fields?: Record<string, unknown> }).fields;
+  const raw = fields?.["registered_epoch"];
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") return Number(raw);
+  return null;
+}
+
+/**
+ * Read both `registered_epoch` and `certified_epoch` off a Walrus
+ * `PooledBlob` object in one RPC. `certified_epoch` is an
+ * `Option<u32>` on chain — comes back as `{ vec: [N] }` (Some) or
+ * `{ vec: [] }` (None). Returns nulls for either side when missing.
+ */
+export async function readPooledBlobEpochs(
+  pooledBlobObjectId: string,
+): Promise<{ registered: number | null; certified: number | null }> {
+  const res = await getSuiClient().getObject({
+    id: pooledBlobObjectId,
+    options: { showContent: true },
+  });
+  const content = res.data?.content;
+  if (!content || content.dataType !== "moveObject") {
+    return { registered: null, certified: null };
+  }
+  const fields = (content as { fields?: Record<string, unknown> }).fields ?? {};
+  const reg = fields["registered_epoch"];
+  let registered: number | null = null;
+  if (typeof reg === "number") registered = reg;
+  else if (typeof reg === "string") registered = Number(reg);
+  // certified_epoch shape (Option<u32>): `{ vec: [123] }` or `{ vec: [] }`.
+  const certWrap = fields["certified_epoch"];
+  let certified: number | null = null;
+  if (
+    typeof certWrap === "object" &&
+    certWrap !== null &&
+    "vec" in (certWrap as Record<string, unknown>)
+  ) {
+    const vec = (certWrap as { vec: unknown }).vec;
+    if (Array.isArray(vec) && vec.length > 0) {
+      const v = vec[0];
+      if (typeof v === "number") certified = v;
+      else if (typeof v === "string") certified = Number(v);
+    }
+  }
+  return { registered, certified };
+}
+
 // === Re-exports of public SDK helpers callers will want ===
 
 /**

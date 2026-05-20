@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { RequireAuth } from "@/components/auth/RequireAuth";
-import { BillingBanner } from "@/components/billing/BillingBanner";
-import { CancelledBanner } from "@/components/shell/CancelledBanner";
 import { Shell } from "@/components/shell/Shell";
 import { SidebarLive } from "@/components/shell/SidebarLive";
 
@@ -10,15 +8,15 @@ import { SidebarLive } from "@/components/shell/SidebarLive";
  * `(app)` route-group layout. Gated by `RequireAuth` so every nested page
  * can assume a valid CP session; signed-out users bounce to /login from
  * the wrapper instead of each page repeating the check.
+ *
+ * Note: `CancelledBanner` + `BillingBanner` are mounted inside `<Topbar>`
+ * (see `components/shell/Topbar.tsx`) so they stick with the header
+ * instead of floating above it without horizontal padding.
  */
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <Shell sidebar={<SidebarLive />}>
-        <CancelledBanner />
-        <BillingBanner />
-        {children}
-      </Shell>
+      <Shell sidebar={<SidebarLive />}>{children}</Shell>
       {/*
         Self-demo of the P6 embed widget. Pinned to the signed-in
         layout so it doesn't load on /login or /embed (which would

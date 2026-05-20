@@ -82,6 +82,7 @@ export class ShareTokenUsageService {
   async record(
     shareTokenId: string,
     spendUsdMicros: bigint,
+    bytesOut: bigint,
     tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
     const today = utcDay();
@@ -92,13 +93,30 @@ export class ShareTokenUsageService {
         day_utc: today,
         requests: 1,
         spend_usd_micros: spendUsdMicros,
+        bytes_out: bytesOut,
       },
       update: {
         requests: { increment: 1 },
         spend_usd_micros: { increment: spendUsdMicros },
+        bytes_out: { increment: bytesOut },
       },
     });
   }
+}
+
+/**
+ * Approximate egress bytes for a single chat completion served
+ * through a share token. UTF-8 chat tokens average ~4 bytes; we count
+ * completion tokens only because that's what the LLM emitted to the
+ * client over the wire. Prompt tokens are ingress to the server, not
+ * egress through the public link.
+ *
+ * This is the source value for the `share_token_egress_bytes` Stripe
+ * meter. It does NOT count SSE framing overhead — bands are wide
+ * enough that the rounding doesn't move the needle.
+ */
+export function approximateEgressBytes(completionTokens: number): bigint {
+  return BigInt(Math.max(0, completionTokens) * 4);
 }
 
 /**

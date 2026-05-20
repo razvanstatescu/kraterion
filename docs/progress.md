@@ -4218,3 +4218,215 @@ remain unchanged — verified not regressions from this work via
   Redis cache). B7 is the admin pages; B8 is the onboarding flow +
   `RequiresPaymentMethodGuard` + the remove-card-when-unbilled
   server-side guard.
+
+### 2026-05-19 (later)
+
+- `[billing]` `[control-plane]` `[dashboard]` **Closed out the B1, B2,
+  B4, and B5 gaps from the billing audit** in one focused session.
+  Plan source: `.claude/plans/idempotent-tumbling-thompson.md`.
+
+  **B1 — share-token egress + UsageEvent TTL**
+
+  - `ShareTokenUsageDay` grew two columns:
+    `bytes_out BigInt @default(0)` + `bytes_out_at_last_emit BigInt?`.
+    Migration `20260519152411_p8_share_token_egress`.
+    `ShareTokenUsageService.record(...)` now takes `bytesOut: bigint`;
+    both agent-controller callsites (non-streaming + streaming) pass
+    `approximateEgressBytes(completion_tokens)` (≈ `tokens × 4`).
+  - New
+    `apps/control-plane/src/billing/share-token-egress-rollup.processor.ts` —
+    10-min tick. SELECTs un-drained rows for today, emits the delta
+    as a `MeterEvent` per (project, hour), then advances the cursor
+    on each row. Hour-bucket pattern matches the index rollup.
+  - New `apps/control-plane/src/billing/usage-event-ttl.processor.ts` —
+    hourly DELETE of `UsageEvent` older than 35 days. Postgres native
+    partitioning deferred — see decisions entry for the tradeoff.
+  - New `apps/control-plane/src/billing/webhook-event-ttl.processor.ts` —
+    daily DELETE of processed `StripeWebhookEvent` rows older than
+    90 days. Stuck (un-processed) rows stay so the audit chain can
+    find them.
+
+  **B2 — hosted-Checkout fallback removed**
+
+  - Deleted: `POST /v1/billing/checkout-session` endpoint,
+    `BillingService.createCheckoutSession()`, the `checkoutSessionSchema`
+    DTO, and the `probe-checkout-session.ts` script.
+  - Kept the webhook handler for `checkout.session.completed` because
+    Stripe events are idempotent — defensive code is cheaper than a
+    new edge case.
+  - Inline Stripe Elements is now the only card-collection path.
+
+  **B4 — reconciliation, cost-floor, soft-alert, delivery**
+
+  - `apps/control-plane/src/billing/reconciliation.processor.ts` —
+    daily tick. For every `BillingAccount` with a Stripe customer:
+    sum `MeterEvent.value WHERE stripe_status='sent'` for yesterday-
+    UTC, fetch Stripe's `billing.meters.eventSummaries.list`,
+    compute drift %. Warn at 0.1%, error at 1%.
+  - `apps/control-plane/src/billing/cost-floor.processor.ts` — daily
+    tick. CoinGecko fetch (`api.coingecko.com/api/v3/simple/price`)
+    for SUI + WAL (`walrus-2`); falls back to baseline `$2.5` /
+    `$1` if the fetch fails. Computes per-meter headroom; writes
+    `CostFloorSnapshot`; warns if any meter drops below 25% headroom.
+    Pyth Sui-native swap noted as a follow-up in the file header.
+  - New table `BillingAlert` (migration
+    `20260519153207_p8_billing_alert`). UNIQUE
+    `(project_id, period, threshold_pct, channel)` makes the
+    evaluator idempotent.
+  - `apps/control-plane/src/billing/soft-alert.processor.ts` —
+    5-min tick. For accounts with a hard cap, checks accrued vs
+    each configured threshold; inserts a `BillingAlert` row on the
+    first crossing per period per threshold.
+  - `apps/control-plane/src/billing/alert-delivery.processor.ts` —
+    30-s tick. Drains `delivered_at IS NULL` rows. Today only the
+    `log` channel is wired — `email` / `slack` slots are stubbed
+    siblings for a future provider integration.
+
+  **B5 — alert thresholds UI + closeout decision**
+
+  - `apps/dashboard/src/components/billing/SpendCapCard.tsx` gained
+    a multi-select chip group for thresholds (50 / 80 / 100 %).
+    Single Save button PATCHes cap + thresholds in one round-trip
+    via the existing `useUpdateSpendCap` hook.
+  - Server-side remove-PM guard skipped — Stripe Customer Portal
+    does not expose `payment_method.detach` as a user action. The
+    plan's concern is solved by the existing Portal feature set;
+    see `decisions.md` entry.
+
+  **B4 dashboard — `/usage` polish (Cloudflare R2 / Vercel shape)**
+
+  - New `apps/dashboard/src/components/usage/` directory:
+    `StackedDailyBar.tsx`, `ChartLegend.tsx`, `PeriodSelector.tsx`,
+    `Sparkline.tsx`, `meter-colors.ts`. All hand-rolled SVG, zero
+    chart deps, full design-system compliance.
+  - `getByDay` extended on the server to return per-day per-meter
+    `{ value, cost_usd_cents }` so the chart stacks **dollars**
+    (the bill-relevant axis) instead of heterogeneous raw counts.
+    Wire type updated accordingly.
+  - Period selector lets the user scrub current / previous /
+    last-7-days; clicking a bar filters the meter table to that
+    day. 7-day trend sparkline added to each meter row.
+  - Meter renames also rolled into the chart legend
+    ("Storage writes", "Storage reads", etc., matching the
+    Stripe catalog).
+
+  **Cross-cutting cheap wins**
+
+  - `apps/control-plane/scripts/probe-billing-reset.ts` — sandbox
+    helper that wipes Stripe customer + subscription + every local
+    billing row for a project. Refuses live mode.
+  - The Stripe sync script (`apps/control-plane/scripts/stripe/sync.ts`)
+    already gained `update on drift` for Product names + descriptions
+    in the earlier pass; this round also added drift updates for
+    `Meter.display_name` and `Price.nickname` — re-running
+    `pnpm stripe:sync` after a catalog edit now propagates every
+    user-visible label in one shot.
+
+  Verification: full typecheck green across control-plane, dashboard,
+  and worker. Migrations applied (`20260519152411_p8_share_token_egress`
+  and `20260519153207_p8_billing_alert`). End-to-end smoke deferred to
+  the next dashboard session.
+
+  **What's still pending (B6 onward — captured in the audit):**
+  - Gateway 507/429 enforcement of cap + free band (B6 entrypoint).
+  - Email/Slack alert delivery (waits on a provider decision).
+  - `/admin/billing` pages (B7).
+  - Onboarding flow + `RequiresPaymentMethodGuard` (B8).
+  - UsageEvent native partitioning when traffic justifies it
+    (deferred from this session; TTL DELETE handles sandbox volume).
+
+### 2026-05-19 (pool lifetime tracks billing cycle)
+
+- `[billing]` `[move]` `[control-plane]` **Pool reservation lifetime
+  now tracks the billing cycle, not a 2-year horizon.** User feedback
+  pointed out that Walrus's
+  `decrease_storage_pool_unused_capacity_by_percent` returns a
+  `Storage` reservation receipt rather than WAL, so the original "let
+  the pool decay over ~2 years" plan was leaking 1–24 months of
+  pre-paid WAL on every downsize. Fix in two stages.
+
+  **Stage 1 — TS only, applied:**
+  - New constants in `packages/shared/src/billing-constants.ts`:
+    `BILLING_CYCLE_DAYS = 30`, `POOL_RENEWAL_BUFFER_DAYS = 5`,
+    `WALRUS_EPOCH_DAYS` (testnet 1d / mainnet 14d),
+    `initialPoolEpochsAhead()`, `renewalEpochsPerCycle()`.
+  - `apps/gateway/src/s3/vault-provisioning.service.ts` —
+    `INITIAL_EPOCHS_AHEAD` now derived from those constants instead of
+    the previous hardcoded 53. New pools get ~1 cycle + 5-day buffer
+    of lifetime up-front.
+  - New `apps/control-plane/src/billing/pool-renewal.processor.ts` —
+    daily tick that reads `current_epoch` from Sui RPC, finds every
+    active `StoragePool` whose `end_epoch` is within ~10 days, and
+    submits `pool_vault::extend` for one more cycle. Skips pools where
+    the project's Stripe subscription is not active or is set to
+    cancel_at_period_end (those pools naturally decay).
+
+  **Stage 2 — Move package change, ready, awaiting redeploy:**
+  - `move/kraterion/sources/pool_vault.move` — new `resize_shrink(...)`
+    entry that calls `decrease_storage_pool_unused_capacity_by_percent`,
+    transfers the returned `Storage` reservation receipt to `@0x0`
+    (abandoned to the network — see decisions entry for the trade-off),
+    and emits `KraterionPoolResizedShrink`.
+  - `move/kraterion/sources/events.move` — new event struct +
+    `emit_pool_resized_shrink(...)` helper.
+  - Move package builds clean; 42/42 tests still pass.
+  - TS bindings regenerated via Turbo.
+  - `pool-renewal.processor.ts` already has the shrink path wired,
+    gated by `KRATERION_ENABLE_POOL_SHRINK=true`. Today it's off so
+    the runtime doesn't try to call a function the deployed package
+    doesn't have yet. After the next Move publish + `Published.toml`
+    update, flipping the env flag activates the path.
+
+  **Outcome:** WAL over-payment on a downsize used to be bounded by
+  the full ~2-year pool lifetime. After Stage 1 it's bounded by ~1
+  billing cycle (the residual at the boundary between Stripe
+  quantity drop and the next renewal). After Stage 2 is live it
+  drops to "at most one cycle's residual unused capacity in the
+  abandoned `Storage` receipt" — far less than the previous gap.
+
+  Verification: control-plane typecheck green, dashboard typecheck
+  green, Move package 42/42 tests pass. PoolRenewalProcessor logs
+  `pool-renewal armed (tick=86400000ms, buffer=5d)` at boot.
+
+  **Operator action required to enable Stage 2:** publish the new
+  Move package (`scripts/setup-testnet.sh --force` after a clean
+  bindings regen) and set `KRATERION_ENABLE_POOL_SHRINK=true` in
+  the control-plane env. See `/docs/runbook.md` "Redeploying Move
+  with pool_vault::resize_shrink" for the safe sequence.
+
+### 2026-05-20 — Storage free tier dropped from 10 GB to 500 MB (MB-granularity)
+
+- `[billing]` Storage subscription quantity unit moved from **GB → MiB**
+  so we can express "500 MB free" exactly as a Stripe graduated tier-1.
+  Old `storage_v1` Price kept (archived nickname) for any legacy
+  subscription; new active price is `storage_v2`:
+  - tier 1: `up_to: 500 MB` at `$0`
+  - tier 2: `up_to: ∞` at `0.005859375¢/MB` (= $0.06/GB)
+- New migration `20260520081845_p8_storage_mb_granularity` renames
+  `PendingStorageDowngrade.{new,current}_reserved_gb → _mb` and
+  multiplies existing values × 1024.
+- Wire shape on `/v1/billing/storage/state/:projectId` and `/v1/usage`
+  now returns `reserved_mb` / `used_mb` (was `_gb`). DTO field
+  `new_reserved_mb` for the resize endpoint.
+- New `formatStorageMb()` in `apps/dashboard/src/lib/format.ts` picks
+  the most readable unit (`< 1024 MB → MB`, then `GB`, `TB`) — so
+  a 500 MB reservation reads "500 MB" while 100 GB reads "100 GB"
+  in the same component. The resize modal labels, storage card, and
+  `/usage` page all use it.
+- `STORAGE_MIN_MB = STORAGE_DEFAULT_MB = 500`; tier presets in shared:
+  500 MB / 1 GB / 5 GB / 10 GB / 50 GB / 100 GB / 250 GB / 500 GB / 1 TB.
+- Pool-renewal worker's shrink-target math now uses `× 1_048_576n`
+  (MiB → bytes) instead of `× 1_073_741_824n` (GiB → bytes).
+- Other meter free bands left **unchanged** for now — user agreed to
+  start with the storage change in isolation and tighten the rest in
+  a follow-up if needed.
+- Verification: CP + dashboard typecheck green, `pnpm stripe:sync`
+  created `storage_v2` (`price_1TZ5QMDSnZPy1lDYAKhq8g6j`), migration
+  applied, Prisma client regenerated.
+
+Operator note: existing bootstrap test customer's subscription line
+points at `storage_v1` (10 GB quantity). The control-plane code now
+expects `storage_v2`; a fresh sign-up + add-card on the dashboard
+will create a subscription on the new price. Existing test customer
+should be wiped + re-bootstrapped if interaction with `/billing`
+becomes inconsistent.

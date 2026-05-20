@@ -1,11 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import {
   FREE_BANDS,
   METER_NAMES,
   STANDARD_PRICE_USD_MICROS,
+  STORAGE_DEFAULT_MB,
   type MeterName,
 } from "@kraterion/shared";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { StripeService } from "../billing/stripe.service.js";
+import { ACTIVE_PRICE_LOOKUP_KEYS } from "../billing/catalog.js";
 
 /**
  * Aggregates usage data for the dashboard `/usage` view.
@@ -28,7 +31,10 @@ import { PrismaService } from "../prisma/prisma.service.js";
 export class UsageService {
   private readonly logger = new Logger(UsageService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly stripe?: StripeService,
+  ) {}
 
   /**
    * Compose the data the storage card + meter table need for the
@@ -103,12 +109,27 @@ export class UsageService {
         day: { in: days },
       },
     });
-    const byDay = new Map<string, Record<string, string>>();
+    const byDay = new Map<
+      string,
+      Record<string, { value: string; cost_usd_cents: number }>
+    >();
     for (const day of days) byDay.set(day, {});
+    const specsByMeter = priceSpecsByMeter();
     for (const row of rows) {
       const slot = byDay.get(row.day);
       if (!slot) continue;
-      slot[row.meter_name] = row.value.toString();
+      const spec = specsByMeter.get(row.meter_name);
+      // Per-day cost has NO free-band subtraction — the chart's job
+      // is to show where the bill is coming from, not "what fell
+      // above the band on a per-day basis" (which the meter table
+      // already covers period-wide). A user crossing the band at
+      // mid-month sees the days before AND after as billable in the
+      // chart, which is what they want for diagnostics.
+      const cents = spec ? costInCents(spec, row.value) : 0;
+      slot[row.meter_name] = {
+        value: row.value.toString(),
+        cost_usd_cents: cents,
+      };
     }
     return {
       days: days.map((day) => ({ day, meters: byDay.get(day) ?? {} })),
@@ -192,40 +213,84 @@ export class UsageService {
     projectId: string,
     rows: Array<{ meter_name: string; value: bigint; day: string }>,
   ) {
-    // Pick the latest day's storage sample (rows already filtered to
-    // the period; iterate to find the latest day per meter).
+    // `used_mb` is real — comes from the on-chain pool (via the
+    // hourly storage-usage snapshot, or live as a fallback). Reflects
+    // bytes actually held, regardless of billing.
     let latestDay = "";
     let usedBytes = 0n;
-    let reservedBytes = 0n;
     for (const row of rows) {
-      if (
-        row.meter_name !== "storage_used_bytes" &&
-        row.meter_name !== "storage_reserved_bytes"
-      )
-        continue;
-      if (row.day > latestDay) latestDay = row.day;
-    }
-    for (const row of rows) {
-      if (row.day !== latestDay) continue;
-      if (row.meter_name === "storage_used_bytes") usedBytes = row.value;
-      if (row.meter_name === "storage_reserved_bytes") reservedBytes = row.value;
+      if (row.meter_name !== "storage_used_bytes") continue;
+      if (row.day > latestDay) {
+        latestDay = row.day;
+        usedBytes = row.value;
+      } else if (row.day === latestDay) {
+        usedBytes = row.value;
+      }
     }
     if (!latestDay) {
-      // No rollup samples this period yet — fall back to live pool.
       const pool = await this.prisma.storagePool.findUnique({
         where: { project_id: projectId },
-        select: { used_encoded_bytes: true, reserved_encoded_bytes: true },
+        select: { used_encoded_bytes: true },
       });
       usedBytes = pool?.used_encoded_bytes ?? 0n;
-      reservedBytes = pool?.reserved_encoded_bytes ?? 0n;
     }
-    const usedGb = Number(usedBytes / (1024n * 1024n * 1024n));
-    const reservedGb = Number(reservedBytes / (1024n * 1024n * 1024n));
+
+    // `reserved_mb` is the BILLING figure: it's what the customer is
+    // paying for (Stripe subscription line `quantity`), NOT the on-chain
+    // pool reservation. The gateway over-provisions the pool to a
+    // 500 MiB minimum on first PUT — that's an infrastructure detail,
+    // not the billing intent.
+    //
+    // Resolve in priority order:
+    //   1. Live Stripe quantity, if a subscription with the storage
+    //      line is active.
+    //   2. STORAGE_DEFAULT_MB free-tier fallback (no card / no sub).
+    const reservedMb = await this.resolveBilledReservationMb(projectId);
+    const usedMb = Number(usedBytes / (1024n * 1024n));
+
     return {
-      used_gb: usedGb,
-      reserved_gb: reservedGb,
-      monthly_cost_usd_cents: Math.max(0, (reservedGb - 10) * 6),
+      used_mb: usedMb,
+      reserved_mb: reservedMb,
+      monthly_cost_usd_cents: Math.round(
+        Math.max(0, (reservedMb - 500) * 6) / 1024,
+      ),
     };
+  }
+
+  /** Read the customer's active Stripe storage-line quantity. Falls
+   *  back to the free-tier default if there's no BillingAccount, no
+   *  Stripe customer, no active subscription, or no storage line on
+   *  the subscription (any one of those means the customer isn't
+   *  being billed for storage right now). */
+  private async resolveBilledReservationMb(projectId: string): Promise<number> {
+    if (!this.stripe) return STORAGE_DEFAULT_MB;
+    try {
+      const account = await this.prisma.billingAccount.findUnique({
+        where: { project_id: projectId },
+      });
+      if (!account) return STORAGE_DEFAULT_MB;
+      const customerId = this.stripe.getStripeCustomerId(account);
+      if (!customerId) return STORAGE_DEFAULT_MB;
+      const subs = await this.stripe.client.subscriptions.list({
+        customer: customerId,
+        status: "all",
+        limit: 1,
+      });
+      const live = subs.data.find(
+        (s) => s.status === "active" || s.status === "trialing",
+      );
+      if (!live) return STORAGE_DEFAULT_MB;
+      const storageItem = live.items.data.find(
+        (it) => it.price.lookup_key === ACTIVE_PRICE_LOOKUP_KEYS.storage,
+      );
+      if (!storageItem?.quantity) return STORAGE_DEFAULT_MB;
+      return storageItem.quantity;
+    } catch (err) {
+      this.logger.warn(
+        `resolveBilledReservationMb fell back to free tier (project=${projectId}): ${(err as Error).message}`,
+      );
+      return STORAGE_DEFAULT_MB;
+    }
   }
 
   private async composeByokSpend(projectId: string, days: string[]) {
@@ -276,6 +341,58 @@ interface MeterDescriptor {
   /** µ-USD per 10⁹ units. Used for byte / byte·second meters whose
    *  per-unit price would be sub-micro. */
   price_per_unit_usd_micros_per_billion?: bigint;
+}
+
+/** Static price-spec map keyed by meter name. Same shape the meter
+ *  table uses; pulled out so `getByDay` can attach per-day cost
+ *  without duplicating the spec inline. */
+function priceSpecsByMeter(): Map<string, MeterDescriptor> {
+  const list: MeterDescriptor[] = [
+    {
+      meter: METER_NAMES.gateway_class_a,
+      label: "",
+      unit: "ops",
+      free_band: FREE_BANDS["gateway_class_a"]!.quantity,
+      price_per_unit_usd_micros:
+        STANDARD_PRICE_USD_MICROS["gateway_class_a_per_op"]!,
+    },
+    {
+      meter: METER_NAMES.gateway_class_b,
+      label: "",
+      unit: "ops",
+      free_band: FREE_BANDS["gateway_class_b"]!.quantity,
+      price_per_unit_usd_micros: 400n,
+    },
+    {
+      meter: METER_NAMES.gateway_egress_bytes,
+      label: "",
+      unit: "bytes",
+      free_band: FREE_BANDS["gateway_egress_bytes"]!.quantity,
+      price_per_unit_usd_micros_per_billion: 9310n,
+    },
+    {
+      meter: METER_NAMES.share_token_egress_bytes,
+      label: "",
+      unit: "bytes",
+      free_band: 0,
+      price_per_unit_usd_micros_per_billion: 9310n,
+    },
+    {
+      meter: METER_NAMES.kb_index_byte_seconds,
+      label: "",
+      unit: "byte·s",
+      free_band: FREE_BANDS["kb_index_byte_seconds"]!.quantity,
+      price_per_unit_usd_micros_per_billion: 1080n,
+    },
+    {
+      meter: METER_NAMES.agent_messages,
+      label: "",
+      unit: "messages",
+      free_band: FREE_BANDS["agent_messages"]!.quantity,
+      price_per_unit_usd_micros: 10_000n,
+    },
+  ];
+  return new Map(list.map((s) => [s.meter as string, s]));
 }
 
 /** Convert a billable count + pricing spec to USD cents. Uses

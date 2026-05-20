@@ -16,7 +16,7 @@ export function CancelledBanner() {
   const { data } = useMe();
   if (!mounted || !data || data.account.status !== "cancelled") return null;
   return (
-    <div className="ks-cancelled-banner">
+    <div className="ks-topbar-notice">
       <Banner
         tone="warning"
         title="Subscription cancelled"

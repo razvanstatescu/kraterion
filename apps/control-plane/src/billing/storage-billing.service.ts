@@ -44,11 +44,11 @@ import { StripeService } from "./stripe.service.js";
  *     codify when Walrus's storage_pool::resize_shrink is wrapped.
  *
  * Invariants:
- *   - `new_gb >= ceil(used_gb × 1.1)`. UI enforces; we re-check
+ *   - `new_mb >= ceil(used_mb × 1.1)`. UI enforces; we re-check
  *     server-side to defend against a stale client. The 10% buffer is
  *     for indexer lag — `used_encoded_bytes` is event-driven, not
  *     wall-clock, so a brand-new PUT can briefly outrun the row.
- *   - `new_gb >= 10`. Storage tier 1 (the 10 GB free band) is the
+ *   - `new_mb >= 500`. Storage tier 1 (the 500 MB free band) is the
  *     floor; to leave Kraterion the user cancels their subscription,
  *     not the storage line.
  *   - One in-flight resize per project. We rely on the resize
@@ -73,7 +73,7 @@ export class StorageBillingService {
    */
   async resize(args: {
     projectId: string;
-    newReservedGb: number;
+    newReservedMb: number;
   }): Promise<{
     direction: "upgrade" | "downgrade" | "noop";
     effective_at?: string;
@@ -81,19 +81,19 @@ export class StorageBillingService {
     stripe_subscription_id?: string;
   }> {
     const state = await this.loadResizeState(args.projectId);
-    const currentGb = state.currentReservedGb;
-    const usedGb = state.currentUsedGb;
-    const requested = args.newReservedGb;
+    const currentMb = state.currentReservedMb;
+    const usedMb = state.currentUsedMb;
+    const requested = args.newReservedMb;
 
-    this.assertSane(requested, usedGb);
+    this.assertSane(requested, usedMb);
 
-    if (requested === currentGb) {
+    if (requested === currentMb) {
       return { direction: "noop" };
     }
-    if (requested > currentGb) {
-      return this.applyUpgrade({ ...state, newGb: requested });
+    if (requested > currentMb) {
+      return this.applyUpgrade({ ...state, newMb: requested });
     }
-    return this.scheduleDowngrade({ ...state, newGb: requested });
+    return this.scheduleDowngrade({ ...state, newMb: requested });
   }
 
   /**
@@ -104,10 +104,10 @@ export class StorageBillingService {
    * means the storage card stays in its empty state).
    */
   async getStorageState(projectId: string): Promise<{
-    reserved_gb: number;
-    used_gb: number;
-    pool_reserved_gb: number;
-    stripe_quantity_gb: number;
+    reserved_mb: number;
+    used_mb: number;
+    pool_reserved_mb: number;
+    stripe_quantity_mb: number;
     monthly_cost_usd_cents: number;
     next_bill_at: string | null;
     pending_downgrade: {
@@ -142,17 +142,20 @@ export class StorageBillingService {
     });
 
     return {
-      reserved_gb: stripeQty,
-      used_gb: bytesToGb(pool.used_encoded_bytes),
-      pool_reserved_gb: bytesToGb(pool.reserved_encoded_bytes),
-      stripe_quantity_gb: stripeQty,
-      // $0.06/GB-mo at standard rate, free for the first 10 GB.
-      monthly_cost_usd_cents: Math.max(0, (stripeQty - 10) * 6),
+      reserved_mb: stripeQty,
+      used_mb: bytesToMb(pool.used_encoded_bytes),
+      pool_reserved_mb: bytesToMb(pool.reserved_encoded_bytes),
+      stripe_quantity_mb: stripeQty,
+      // $0.06/GB-mo at standard rate (= 0.005859375¢/MB), free for
+      // the first 500 MB. `stripeQty` is in MB.
+      monthly_cost_usd_cents: Math.round(
+        Math.max(0, (stripeQty - 500) * 6) / 1024,
+      ),
       next_bill_at: nextBillAt,
       pending_downgrade:
         pending && pending.status === "scheduled"
           ? {
-              new_gb: pending.new_reserved_gb,
+              new_gb: pending.new_reserved_mb,
               effective_at: pending.effective_at.toISOString(),
             }
           : null,
@@ -178,7 +181,7 @@ export class StorageBillingService {
       data: { status: "cancelled" },
     });
     this.logger.log(
-      `cancelled PendingStorageDowngrade for project=${projectId} (was scheduled to ${existing.new_reserved_gb} GB)`,
+      `cancelled PendingStorageDowngrade for project=${projectId} (was scheduled to ${existing.new_reserved_mb} MB)`,
     );
     return { cancelled: true, previous_status: "scheduled" };
   }
@@ -248,7 +251,7 @@ export class StorageBillingService {
     if (pending && pending.status === "scheduled") {
       throw new ControlPlaneError(
         "Conflict",
-        `A downgrade to ${pending.new_reserved_gb} GB is already scheduled for ${pending.effective_at.toISOString()}. ` +
+        `A downgrade to ${pending.new_reserved_mb} MB is already scheduled for ${pending.effective_at.toISOString()}. ` +
           `Cancel it first if you want to change direction.`,
       );
     }
@@ -262,7 +265,7 @@ export class StorageBillingService {
     // if the pool is currently smaller than Stripe says, that delta
     // includes the catch-up.
     const stripeQuantity = item.quantity ?? 0;
-    const poolGb = bytesToGb(pool.reserved_encoded_bytes);
+    const poolMb = bytesToMb(pool.reserved_encoded_bytes);
     return {
       projectId,
       projectName: project.name,
@@ -272,37 +275,39 @@ export class StorageBillingService {
       subscriptionItem: item,
       subscriptionItemId: item.id,
       pool,
-      currentBillingQuantityGb: stripeQuantity,
-      currentPoolReservedGb: poolGb,
-      currentReservedGb: stripeQuantity, // alias for direction comparison
-      currentUsedGb: bytesToGb(pool.used_encoded_bytes),
+      currentBillingQuantityMb: stripeQuantity,
+      currentPoolReservedMb: poolMb,
+      currentReservedMb: stripeQuantity, // alias for direction comparison
+      currentUsedMb: bytesToMb(pool.used_encoded_bytes),
     };
   }
 
-  private async applyUpgrade(state: ResolvedResizeState & { newGb: number }) {
-    const newGb = state.newGb;
-    // On-chain delta is `newGb - poolGb` — bumps the actual reserved
-    // capacity to match. Stripe delta is `newGb - stripeQuantityGb` —
+  private async applyUpgrade(state: ResolvedResizeState & { newMb: number }) {
+    const newMb = state.newMb;
+    // On-chain delta is `newMb - poolMb` — bumps the actual reserved
+    // capacity to match. Stripe delta is `newMb - stripeQuantityGb` —
     // what the customer pays the proration for. The pool/Stripe gap
     // (1 GiB vs 10 GB on a fresh project) is closed by the on-chain
     // grow even if Stripe's quantity is already at the new value.
-    const onChainAdditionalGb = newGb - state.currentPoolReservedGb;
-    const additionalBytes = BigInt(onChainAdditionalGb) * 1024n * 1024n * 1024n;
-    const stripeRollbackQuantity = state.currentBillingQuantityGb;
+    const onChainAdditionalMb = newMb - state.currentPoolReservedMb;
+    // MB-quantity: each Stripe quantity unit = 1 MiB of on-chain
+    // encoded capacity. Same byte basis the indexer uses.
+    const additionalBytes = BigInt(onChainAdditionalMb) * 1024n * 1024n;
+    const stripeRollbackQuantity = state.currentBillingQuantityMb;
 
     // 1. Stripe — update quantity with proration. Idempotent on
-    //    (project, newGb) so a retried request collapses.
+    //    (project, newMb) so a retried request collapses.
     const idempotencyKey = this.idempotencyKey({
       op: "resize-upgrade",
       projectId: state.projectId,
-      newGb,
+      newMb,
     });
     let stripeUpdated = false;
     try {
       await this.stripe.client.subscriptionItems.update(
         state.subscriptionItemId,
         {
-          quantity: newGb,
+          quantity: newMb,
           proration_behavior: "create_prorations",
         },
         { idempotencyKey },
@@ -310,7 +315,7 @@ export class StorageBillingService {
       stripeUpdated = true;
       this.logger.log(
         `stripe quantity updated: project=${state.projectId} ` +
-          `${stripeRollbackQuantity}→${newGb} GB (pool delta ${state.currentPoolReservedGb}→${newGb} = +${onChainAdditionalGb} GB)`,
+          `${stripeRollbackQuantity}→${newMb} MB (pool delta ${state.currentPoolReservedMb}→${newMb} = +${onChainAdditionalMb} MB)`,
       );
     } catch (err) {
       this.logger.error(
@@ -364,7 +369,7 @@ export class StorageBillingService {
     //    update `StoragePool.reserved_encoded_bytes` from chain
     //    state when the event fires, so the row is purely audit.
     this.logger.log(
-      `upgrade complete: project=${state.projectId} +${onChainAdditionalGb} GB tx=${txDigest}`,
+      `upgrade complete: project=${state.projectId} +${onChainAdditionalMb} GB tx=${txDigest}`,
     );
     return {
       direction: "upgrade" as const,
@@ -374,9 +379,9 @@ export class StorageBillingService {
   }
 
   private async scheduleDowngrade(
-    state: ResolvedResizeState & { newGb: number },
+    state: ResolvedResizeState & { newMb: number },
   ) {
-    const newGb = state.newGb;
+    const newMb = state.newMb;
     const periodEnd =
       state.subscription.items.data[0]?.current_period_end ??
       state.subscription.billing_cycle_anchor;
@@ -385,14 +390,14 @@ export class StorageBillingService {
       where: { project_id: state.projectId },
       create: {
         project_id: state.projectId,
-        new_reserved_gb: newGb,
-        current_reserved_gb: state.currentReservedGb,
+        new_reserved_mb: newMb,
+        current_reserved_mb: state.currentReservedMb,
         effective_at: effectiveAt,
         status: "scheduled",
       },
       update: {
-        new_reserved_gb: newGb,
-        current_reserved_gb: state.currentReservedGb,
+        new_reserved_mb: newMb,
+        current_reserved_mb: state.currentReservedMb,
         effective_at: effectiveAt,
         status: "scheduled",
         applied_at: null,
@@ -400,7 +405,7 @@ export class StorageBillingService {
       },
     });
     this.logger.log(
-      `downgrade scheduled: project=${state.projectId} ${state.currentReservedGb}→${newGb} GB at ${effectiveAt.toISOString()}`,
+      `downgrade scheduled: project=${state.projectId} ${state.currentReservedMb}→${newMb} MB at ${effectiveAt.toISOString()}`,
     );
     return {
       direction: "downgrade" as const,
@@ -471,24 +476,24 @@ export class StorageBillingService {
     return result.digest;
   }
 
-  private assertSane(newGb: number, usedGb: number): void {
-    if (!Number.isFinite(newGb) || newGb <= 0) {
+  private assertSane(newMb: number, usedMb: number): void {
+    if (!Number.isFinite(newMb) || newMb <= 0) {
       throw new ControlPlaneError(
         "InvalidArgument",
-        "new_reserved_gb must be a positive integer.",
+        "new_reserved_mb must be a positive integer.",
       );
     }
-    if (newGb < 10) {
+    if (newMb < 500) {
       throw new ControlPlaneError(
         "InvalidArgument",
-        "Storage cannot drop below the 10 GB free tier minimum.",
+        "Storage cannot drop below the 500 MB free tier minimum.",
       );
     }
-    const headroomFloor = Math.ceil(usedGb * 1.1);
-    if (newGb < headroomFloor) {
+    const headroomFloor = Math.ceil(usedMb * 1.1);
+    if (newMb < headroomFloor) {
       throw new ControlPlaneError(
         "InvalidArgument",
-        `Cannot drop storage below ${headroomFloor} GB (current usage ${usedGb} GB × 1.1 buffer).`,
+        `Cannot drop storage below ${headroomFloor} MB (current usage ${usedMb} MB × 1.1 buffer).`,
       );
     }
   }
@@ -496,10 +501,10 @@ export class StorageBillingService {
   private idempotencyKey(args: {
     op: string;
     projectId: string;
-    newGb: number;
+    newMb: number;
   }): string {
     const mode: StripeMode = this.stripe.mode;
-    return `${mode}:${args.op}:${args.projectId}:${args.newGb}`;
+    return `${mode}:${args.op}:${args.projectId}:${args.newMb}`;
   }
 }
 
@@ -519,17 +524,19 @@ interface ResolvedResizeState {
     Awaited<ReturnType<PrismaService["storagePool"]["findUnique"]>>
   >;
   /** Stripe subscription_item.quantity at request time — billing truth. */
-  currentBillingQuantityGb: number;
+  currentBillingQuantityMb: number;
   /** On-chain `StoragePool.reserved_encoded_bytes` at request time. */
-  currentPoolReservedGb: number;
-  /** Alias of `currentBillingQuantityGb` used for direction comparison. */
-  currentReservedGb: number;
-  currentUsedGb: number;
+  currentPoolReservedMb: number;
+  /** Alias of `currentBillingQuantityMb` used for direction comparison. */
+  currentReservedMb: number;
+  currentUsedMb: number;
 }
 
-/** Bytes → whole GB, rounded down. We treat `reserved_encoded_bytes`
- *  as a multiple of GB on the billing side; the indexer writes
- *  exactly `quantity_gb × 1024^3` so rounding is lossless in practice. */
-function bytesToGb(bytes: bigint): number {
-  return Number(bytes / (1024n * 1024n * 1024n));
+/** Bytes → whole MB, rounded down. We treat `reserved_encoded_bytes`
+ *  as a multiple of MB on the billing side; the indexer writes
+ *  exactly `quantity_mb × 1024^2` so rounding is lossless in practice
+ *  for reserved capacity. `used_encoded_bytes` rounds DOWN so sub-MB
+ *  usage shows as "0 MB used" — the dashboard handles the empty state. */
+function bytesToMb(bytes: bigint): number {
+  return Number(bytes / (1024n * 1024n));
 }
