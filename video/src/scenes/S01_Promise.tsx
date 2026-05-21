@@ -177,8 +177,8 @@ export const S01_Promise: React.FC = () => {
                       fontVariationSettings: "'wonk' 1",
                     }}
                   >
-                    Object storage<br />you actually{" "}
-                    <span style={{ color: color.krater }}>own.</span>
+                    Object storage<br />stays{" "}
+                    <span style={{ color: color.krater }}>yours.</span>
                   </div>
                 </BeatPulse>
               </SpringBounce>
