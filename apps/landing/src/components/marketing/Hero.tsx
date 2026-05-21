@@ -21,13 +21,15 @@ export function Hero() {
           </FadeUp>
 
           <h1 className="mt-8 text-[44px] leading-[1.02] tracking-[-0.02em] text-ink md:text-[80px]">
-            <Reveal text="Object storage" />
+            <Reveal text="Smart object storage." />
             <br />
-            <Reveal text="you actually own." delay={0.2} />
+            <span className="text-stone-500">
+              <Reveal text="Built for humans and agents." delay={0.2} />
+            </span>
           </h1>
           <FadeUp delay={0.5}>
-            <p className="mt-8 max-w-[520px] text-[18px] leading-[1.55] text-stone-700">
-              One bucket. S3-compatible. Searchable. Agent-ready. Embeddable. Bring the tools you already use; leave whenever you want.
+            <p className="mt-8 max-w-[560px] text-[18px] leading-[1.55] text-stone-700">
+              S3-compatible buckets that index themselves, answer with citations, and stay yours when you walk away.
             </p>
           </FadeUp>
           <FadeUp delay={0.6}>

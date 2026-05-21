@@ -148,17 +148,20 @@ const WhatIfDive: React.FC<{ startFrame: number; sceneEnd: number }> = ({
   const local = frame - startFrame;
 
   // === Text layout inside the SVG viewBox (1920 × 1080) ===
-  // Goal: ZERO pan during the dive. Both focal x and focal y must equal the
-  // viewport centre (960, 540). The "H" sits at the dead centre of
-  // "BUT WHAT IF" (position 6 of 11) so its horizontal centre lines up with
-  // the text anchor at x = 960 automatically. For y we position the text so
-  // the H's crossbar lands exactly on y = 540: with fontSize 220 the cap
-  // height ≈ 158 and the crossbar lives ~40 % from cap top, so we need cap
-  // top at 540 − 0.4 × 158 = 477, which means baseline at 477 + 158 = 635.
-  // This makes the text appear ~16 px below screen centre (≈ 1.5 % — well
-  // inside "visually centred"), but in exchange the camera doesn't drift at
-  // all during the dive.
-  const TEXT_BASELINE_Y = 635;
+  // ZERO pan: both focal coords must equal the viewport centre (960, 540).
+  //
+  //   - X: the "H" sits at the dead centre of "BUT WHAT IF" (position 6 of
+  //     11), so its centre lines up with the text anchor at x = 960.
+  //   - Y: most grotesque fonts (Inter, Helvetica, Bricolage) place the H's
+  //     crossbar somewhere between 40-50% from cap top, and the crossbar is
+  //     ~12-15% of cap height TALL. We pick baseline y = 627 so that an
+  //     assumed crossbar at 45% from cap top lands on y = 540, with room for
+  //     ±8 px of font variation while still hitting cream.
+  //
+  // Visual centring: text occupies y = 469 → 627, visual centre at y = 548,
+  // viewport centre at y = 540 → text appears 8 px (0.7 %) below dead
+  // centre, which reads as "centred" to the eye.
+  const TEXT_BASELINE_Y = 627;
   const focalX = 960;
   const focalY = 540;
 
@@ -184,8 +187,16 @@ const WhatIfDive: React.FC<{ startFrame: number; sceneEnd: number }> = ({
   const vbX = focalX - vbW / 2;
   const vbY = focalY - vbH / 2;
 
-  // No cream wash overlay. At full zoom the visible 9.6 × 5.4 viewBox window
-  // is entirely inside the H's crossbar, so the screen is naturally cream.
+  // Safety cream disc behind the text. Invisible during the readable phase of
+  // the zoom (dive < 0.85), then fades in over the last few frames as the
+  // viewBox shrinks toward the disc's radius. By the time the viewBox is at
+  // its smallest (9.6 × 5.4 px), the disc fills the entire visible window —
+  // guaranteeing pure cream at scene end regardless of where the H's actual
+  // crossbar happens to render. Radius 12 covers the final viewBox diagonal.
+  const safetyOpacity = interpolate(dive, [0.85, 0.98], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
 
   return (
     <>
@@ -197,6 +208,14 @@ const WhatIfDive: React.FC<{ startFrame: number; sceneEnd: number }> = ({
           preserveAspectRatio="xMidYMid slice"
           style={{ opacity: entryOpacity, background: color.ink }}
         >
+          {/* Safety disc — invisible until the last few frames of the dive */}
+          <circle
+            cx={focalX}
+            cy={focalY}
+            r={12}
+            fill={color.cream}
+            opacity={safetyOpacity}
+          />
           <text
             x={960}
             y={TEXT_BASELINE_Y}
