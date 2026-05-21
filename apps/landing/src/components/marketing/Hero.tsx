@@ -1,12 +1,15 @@
 import { FadeUp } from "@/components/motion/FadeUp";
 import { Reveal } from "@/components/motion/Reveal";
+import { WordCycle } from "@/components/motion/WordCycle";
 import { ButtonLink } from "@/components/ui/Button";
-import { CornerTicks } from "./visuals/CornerTicks";
-import {
-  DashboardChrome,
-  FileRow,
-  UsageBar,
-} from "./rich/DashboardSlice";
+import { HeroVisual } from "./HeroVisual";
+
+const HEADLINE_CYCLE = [
+  "humans and agents.",
+  "the tools you use.",
+  "data you actually own.",
+  "what comes next.",
+];
 
 export function Hero() {
   return (
@@ -23,9 +26,15 @@ export function Hero() {
           <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
             <Reveal text="Smart object storage." />
             <br />
-            <span className="text-stone-500">
-              <Reveal text="Built for humans and agents." delay={0.15} />
-            </span>
+            <FadeUp as="span" delay={0.55} className="text-stone-500">
+              Built for{" "}
+              <WordCycle
+                words={HEADLINE_CYCLE}
+                startDelayMs={1400}
+                intervalMs={2800}
+                durationMs={560}
+              />
+            </FadeUp>
           </h1>
           <FadeUp delay={0.45}>
             <p className="mt-6 max-w-[520px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
@@ -56,33 +65,11 @@ export function Hero() {
           </FadeUp>
         </div>
 
-        {/* Right column — layered dashboard slices */}
+        {/* Right column — composite product slice that tells the 3-layer story */}
         <div className="relative flex items-center justify-center">
-          <div className="relative w-full max-w-[480px]">
-            <CornerTicks />
-            <FadeUp delay={0.4}>
-              <DashboardChrome url="app.kraterion.com" path="/buckets" className="hairline">
-                <div className="bg-cream">
-                  <FileRow icon="folder" name="assets-prod" size="24.6 GB" status="indexed" />
-                  <FileRow icon="file" name="photo-final-v3.jpg" size="2.1 MB" status="sealed" />
-                  <FileRow icon="file" name="report-q1.pdf" size="482 KB" status="encrypting" />
-                  <FileRow icon="file" name="dataset-2026-05.parquet" size="118 MB" status="uploading" />
-                </div>
-              </DashboardChrome>
-            </FadeUp>
-
-            <FadeUp delay={0.7}>
-              <div className="mt-3 ml-12 hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
-                <UsageBar label="Storage used" value={64} max={1024} unit="GB" />
-                <div className="border-t border-stone-200/60 px-4 py-3 text-[11px] font-mono">
-                  <div className="flex justify-between text-stone-500">
-                    <span>$0.00 egress</span>
-                    <span>5,840 reads / 24h</span>
-                  </div>
-                </div>
-              </div>
-            </FadeUp>
-          </div>
+          <FadeUp delay={0.35}>
+            <HeroVisual />
+          </FadeUp>
         </div>
       </div>
     </section>
