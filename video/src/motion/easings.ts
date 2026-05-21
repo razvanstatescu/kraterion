@@ -22,6 +22,10 @@ export const EASE_IRIS     = Easing.bezier(0.16, 1,    0.3,  1);
 export const KRATER_POP    = Easing.bezier(0.34, 1.4,  0.64, 1);
 /** Ease-out-expo — the "premium wipe" curve, used for mask reveals & wipes. */
 export const EASE_EXPO     = Easing.bezier(0.22, 1,    0.36, 1);
+/** Cursor decel curve — Fitts's Law-ish. Accelerate, cruise, hard decel. */
+export const EASE_CURSOR   = Easing.bezier(0.65, 0,    0.35, 1);
+/** Whip pan / smash transition curve — sharp accel + decel. */
+export const EASE_WHIP     = Easing.bezier(0.85, 0,    0.15, 1);
 
 /** @deprecated — kept for compatibility while scenes migrate. */
 export const LINEAR_EASE = EASE_BRAND;

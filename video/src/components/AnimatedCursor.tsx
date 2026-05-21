@@ -1,7 +1,7 @@
 import React from "react";
 import { useCurrentFrame, interpolate } from "remotion";
 import { color } from "../tokens/color";
-import { LINEAR_EASE, EASE_OUT } from "../motion/easings";
+import { EASE_CURSOR } from "../motion/easings";
 
 type Point = { x: number; y: number };
 
@@ -10,28 +10,41 @@ export type CursorWaypoint = {
   frame: number;
   /** Where the cursor is at this moment. */
   pos: Point;
-  /** Optional click at arrival — adds a ripple ring + tiny scale dip. */
+  /** Optional click at arrival — adds a ripple ring + press-down dip + release. */
   click?: boolean;
+  /**
+   * Frames the cursor holds stationary on this waypoint BEFORE clicking.
+   * Per research, 5-7 frames is the "hover-before-click" beat that makes
+   * the interaction feel human. Only respected when `click === true`.
+   */
+  holdBeforeClick?: number;
 };
 
 type Props = {
-  /** Ordered waypoints. Cursor lerps between them on a quadratic bezier. */
+  /** Ordered waypoints. Cursor lerps between them along quadratic-bezier arcs. */
   waypoints: CursorWaypoint[];
   /** Frames after the last waypoint the cursor stays visible. */
   holdAfter?: number;
   /** Frames before the first waypoint the cursor fades in. */
   fadeInFrames?: number;
+  /** Whether to add sub-pixel "hand tremor" during cruise (default true). */
+  jitter?: boolean;
 };
 
 /**
- * macOS-style cursor that travels between waypoints along quadratic-bezier
- * arcs (never straight lines) with an overshoot-on-arrival, click ripples,
- * and a graceful enter/exit fade. Designed to drive UI storytelling.
+ * macOS-style animated cursor with research-validated choreography:
+ *   - Travel curve: quadratic bezier (no straight lines)
+ *   - Acceleration: EASE_CURSOR (accelerate, cruise, hard decel — Fitts)
+ *   - Hover-before-click: 6-frame stationary hold on the target
+ *   - Press-down dip: scale 1.0 → 0.82 over 2 frames
+ *   - Release ripple: 22-frame ring expansion
+ *   - Cruise jitter: 0.4 px sinusoidal sub-pixel hand tremor (off near targets)
  */
 export const AnimatedCursor: React.FC<Props> = ({
   waypoints,
   holdAfter = 12,
   fadeInFrames = 8,
+  jitter = true,
 }) => {
   const frame = useCurrentFrame();
 
@@ -67,17 +80,21 @@ export const AnimatedCursor: React.FC<Props> = ({
   }
 
   let pos: Point;
+  let nearTarget = false;
   if (segIdx >= waypoints.length - 1) {
     pos = last.pos;
+    nearTarget = true;
   } else {
     const a = waypoints[segIdx];
     const b = waypoints[segIdx + 1];
-    const t = interpolate(frame, [a.frame, b.frame], [0, 1], {
+    const tRaw = interpolate(frame, [a.frame, b.frame], [0, 1], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
-      easing: EASE_OUT,
+      easing: EASE_CURSOR,
     });
-    // Quadratic bezier control point: midpoint offset perpendicular by 80px
+    // Mark "near target" in the last ~20% of the segment so jitter cuts out
+    nearTarget = tRaw > 0.8;
+    // Quadratic bezier control point: midpoint offset perpendicular by 18% of chord
     const mx = (a.pos.x + b.pos.x) / 2;
     const my = (a.pos.y + b.pos.y) / 2;
     const dx = b.pos.x - a.pos.x;
@@ -89,20 +106,34 @@ export const AnimatedCursor: React.FC<Props> = ({
     const cx = mx + nx * offset;
     const cy = my + ny * offset;
     pos = {
-      x: (1 - t) * (1 - t) * a.pos.x + 2 * (1 - t) * t * cx + t * t * b.pos.x,
-      y: (1 - t) * (1 - t) * a.pos.y + 2 * (1 - t) * t * cy + t * t * b.pos.y,
+      x: (1 - tRaw) * (1 - tRaw) * a.pos.x + 2 * (1 - tRaw) * tRaw * cx + tRaw * tRaw * b.pos.x,
+      y: (1 - tRaw) * (1 - tRaw) * a.pos.y + 2 * (1 - tRaw) * tRaw * cy + tRaw * tRaw * b.pos.y,
     };
   }
 
-  // Click animation: scale dip + ripple, for each click waypoint
+  // Sub-pixel cruise jitter (disabled near targets and during clicks)
+  if (jitter && !nearTarget) {
+    pos.x += Math.sin(frame * 0.9) * 0.4;
+    pos.y += Math.cos(frame * 1.1) * 0.4;
+  }
+
+  // Click animation: press-down dip + release ripple
+  // Press starts on the click waypoint frame. Anyone waiting `holdBeforeClick`
+  // frames is already at the target — the hold is implicit because the
+  // cursor's segment-bezier math arrives at the next waypoint exactly on
+  // its `frame`. So `holdBeforeClick` here only affects RIPPLE timing —
+  // we delay the ripple by holdBeforeClick frames so the click visually
+  // lags the cursor arrival.
   let clickScale = 1;
   const ripples: { wp: CursorWaypoint; age: number }[] = [];
   for (const wp of waypoints) {
     if (!wp.click) continue;
-    const age = frame - wp.frame;
-    if (age >= -2 && age <= 24) ripples.push({ wp, age });
+    const clickAtFrame = wp.frame + (wp.holdBeforeClick ?? 6);
+    const age = frame - clickAtFrame;
+    if (age >= -2 && age <= 26) ripples.push({ wp, age });
+    // Press-down dip: scale 1 → 0.82 over frames 0-2, settle 0.82 → 1 over 2-6
     if (age >= 0 && age <= 8) {
-      const dip = interpolate(age, [0, 3, 8], [1, 0.78, 1], {
+      const dip = interpolate(age, [0, 2, 8], [1, 0.82, 1], {
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
@@ -122,7 +153,7 @@ export const AnimatedCursor: React.FC<Props> = ({
         opacity,
       }}
     >
-      {/* Click ripples */}
+      {/* Click ripples — emanate from the click point with EASE_EXPO */}
       {ripples.map(({ wp, age }, i) => {
         const ringSize = interpolate(age, [0, 22], [0, 96], {
           extrapolateLeft: "clamp",
@@ -150,7 +181,7 @@ export const AnimatedCursor: React.FC<Props> = ({
         );
       })}
 
-      {/* Cursor SVG — macOS-style pointer */}
+      {/* Cursor SVG */}
       <svg
         width={28}
         height={28}

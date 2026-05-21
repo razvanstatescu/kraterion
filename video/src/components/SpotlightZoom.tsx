@@ -1,33 +1,39 @@
 import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
-import { BOUNCE } from "../motion/springs";
 
 type Props = {
-  /** Frame at which the zoom IN begins. */
+  /** Frame at which the zoom-IN begins. */
   zoomInFrame: number;
-  /** Frame at which the zoom OUT begins (pull-back). */
+  /** Frame at which the zoom-OUT begins (pull-back). */
   zoomOutFrame: number;
-  /** Center of zoom in normalized 0..1 coords (defaults to {0.5, 0.5}). */
+  /** Normalized 0..1 focal point in the parent surface. */
   target?: { x: number; y: number };
-  /** Peak scale (3.5 is the modern sweet spot). */
+  /**
+   * Peak zoom scale. Research validates:
+   *   1.2  — barely-noticeable soft emphasis
+   *   1.5  — the most useful camera-move number (default)
+   *   2.0  — when surrounding context should disappear; reserve for max one
+   * 3.5×+ is too aggressive for anything containing text — kept available
+   * but no longer the default.
+   */
   zoomScale?: number;
-  /** Background dim/blur amount on the un-zoomed layer. */
+  /** Optional background blur (px) applied to the zoomed layer during hold. */
   backgroundBlur?: number;
-  /** Children rendered in normal scale and zoomed in. */
   children: React.ReactNode;
 };
 
 /**
- * Spotlight zoom — push into a target point on the canvas, hold zoomed,
- * pull back. The non-zoomed area is implicitly dimmed/blurred since the
- * camera is "looking elsewhere." Modern push-in is 3–4x; the pull-back
- * is faster than the push-in (cinematic release).
+ * Click-driven camera zoom. Per the SaaS-video research:
+ *   - Push-in: ~16 frames with snappy spring (damping 22, stiffness 130)
+ *   - Hold zoomed: caller controls via the gap between zoomIn/zoomOut frames
+ *   - Pull-back: ~10 frames with faster spring (damping 26, stiffness 220)
+ *     — the cinematic release is always quicker than the push-in.
  */
 export const SpotlightZoom: React.FC<Props> = ({
   zoomInFrame,
   zoomOutFrame,
   target = { x: 0.5, y: 0.5 },
-  zoomScale = 3.5,
+  zoomScale = 1.5,
   backgroundBlur = 0,
   children,
 }) => {
@@ -37,17 +43,15 @@ export const SpotlightZoom: React.FC<Props> = ({
   const inProg = spring({
     frame: frame - zoomInFrame,
     fps,
-    config: { damping: 18, stiffness: 100, mass: 1 },
+    config: { damping: 22, stiffness: 130, mass: 1 },
   });
   const outProg = spring({
     frame: frame - zoomOutFrame,
     fps,
-    config: { damping: 14, stiffness: 200, mass: 1 },
+    config: { damping: 26, stiffness: 220, mass: 1 },
   });
 
-  // Effective progress: ramp up to 1, then ramp back down to 0
   const progress = Math.max(0, inProg - outProg);
-
   const scale = interpolate(progress, [0, 1], [1, zoomScale]);
   const blur = interpolate(progress, [0, 1], [0, backgroundBlur]);
 

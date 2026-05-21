@@ -10,8 +10,8 @@ import {
 
 export function Hero() {
   return (
-    <section className="relative isolate overflow-hidden bg-cream pt-32 pb-20 md:pt-40 md:pb-24">
-      <div className="mx-auto grid w-full max-w-[1280px] grid-cols-1 items-center gap-16 px-6 md:grid-cols-[1.05fr_0.95fr]">
+    <section className="relative isolate overflow-hidden bg-cream pt-24 pb-16 md:pt-32 md:pb-20">
+      <div className="mx-auto grid w-full max-w-[1280px] grid-cols-1 items-center gap-12 px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-16">
         <div className="relative z-10">
           <FadeUp>
             <div className="inline-flex items-center gap-2 rounded-full border border-stone-200/60 bg-cream px-3 py-1 text-[12px] text-stone-700">
@@ -20,20 +20,20 @@ export function Hero() {
             </div>
           </FadeUp>
 
-          <h1 className="mt-8 text-[44px] leading-[1.02] tracking-[-0.02em] text-ink md:text-[80px]">
+          <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
             <Reveal text="Smart object storage." />
             <br />
             <span className="text-stone-500">
-              <Reveal text="Built for humans and agents." delay={0.2} />
+              <Reveal text="Built for humans and agents." delay={0.15} />
             </span>
           </h1>
-          <FadeUp delay={0.5}>
-            <p className="mt-8 max-w-[560px] text-[18px] leading-[1.55] text-stone-700">
+          <FadeUp delay={0.45}>
+            <p className="mt-6 max-w-[520px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
               S3-compatible buckets that index themselves, answer with citations, and stay yours when you walk away.
             </p>
           </FadeUp>
-          <FadeUp delay={0.6}>
-            <div className="mt-10 flex items-center gap-6">
+          <FadeUp delay={0.55}>
+            <div className="mt-8 flex items-center gap-6">
               <ButtonLink href="/signup" variant="primary" size="lg">
                 Start free →
               </ButtonLink>
@@ -45,8 +45,8 @@ export function Hero() {
               </a>
             </div>
           </FadeUp>
-          <FadeUp delay={0.7}>
-            <div className="mt-12 flex items-center gap-6">
+          <FadeUp delay={0.65}>
+            <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
               <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">S3 API</span>
               <span aria-hidden className="h-px w-6 bg-stone-300" />
               <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">Knowledge layer</span>
