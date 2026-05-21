@@ -65,10 +65,12 @@ export function Hero() {
           </FadeUp>
         </div>
 
-        {/* Right column — composite product slice that tells the 3-layer story */}
-        <div className="relative flex items-center justify-center">
-          <FadeUp delay={0.35}>
-            <HeroVisual />
+        {/* Right column — composite product slice that tells the 3-layer story.
+            Block layout (not flex) + explicit max-width on the wrapper so the
+            visual has a stable, content-independent width. */}
+        <div className="relative">
+          <FadeUp delay={0.35} className="mx-auto w-full max-w-[520px]">
+            <HeroVisual className="w-full" />
           </FadeUp>
         </div>
       </div>

@@ -4478,3 +4478,18 @@ becomes inconsistent.
   covers all 8 surfaces.
 - Build is green; all 8 routes return 200 in dev and prerender in
   prod. README at `apps/landing/README.md` documents the layout.
+
+### 2026-05-21 — managed-CDN feature proposal written
+
+- `[docs]` New: [`/docs/cdn-feature-plan.md`](cdn-feature-plan.md).
+  End-to-end proposal for a Kraterion-managed CDN (Cloudflare for
+  SaaS as the recommended upstream): per-bucket toggle → auto
+  subdomain on `*.kraterion.dev` or BYO custom hostname →
+  cache-purge on overwrite/delete → metered as a new
+  `cdn_egress_bytes` Stripe line ($0.02/GB, 5 GB/mo free).
+  Architecture, provisioning flow, billing model, dashboard
+  surface, six-phase implementation (~12 days end-to-end), and
+  five open product calls inside. Origin-side prerequisites pull
+  forward from `/docs/upload-flow-analysis.md` Tier-A items
+  (range GETs, conditional GETs, tunable Cache-Control). Not
+  committed scope.

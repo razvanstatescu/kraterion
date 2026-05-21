@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import * as motion from "motion/react-client";
 import { ArrowDown, File, Quote } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { CornerTicks } from "./visuals/CornerTicks";
+import { ScrambleText } from "@/components/motion/ScrambleText";
 
 /**
  * Hero visual — three small connected cards that read top-to-bottom:
@@ -11,12 +13,9 @@ import { CornerTicks } from "./visuals/CornerTicks";
  *   02 Knowledge — chunk strip + retrieval config
  *   03 Agents    — live Q/A with a verifiable citation
  *
- * Each card stands alone; small "flow connectors" between them name the
- * relationship (indexed → queried) so the three-layer story is legible
- * without reading the prose.
- *
- * Reference vibe: Linear's product slices stacked with explicit edges;
- * Vercel's hairline detail; Stripe's surgical use of a single accent.
+ * Each card stands alone; flow connectors between them carry small Krater
+ * "data packets" that loop softly, implying a live pipeline without ever
+ * shouting for attention. Reduced-motion freezes everything.
  */
 export function HeroVisual({ className }: { className?: string }) {
   return (
@@ -24,16 +23,16 @@ export function HeroVisual({ className }: { className?: string }) {
       <CornerTicks color="#A89C82" size={10} inset={-8} />
       <div className="relative flex flex-col">
         <BucketCard />
-        <FlowConnector label="indexed · hybrid retrieval" />
+        <FlowConnector label="indexed · hybrid retrieval" packetDelay={0.2} />
         <IndexCard />
-        <FlowConnector label="queried · /v1/agents/support" />
+        <FlowConnector label="queried · /v1/agents/support" packetDelay={1.5} />
         <AgentCallCard />
       </div>
     </div>
   );
 }
 
-/* ─── Cards ─────────────────────────────────────────────────────── */
+/* ─── 01 · Storage ───────────────────────────────────────────────── */
 
 function BucketCard() {
   return (
@@ -48,26 +47,56 @@ function BucketCard() {
   );
 }
 
+/* ─── 02 · Knowledge ─────────────────────────────────────────────── */
+
+// Predefined "hot cell" sets — they cycle to imply top-k matches rotating
+// across the chunk neighborhood as different queries hit different chunks.
+const HOT_SETS: number[][] = [
+  [2, 7, 11],
+  [4, 8, 13],
+  [1, 6, 12],
+  [3, 9, 14],
+  [5, 10, 11],
+  [0, 6, 15],
+];
+
 function IndexCard() {
+  const [hotIdx, setHotIdx] = useState(0);
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setReduceMotion(reduce);
+    if (reduce) return;
+    const id = window.setInterval(() => {
+      setHotIdx((i) => (i + 1) % HOT_SETS.length);
+    }, 2400);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const hot = new Set(HOT_SETS[hotIdx]);
+
   return (
     <Card eyebrow="02 · Knowledge" meta="48 chunks · 1,536 dims">
       <div className="space-y-3 px-4 py-3.5">
-        {/* Chunk strip — 16 cells in a single row, a few highlighted to
-            imply "top-k" matches on a query. */}
         <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-0.5">
-          {Array.from({ length: 16 }).map((_, i) => {
-            const hot = i === 2 || i === 7 || i === 11;
-            return (
-              <div
-                key={i}
-                aria-hidden
-                className={cn(
-                  "aspect-square rounded-[1px]",
-                  hot ? "bg-krater/80" : "bg-krater/20"
-                )}
-              />
-            );
-          })}
+          {Array.from({ length: 16 }).map((_, i) => (
+            <motion.div
+              key={i}
+              aria-hidden
+              animate={
+                reduceMotion
+                  ? { backgroundColor: hot.has(i) ? "rgba(196,91,54,0.8)" : "rgba(196,91,54,0.2)" }
+                  : {
+                      backgroundColor: hot.has(i)
+                        ? "rgba(196,91,54,0.8)"
+                        : "rgba(196,91,54,0.2)",
+                    }
+              }
+              transition={{ duration: 0.55, ease: [0.4, 0, 0.2, 1] }}
+              className="aspect-square rounded-[1px]"
+            />
+          ))}
         </div>
         <div className="flex items-center justify-between font-mono text-[11px] text-stone-600">
           <span>BM25 + dense vectors</span>
@@ -78,65 +107,95 @@ function IndexCard() {
   );
 }
 
+/* ─── 03 · Agents ────────────────────────────────────────────────── */
+
+const AGENT_CALLS = [
+  {
+    q: "What is our refund policy?",
+    a: "Refunds are processed within 7 business days from the original payment method.",
+    cite: "pricing-faq.md · §3",
+    score: "0.92",
+    ms: "184 ms",
+  },
+  {
+    q: "How does annual plan proration work?",
+    a: "Annual plans are pro-rated to the day. Unused time is credited automatically.",
+    cite: "billing-policy.md · §1.4",
+    score: "0.88",
+    ms: "212 ms",
+  },
+  {
+    q: "Can I cancel mid-cycle?",
+    a: "Cancellation takes effect at the end of the current billing period, no further charges.",
+    cite: "support-runbook.md · §8",
+    score: "0.81",
+    ms: "171 ms",
+  },
+];
+
 function AgentCallCard() {
-  const question = "What is our refund policy?";
-  const [typed, setTyped] = useState(0);
+  const [idx, setIdx] = useState(0);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
-      setTyped(question.length);
-      return;
-    }
+    if (reduce) return;
     const id = window.setInterval(() => {
-      setTyped((n) => {
-        if (n >= question.length) {
-          window.clearInterval(id);
-          return n;
-        }
-        return n + 1;
-      });
-    }, 38);
+      setIdx((i) => (i + 1) % AGENT_CALLS.length);
+    }, 5400);
     return () => window.clearInterval(id);
   }, []);
 
+  const call = AGENT_CALLS[idx];
+
   return (
-    <Card eyebrow="03 · Agents" meta="agent · support · 184 ms">
+    <Card
+      eyebrow="03 · Agents"
+      meta={
+        <span className="flex items-center gap-2">
+          <span>agent · support</span>
+          <span aria-hidden className="text-stone-300">
+            ·
+          </span>
+          <ScrambleText
+            text={call.ms}
+            className="inline-block tabular-nums"
+            durationMs={420}
+          />
+        </span>
+      }
+    >
       <div className="space-y-2.5 px-4 py-3.5">
-        {/* Question */}
         <div className="flex items-start gap-2.5">
           <span className="pt-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500">
             Q
           </span>
           <p className="text-[13px] leading-[1.45] text-stone-700">
-            {question.slice(0, typed)}
-            {typed < question.length && (
-              <span
-                aria-hidden
-                className="ml-0.5 inline-block h-3 w-px translate-y-[2px] bg-ink animate-[pulse_1.1s_steps(2,end)_infinite]"
-              />
-            )}
+            <ScrambleText text={call.q} durationMs={620} startDelayMs={80} />
           </p>
         </div>
 
-        {/* Answer */}
         <div className="flex items-start gap-2.5">
           <span className="pt-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500">
             A
           </span>
           <p className="text-[13px] leading-[1.45] text-ink">
-            Refunds are processed within 7 business days from the original payment method.
+            <ScrambleText text={call.a} durationMs={780} startDelayMs={220} />
           </p>
         </div>
 
-        {/* Citation chips — the only Krater accent in the whole visual */}
         <div className="flex flex-wrap items-center gap-1.5 pl-[22px] pt-0.5">
           <span className="inline-flex items-center gap-1.5 rounded-sm border border-krater/30 bg-krater/[0.06] px-2 py-1 font-mono text-[11px] text-krater">
             <Quote size={10} strokeWidth={1.5} />
-            pricing-faq.md · §3
+            <ScrambleText text={call.cite} durationMs={520} startDelayMs={420} />
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-sm border border-stone-200/80 bg-cream px-2 py-1 font-mono text-[11px] text-stone-600">
-            score · 0.92
+            score ·{" "}
+            <ScrambleText
+              text={call.score}
+              className="tabular-nums"
+              durationMs={360}
+              startDelayMs={500}
+            />
           </span>
           <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-stone-500">
             <span
@@ -159,7 +218,7 @@ function Card({
   children,
 }: {
   eyebrow: string;
-  meta?: string;
+  meta?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -177,15 +236,29 @@ function Card({
   );
 }
 
-function FlowConnector({ label }: { label: string }) {
+function FlowConnector({
+  label,
+  packetDelay = 0,
+}: {
+  label: string;
+  packetDelay?: number;
+}) {
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    setReduceMotion(
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }, []);
+
   return (
     <div className="relative flex h-12 items-center justify-center">
-      {/* Vertical hairline that runs the full height of the gap */}
+      {/* Vertical hairline */}
       <span
         aria-hidden
         className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-stone-200/80"
       />
-      {/* Endpoint caps so it reads as a route, not a random line */}
+      {/* Endpoint caps */}
       <span
         aria-hidden
         className="absolute top-0 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-stone-300"
@@ -194,8 +267,33 @@ function FlowConnector({ label }: { label: string }) {
         aria-hidden
         className="absolute bottom-0 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-stone-300"
       />
-      {/* Mid-line pill with the relationship label */}
-      <span className="relative inline-flex items-center gap-1.5 rounded-full border border-stone-200/80 bg-cream px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">
+
+      {/* Soft looping packet — travels down the line, disappears behind
+          the label pill, emerges below. */}
+      {!reduceMotion && (
+        <motion.span
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 z-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-krater"
+          style={{ top: 0 }}
+          initial={{ y: -2, opacity: 0 }}
+          animate={{
+            y: [-2, 46],
+            opacity: [0, 1, 1, 1, 0],
+          }}
+          transition={{
+            duration: 2.2,
+            repeat: Infinity,
+            repeatDelay: 1.4,
+            ease: [0.4, 0, 0.6, 1],
+            delay: packetDelay,
+            times: [0, 0.08, 0.5, 0.92, 1],
+          }}
+        />
+      )}
+
+      {/* Label pill — sits above the packet (z-10) and has solid cream bg
+          so the packet appears to "enter" the label as it passes through. */}
+      <span className="relative z-10 inline-flex items-center gap-1.5 rounded-full border border-stone-200/80 bg-cream px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-stone-500">
         <ArrowDown size={10} strokeWidth={1.5} />
         {label}
       </span>
