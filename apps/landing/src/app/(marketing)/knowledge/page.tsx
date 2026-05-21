@@ -123,16 +123,12 @@ export default function Page() {
 
       {/* Ribbon */}
       <section className="bg-ink text-cream">
-        <div className="mx-auto max-w-[1280px] px-6 pt-24 pb-12">
-          <NumberedEyebrow n="01" label="How it works" tone="ink" />
-          <h2 className="mt-4 max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
-            Bucket → indexed → answer.
-          </h2>
-          <p className="mt-6 max-w-[760px] text-[18px] text-stone-300">
-            BM25 + dense vector retrieval. Top-k = 8, reranked to 4. Every answer carries citations back to the source file.
-          </p>
-        </div>
-        <BucketFlowRibbon />
+        <BucketFlowRibbon
+          eyebrowN="01"
+          eyebrowLabel="How it works"
+          headline="Bucket → indexed → answer."
+          lede="BM25 + dense vector retrieval. Top-k = 8, reranked to 4. Every answer carries citations back to the source file."
+        />
       </section>
 
       {/* Chunking ribbon — how indexing works */}

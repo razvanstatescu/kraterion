@@ -23,6 +23,10 @@ const CENTER = VIEW / 2; // 220
 const RADIUS = 150; // ring radius for spoke endpoints
 const PUCK_W = 92;
 const PUCK_H = 28;
+// Spokes stop just outside the brand mark so they reach toward — but
+// never touch — the icon at the center.
+const MARK_SIZE = 44;
+const SPOKE_INNER = MARK_SIZE / 2 + 8;
 
 function pointAt(angleDeg: number, r: number) {
   const a = (angleDeg * Math.PI) / 180;
@@ -68,10 +72,10 @@ export function SdkFanout({ className }: { className?: string }) {
             strokeWidth="1"
           />
 
-          {/* Spokes — stop at the puck edge so they don't poke through */}
+          {/* Spokes — reach toward the brand mark but leave a clean gap */}
           {ITEMS.map((item) => {
             const p = pointAt(item.angle, RADIUS - 6);
-            const inner = pointAt(item.angle, 60);
+            const inner = pointAt(item.angle, SPOKE_INNER);
             return (
               <line
                 key={item.label}
@@ -114,29 +118,15 @@ export function SdkFanout({ className }: { className?: string }) {
             );
           })}
 
-          {/* Center node */}
-          <g>
-            <circle cx={CENTER} cy={CENTER} r="56" fill="#0F0E0C" />
-            <circle
-              cx={CENTER}
-              cy={CENTER}
-              r="46"
-              fill="none"
-              stroke="#C45B36"
-              strokeWidth="1.25"
-              opacity="0.6"
-            />
-          </g>
         </svg>
 
-        {/* Center label overlaid */}
+        {/* Brand mark — sits alone in the center, in ink */}
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <div className="flex flex-col items-center gap-1.5">
-            <KraterionMark variant="dark" size={36} />
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-cream/70">
-              s3.kraterion.com
-            </div>
-          </div>
+          <KraterionMark
+            variant="mono"
+            size={MARK_SIZE}
+            className="text-ink"
+          />
         </div>
       </div>
       {/* Footer band — anchors the diagram, eliminates dead space at the bottom */}

@@ -241,18 +241,16 @@ export function Landing() {
 
       {/* Knowledge ribbon */}
       <section className="bg-ink text-cream">
-        <div className="mx-auto max-w-[1280px] px-6 pt-24 pb-12">
-          <NumberedEyebrow n="02" label="Knowledge layer" tone="ink" />
-          <h2 className="mt-4 max-w-[760px] text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
-            From file rows
-            <br />
-            to citations.
-          </h2>
-          <p className="mt-6 max-w-[640px] text-[18px] text-stone-300">
-            Flip a switch on a bucket. We chunk, embed, retrieve, and bind every answer to a citation in your own files.
-          </p>
-        </div>
-        <BucketFlowRibbon />
+        <BucketFlowRibbon
+          eyebrowN="02"
+          eyebrowLabel="Knowledge layer"
+          headline={
+            <>
+              From file rows to citations.
+            </>
+          }
+          lede="Flip a switch on a bucket. We chunk, embed, retrieve, and bind every answer to a citation in your own files."
+        />
       </section>
 
       {/* Agents */}

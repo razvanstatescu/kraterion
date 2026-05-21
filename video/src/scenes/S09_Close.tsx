@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
+import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { color } from "../tokens/color";
 import { fonts, tracking, weight } from "../tokens/type";
 import { space } from "../tokens/spacing";
@@ -8,8 +8,7 @@ import { BackgroundGrid } from "../components/BackgroundGrid";
 import { SpringBounce } from "../components/SpringBounce";
 import { ForwardZoom } from "../components/ForwardZoom";
 import { Chip } from "../components/Chip";
-import { BAR, BEAT } from "../motion/timing";
-import { BOUNCE } from "../motion/springs";
+import { BAR } from "../motion/timing";
 
 /**
  * Close — 9 bars (~17.5 s). Callback to the Problem scene's indictment,
@@ -27,7 +26,6 @@ import { BOUNCE } from "../motion/springs";
  */
 export const S09_Close: React.FC = () => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
   const durationInFrames = Math.round(BAR * 9);
 
   const callbackFrame = 0;
@@ -83,17 +81,16 @@ export const S09_Close: React.FC = () => {
             gap: space[6],
           }}
         >
-          {/* Aperture mark on top */}
+          {/* Aperture mark on top — mono cream (brand spec, no krater orange in the mark) */}
           {frame >= apertureFrame && (
             <SpringBounce startFrame={apertureFrame} fromScale={0.35} rotateDeg={4}>
               <ApertureMark
                 size={180}
                 stroke={color.cream}
-                drawDurationFrames={1}
-                staggerFrames={0}
-                fillInner
-                fillStartFrame={apertureFrame}
-                fillColor={color.krater}
+                drawDurationFrames={18}
+                staggerFrames={6}
+                fillStartFrame={apertureFrame + 16}
+                fillDurationFrames={10}
               />
             </SpringBounce>
           )}

@@ -39,22 +39,22 @@ export function PillarBento() {
           eyebrow="02 — Knowledge"
           title="Searchable, citable."
           lede="Every file is indexed and bound to citations."
-          tone="ink"
         />
         <div className="mt-auto px-6 pb-6 md:px-8 md:pb-8">
-          <div className="overflow-hidden rounded-md border border-stone-800">
-            <div className="grid grid-cols-6 gap-0.5 bg-stone-800 p-px">
+          <div className="overflow-hidden rounded-md border border-stone-200/80">
+            <div className="grid grid-cols-6 gap-0.5 bg-stone-200/60 p-px">
               {Array.from({ length: 18 }).map((_, i) => (
                 <div
                   key={i}
                   className="aspect-square"
                   style={{
-                    background: i % 5 === 0 ? "rgba(196,91,54,0.75)" : "rgba(196,91,54,0.2)",
+                    background:
+                      i % 5 === 0 ? "rgba(196,91,54,0.75)" : "rgba(196,91,54,0.18)",
                   }}
                 />
               ))}
             </div>
-            <div className="flex items-center justify-between border-t border-stone-800 bg-stone-900 px-3 py-2 font-mono text-[10px] text-stone-400">
+            <div className="flex items-center justify-between border-t border-stone-200/80 bg-cream px-3 py-2 font-mono text-[10px] text-stone-600">
               <span>18 chunks</span>
               <span>top-k = 4</span>
             </div>
@@ -114,7 +114,6 @@ export function PillarBento() {
           eyebrow="05 — Ownership"
           title="Sealed. Revocable."
           lede="You hold the keys."
-          tone="ink"
         />
         <div className="mt-auto px-6 pb-6 md:px-8 md:pb-8">
           <ul className="space-y-2 text-[12px]">
@@ -147,12 +146,12 @@ function OwnRow({
   value: string;
 }) {
   return (
-    <li className="flex items-center justify-between border-b border-stone-800 pb-1.5 last:border-b-0 last:pb-0">
+    <li className="flex items-center justify-between border-b border-stone-200/70 pb-1.5 last:border-b-0 last:pb-0">
       <span className="flex items-center gap-2">
-        <Icon size={12} strokeWidth={1.5} className="text-stone-400" />
-        <span className="text-stone-300">{label}</span>
+        <Icon size={12} strokeWidth={1.5} className="text-stone-500" />
+        <span className="text-stone-700">{label}</span>
       </span>
-      <span className="font-mono text-stone-400">{value}</span>
+      <span className="font-mono text-stone-600">{value}</span>
     </li>
   );
 }

@@ -6,57 +6,63 @@ import { color } from "../tokens/color";
 type Props = {
   /** Overall size of the SVG square in px. */
   size?: number;
-  /** Stroke colour used for the two outer rings. */
+  /**
+   * Single color used for all three elements. Matches the canonical
+   * `kraterion-mono.svg` (`currentColor` for every ring & disc).
+   * On dark canvas: cream. On light canvas: ink. No krater orange — the
+   * brand mark on either neutral surface is single-color only.
+   */
   stroke?: string;
   /** Frame at which drawing begins (relative to the parent scene). */
   delay?: number;
-  /** How many frames each ring takes to draw. Use 1 for "no draw, instant". */
+  /** How many frames each ring takes to draw. */
   drawDurationFrames?: number;
-  /** Stagger between successive ring draws. */
+  /** Stagger between ring draws. */
   staggerFrames?: number;
-  /** If true, the inner disc fills with `fillColor`. */
-  fillInner?: boolean;
-  /** Frame at which the fill begins. */
+  /** Frame at which the inner disc fills in. */
   fillStartFrame?: number;
-  /** Fill colour for the inner disc. */
-  fillColor?: string;
-  /** Stroke width as a fraction of size (0.018 ≈ 6/256 of the real mark). */
+  /** Frames over which the inner disc grows from 0 → full radius. */
+  fillDurationFrames?: number;
+  /** Stroke width as a fraction of size (0.024 ≈ 6/256 of the real mark). */
   strokeRatio?: number;
 };
 
 /**
- * Brand-true Kraterion aperture mark. Three concentric circles, proportions
- * locked to the actual brand SVG (outer / middle / inner = 110 / 68 / 22).
+ * Brand-true Kraterion aperture mark in MONO mode. Three concentric elements
+ * (outer ring, middle ring, inner disc) all rendered in a single color.
+ * Proportions locked to the brand SVG: 110 / 68 / 22 (1.0 / 0.618 / 0.20).
  */
 export const ApertureMark: React.FC<Props> = ({
   size = 320,
   stroke = color.cream,
   delay = 0,
-  drawDurationFrames = 30,
+  drawDurationFrames = 22,
   staggerFrames = 8,
-  fillInner = false,
-  fillStartFrame = 0,
-  fillColor = color.krater,
+  fillStartFrame,
+  fillDurationFrames = 12,
   strokeRatio = 0.024,
 }) => {
   const frame = useCurrentFrame();
   const center = size / 2;
-  const max = (size / 2) * 0.86; // leave a small margin
-  // Locked to brand: 110 / 68 / 22 → 1.0 / 0.618 / 0.20
+  const max = (size / 2) * 0.86;
   const ringOuter = max;
   const ringMiddle = max * 0.618;
   const discInner = max * 0.20;
   const strokeW = Math.max(2, size * strokeRatio);
 
-  const fillOpacity = fillInner
-    ? interpolate(frame - fillStartFrame, [0, 12], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: LINEAR_EASE,
-      })
-    : 0;
+  const innerFillFrame = fillStartFrame ?? (delay + staggerFrames * 2 + drawDurationFrames * 0.4);
+  const fillScale = interpolate(
+    frame - innerFillFrame,
+    [0, fillDurationFrames],
+    [0, 1],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: LINEAR_EASE,
+    },
+  );
 
-  const ringDraws = [ringOuter, ringMiddle] as const;
+  const rings = [ringOuter, ringMiddle] as const;
 
   return (
     <svg
@@ -65,7 +71,7 @@ export const ApertureMark: React.FC<Props> = ({
       viewBox={`0 0 ${size} ${size}`}
       style={{ overflow: "visible" }}
     >
-      {ringDraws.map((r, i) => {
+      {rings.map((r, i) => {
         const circ = 2 * Math.PI * r;
         const localFrame = frame - (delay + i * staggerFrames);
         const drawProgress = interpolate(
@@ -94,18 +100,12 @@ export const ApertureMark: React.FC<Props> = ({
           />
         );
       })}
-      {/* Inner solid disc — appears at the same time as ring 2, or fills with krater */}
+      {/* Inner solid disc — radius grows from 0 to discInner. */}
       <circle
         cx={center}
         cy={center}
-        r={discInner}
-        fill={fillInner ? fillColor : stroke}
-        opacity={fillInner ? fillOpacity : interpolate(
-          frame - (delay + staggerFrames + drawDurationFrames * 0.5),
-          [0, 12],
-          [0, 1],
-          { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-        )}
+        r={discInner * fillScale}
+        fill={stroke}
       />
     </svg>
   );

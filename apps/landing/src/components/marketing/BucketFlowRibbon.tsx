@@ -6,6 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
 import { File, Boxes, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { NumberedEyebrow } from "./rich/NumberedEyebrow";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP);
@@ -20,7 +21,17 @@ const FILES = [
 
 const CHUNKS = 12;
 
-export function BucketFlowRibbon() {
+export function BucketFlowRibbon({
+  eyebrowN,
+  eyebrowLabel,
+  headline,
+  lede,
+}: {
+  eyebrowN?: string;
+  eyebrowLabel?: string;
+  headline?: React.ReactNode;
+  lede?: React.ReactNode;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -51,21 +62,33 @@ export function BucketFlowRibbon() {
 
   const activeStage = progress < 0.33 ? 0 : progress < 0.66 ? 1 : 2;
 
-  return (
-    <div ref={containerRef} className="relative h-screen w-full overflow-hidden bg-ink">
-      {/* Top eyebrow band — anchors the top of the pinned section */}
-      <div className="absolute inset-x-0 top-0 z-10 border-b border-stone-800/60 bg-ink/80 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-6 px-6 py-4">
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500">
-            Pipeline · bucket → indexed → answer
-          </span>
-          <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-stone-500 md:inline">
-            {activeStage === 0 ? "files" : activeStage === 1 ? "chunks" : "citations"}
-          </span>
-        </div>
-      </div>
+  const hasTitle = !!(eyebrowN || eyebrowLabel || headline || lede);
 
-      <div className="mx-auto grid h-full max-w-[1280px] grid-cols-1 items-stretch gap-4 px-6 pt-24 pb-24 md:grid-cols-3 md:gap-5">
+  return (
+    <div
+      ref={containerRef}
+      className="relative flex h-screen w-full flex-col overflow-hidden bg-ink"
+    >
+      {/* Title block — stays visible while the stages cycle */}
+      {hasTitle && (
+        <div className="mx-auto w-full max-w-[1280px] shrink-0 px-6 pt-20 pb-6 md:pt-24 md:pb-8">
+          {(eyebrowN || eyebrowLabel) && (
+            <NumberedEyebrow n={eyebrowN ?? ""} label={eyebrowLabel ?? ""} tone="ink" />
+          )}
+          {headline && (
+            <h2 className="mt-4 max-w-[760px] text-[28px] leading-[1.1] tracking-[-0.01em] md:text-[40px]">
+              {headline}
+            </h2>
+          )}
+          {lede && (
+            <p className="mt-3 max-w-[640px] text-[14px] text-stone-300 md:text-[15px]">
+              {lede}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="mx-auto grid w-full flex-1 max-w-[1280px] grid-cols-1 items-stretch gap-4 px-6 pb-20 md:grid-cols-3 md:gap-5">
         {/* Stage 1 — bucket files */}
         <Stage
           n="01"
@@ -191,7 +214,7 @@ function Stage({
   return (
     <div
       className={cn(
-        "flex h-full max-h-[70vh] min-h-[420px] flex-col rounded-lg border bg-stone-900/40 p-6",
+        "flex h-full min-h-[280px] flex-col rounded-lg border bg-stone-900/40 p-5",
         "transition-all duration-500",
         active
           ? "border-krater/40 opacity-100 shadow-[0_0_0_1px_rgba(196,91,54,0.18)]"

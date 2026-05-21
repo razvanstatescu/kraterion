@@ -48,12 +48,21 @@ export function BentoTile({
     <FadeUp
       delay={delay}
       className={cn(
-        "relative flex h-full flex-col overflow-hidden",
-        dark ? "bg-ink text-cream" : "bg-cream text-ink",
+        "relative flex h-full flex-col overflow-hidden text-ink",
+        // "ink" tone is now a soft parchment — distinguishes the tile
+        // without the harsh dark contrast.
+        dark ? "bg-stone-100" : "bg-cream",
         spanMap[span],
         className
       )}
     >
+      {/* Hairline krater accent on emphasized tiles */}
+      {dark && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-krater/40"
+        />
+      )}
       {children}
     </FadeUp>
   );
@@ -72,24 +81,21 @@ export function BentoBody({
   tone?: "cream" | "ink";
   className?: string;
 }) {
-  const dark = tone === "ink";
+  // tone is accepted for API compatibility but both surfaces now use
+  // ink-on-paper. The parent tile's background does the differentiation.
+  void tone;
   return (
     <div className={cn("flex flex-col gap-2 p-6 md:p-8", className)}>
       {eyebrow && (
-        <span
-          className={cn(
-            "text-[11px] uppercase tracking-[0.16em] font-medium",
-            dark ? "text-stone-400" : "text-stone-500"
-          )}
-        >
+        <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
           {eyebrow}
         </span>
       )}
-      <h3 className={cn("text-[20px] leading-[1.2] md:text-[24px]", dark ? "text-cream" : "text-ink")}>
+      <h3 className="text-[20px] leading-[1.2] text-ink md:text-[24px]">
         {title}
       </h3>
       {lede && (
-        <p className={cn("text-[14px] leading-[1.55]", dark ? "text-stone-300" : "text-stone-700")}>
+        <p className="text-[14px] leading-[1.55] text-stone-700">
           {lede}
         </p>
       )}
