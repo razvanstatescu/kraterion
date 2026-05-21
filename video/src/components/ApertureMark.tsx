@@ -1,43 +1,65 @@
 import React from "react";
 import { useCurrentFrame, interpolate } from "remotion";
-import { LINEAR_EASE } from "../motion/easings";
+import { EASE_BRAND, EASE_IRIS } from "../motion/easings";
 import { color } from "../tokens/color";
+
+type Variant = "light" | "dark" | "mono" | "on-krater";
 
 type Props = {
   /** Overall size of the SVG square in px. */
   size?: number;
   /**
-   * Single color used for all three elements. Matches the canonical
-   * `kraterion-mono.svg` (`currentColor` for every ring & disc).
-   * On dark canvas: cream. On light canvas: ink. No krater orange — the
-   * brand mark on either neutral surface is single-color only.
+   * Brand-sanctioned color variant (design-system/README.md §Iconography).
+   *
+   *   "light"      — default for cream surfaces.
+   *                  outer #7C7158, middle #403930, dot #1A1610.
+   *                  Three EARTH-TONE rings. **No krater accent.**
+   *   "dark"       — for ink surfaces.
+   *                  outer #7C7158, middle #F8F4EC (cream), dot #C45B36 (krater).
+   *   "on-krater"  — for krater-fill heroes. All rings #F8F4EC.
+   *   "mono"       — currentColor throughout.
    */
-  stroke?: string;
-  /** Frame at which drawing begins (relative to the parent scene). */
+  variant?: Variant;
+  /** Override stroke for `mono` variant or custom use. */
+  monoColor?: string;
+  /** Frame at which drawing begins (relative to parent scene). */
   delay?: number;
-  /** How many frames each ring takes to draw. */
+  /** Frames each ring takes to draw. Brand default ≈ 22. */
   drawDurationFrames?: number;
-  /** Stagger between ring draws. */
+  /** Stagger between successive ring draws (concentric ripple). */
   staggerFrames?: number;
-  /** Frame at which the inner disc fills in. */
+  /** Frame at which the inner disc starts the iris-open. */
   fillStartFrame?: number;
-  /** Frames over which the inner disc grows from 0 → full radius. */
+  /** Iris-open duration. Brand spec: 400ms ≈ 12 frames at 30fps. */
   fillDurationFrames?: number;
-  /** Stroke width as a fraction of size (0.024 ≈ 6/256 of the real mark). */
+  /** Stroke width as a fraction of size (≈ 6/256 of the brand mark). */
   strokeRatio?: number;
 };
 
+const PALETTE: Record<Variant, { outer: string; middle: string; dot: string }> = {
+  light:       { outer: color.stone[500], middle: color.stone[700], dot: color.stone[900] },
+  dark:        { outer: color.stone[500], middle: color.cream,      dot: color.krater     },
+  "on-krater": { outer: color.cream,      middle: color.cream,      dot: color.cream      },
+  mono:        { outer: "currentColor",   middle: "currentColor",   dot: "currentColor"   },
+};
+
 /**
- * Brand-true Kraterion aperture mark in MONO mode. Three concentric elements
- * (outer ring, middle ring, inner disc) all rendered in a single color.
- * Proportions locked to the brand SVG: 110 / 68 / 22 (1.0 / 0.618 / 0.20).
+ * Kraterion aperture mark.
+ *
+ * Brand proportions are locked at outer/middle/inner = 110/68/22.
+ * Default variant is `light` (the canonical cream-surface mark — three
+ * EARTH-TONE rings, no krater accent in the mark itself).
+ *
+ * Motion: concentric ripple draw (outer → middle, 80 ms stagger per brand),
+ * then iris-open on the inner dot (scale 0 → 1 over 400 ms).
  */
 export const ApertureMark: React.FC<Props> = ({
-  size = 320,
-  stroke = color.cream,
+  size = 256,
+  variant = "light",
+  monoColor = color.ink,
   delay = 0,
   drawDurationFrames = 22,
-  staggerFrames = 8,
+  staggerFrames = 6,
   fillStartFrame,
   fillDurationFrames = 12,
   strokeRatio = 0.024,
@@ -50,7 +72,15 @@ export const ApertureMark: React.FC<Props> = ({
   const discInner = max * 0.20;
   const strokeW = Math.max(2, size * strokeRatio);
 
-  const innerFillFrame = fillStartFrame ?? (delay + staggerFrames * 2 + drawDurationFrames * 0.4);
+  const palette = PALETTE[variant];
+  const outerStroke  = variant === "mono" ? monoColor : palette.outer;
+  const middleStroke = variant === "mono" ? monoColor : palette.middle;
+  const dotFill      = variant === "mono" ? monoColor : palette.dot;
+
+  const innerFillFrame =
+    fillStartFrame ?? delay + staggerFrames * 2 + drawDurationFrames * 0.5;
+
+  // Iris-open: brand-named motion. EASE_IRIS curve, 400ms duration default.
   const fillScale = interpolate(
     frame - innerFillFrame,
     [0, fillDurationFrames],
@@ -58,11 +88,14 @@ export const ApertureMark: React.FC<Props> = ({
     {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
-      easing: LINEAR_EASE,
+      easing: EASE_IRIS,
     },
   );
 
-  const rings = [ringOuter, ringMiddle] as const;
+  const rings = [
+    { r: ringOuter,  stroke: outerStroke  },
+    { r: ringMiddle, stroke: middleStroke },
+  ] as const;
 
   return (
     <svg
@@ -71,8 +104,8 @@ export const ApertureMark: React.FC<Props> = ({
       viewBox={`0 0 ${size} ${size}`}
       style={{ overflow: "visible" }}
     >
-      {rings.map((r, i) => {
-        const circ = 2 * Math.PI * r;
+      {rings.map((ring, i) => {
+        const circ = 2 * Math.PI * ring.r;
         const localFrame = frame - (delay + i * staggerFrames);
         const drawProgress = interpolate(
           localFrame,
@@ -81,7 +114,7 @@ export const ApertureMark: React.FC<Props> = ({
           {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
-            easing: LINEAR_EASE,
+            easing: EASE_BRAND,
           },
         );
         const offset = circ * (1 - drawProgress);
@@ -90,9 +123,9 @@ export const ApertureMark: React.FC<Props> = ({
             key={i}
             cx={center}
             cy={center}
-            r={r}
+            r={ring.r}
             fill="none"
-            stroke={stroke}
+            stroke={ring.stroke}
             strokeWidth={strokeW}
             strokeDasharray={circ}
             strokeDashoffset={offset}
@@ -100,12 +133,12 @@ export const ApertureMark: React.FC<Props> = ({
           />
         );
       })}
-      {/* Inner solid disc — radius grows from 0 to discInner. */}
+      {/* Inner disc — iris-opens via radius interpolation. */}
       <circle
         cx={center}
         cy={center}
         r={discInner * fillScale}
-        fill={stroke}
+        fill={dotFill}
       />
     </svg>
   );

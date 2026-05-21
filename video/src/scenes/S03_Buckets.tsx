@@ -1,226 +1,175 @@
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
+import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { color } from "../tokens/color";
-import { fonts, weight } from "../tokens/type";
-import { space } from "../tokens/spacing";
-import { BackgroundGrid } from "../components/BackgroundGrid";
-import { BucketsTable, BucketRowData } from "../components/BucketsTable";
-import { BucketDetailView } from "../components/BucketDetailView";
-import { SpringBounce } from "../components/SpringBounce";
-import { ForwardZoom } from "../components/ForwardZoom";
-import { Chip } from "../components/Chip";
-import { AnimatedCursor } from "../components/AnimatedCursor";
-import { BOUNCE } from "../motion/springs";
-import { BAR, BEAT } from "../motion/timing";
+import { fonts, size as fs, tracking, weight } from "../tokens/type";
+import { space, radius } from "../tokens/spacing";
+import { TrackingExpand, SubtractiveReveal } from "../components/Entrances";
+import { EASE_IRIS, EASE_BRAND } from "../motion/easings";
 
 /**
- * Buckets — 7 bars (~13.5 s). Premium Linear-style table → row expand → detail view
- * with Files tab active. Sets up the match-cut into S04 (Knowledge tab click).
+ * S03 — IDENTITY (11 s). "Smart object storage. Humans + agents."
  *
- *   bar 1: table pops in, header visible
- *   bar 2: rows stagger in (5 rows, 1-beat each)
- *   bar 3: cursor enters from upper-right
- *   bar 4: cursor anticipation-hovers research-notes row (5 frames early), then clicks
- *   bar 5: ROW MORPH — other rows peel away, clicked row expands to detail view
- *   bar 6: detail view fully shown with Files tab active; cursor moves toward Knowledge tab
- *   bar 7: cursor lands on Knowledge tab (anticipation hover, no click yet — that's S04)
+ * Cross-cut split: left panel shows the human (boto3 code), right panel
+ * shows the agent (a tool call). Same idea, two callers. The headline
+ * lands first with TrackingExpand, then the two panels reveal beneath
+ * with SubtractiveReveal (a cream curtain slides off each in turn).
  */
-
-const BUCKETS: BucketRowData[] = [
-  { name: "documents/",         visibility: "private", apiAccess: "granted", objects: 28,    storage: "312 MB", created: "12d ago" },
-  { name: "research-notes/",    visibility: "private", apiAccess: "granted", objects: 142,   storage: "1.4 GB", created: "3d ago",  hasKnowledge: false },
-  { name: "kraterion-handbook/",visibility: "public",  apiAccess: "granted", objects: 7,     storage: "84 KB",  created: "1d ago" },
-  { name: "archive-2025/",      visibility: "private", apiAccess: "granted", objects: 1247,  storage: "14.2 GB",created: "8mo ago" },
-  { name: "staging/",           visibility: "private", apiAccess: "revoked", objects: 0,     storage: "0 B",    created: "2h ago" },
-];
-
 export const S03_Buckets: React.FC = () => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const durationInFrames = Math.round(BAR * 7);
 
-  // Beats / anchors (scene-local frames)
-  const rowsStaggerStart = Math.round(BEAT * 4);   // bar 2 — rows stagger in
-  const cursorEnter      = Math.round(BAR * 2);
-  const hoverStart       = Math.round(BAR * 3 - BEAT);   // anticipation 4–6 frames early
-  const clickAt          = Math.round(BAR * 3 + BEAT);
-  const morphStart       = clickAt + 2;            // research: row stays 2–3 frames after click
-  const morphEnd         = morphStart + 14;        // 14 frames total morph
-  const detailFullyShown = morphEnd + 4;
-  const cursorToKnowledge = Math.round(BAR * 6);   // bar 7 — cursor heads to Knowledge tab
+  const HEADLINE_IN = 4;
+  const HUMAN_PANEL_IN = 38;
+  const AGENT_PANEL_IN = 60;
 
-  // Active row index (research-notes) and its absolute position in the table.
-  // Table is centered in 1920×1080; height ≈ 360 (chrome 60 + filter 50 + thead 38 + 5 rows × 44).
-  // Top of table ≈ (1080 − 360) / 2 = 360. First data row top ≈ 360 + 60 + 50 + 38 = 508.
-  const activeRowIndex = 1;
-  const tableLeftAbs = (1920 - 1320) / 2;            // 300
-  const firstRowTopAbs = 508;
-  const clickX = tableLeftAbs + 100;                 // hits name column
-  const clickY = firstRowTopAbs + activeRowIndex * 44 + 22; // mid-row
-
-  // Morph progress: clicked row expands into full detail view
-  const morphProg = interpolate(frame, [morphStart, morphEnd], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-
-  // Table fades + detail fades in
-  const tableOpacity = interpolate(frame, [morphStart + 4, morphEnd], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const detailOpacity = interpolate(frame, [morphStart + 6, morphEnd + 4], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-
-  // Knowledge tab inside the detail view. Detail card 1320×760 centered → top = 160.
-  // Header 62 px, tabs strip 48 px → tab vertical centre ≈ 160 + 62 + 24 = 246.
-  const knowledgeTabX = tableLeftAbs + 24 + 132 + 4 + 132 / 2;  // 526
-  const knowledgeTabY = 246;
+  const fadeIn = (start: number, dur = 12) =>
+    interpolate(frame, [start, start + dur], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: EASE_BRAND,
+    });
 
   return (
-    <AbsoluteFill style={{ background: color.ink, overflow: "hidden" }}>
-      <BackgroundGrid opacity={0.07} flashOnBeat />
-      <ForwardZoom durationInFrames={durationInFrames} from={1} to={1.02}>
-        <AbsoluteFill
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {/* Table — visible until the morph */}
-          <div
-            style={{
-              position: "absolute",
-              opacity: tableOpacity,
-              willChange: "opacity",
-            }}
-          >
-            <SpringBounce startFrame={0} fromScale={0.85} toScale={1} rotateDeg={-1}>
-              <BucketsTable
-                rows={BUCKETS}
-                rowStagger={{ start: rowsStaggerStart, perRow: 6 }}
-                hoveredIndex={activeRowIndex}
-                hoverStartFrame={hoverStart}
-                expandingIndex={frame >= morphStart ? activeRowIndex : undefined}
-                morphStartFrame={morphStart}
-              />
-            </SpringBounce>
-          </div>
-
-          {/* Detail view — appears as the row expands. Match-cut handoff to S04. */}
-          {frame >= morphStart && (
-            <div
-              style={{
-                position: "absolute",
-                opacity: detailOpacity,
-                transform: `scale(${interpolate(morphProg, [0, 1], [0.96, 1])})`,
-                willChange: "opacity, transform",
-              }}
-            >
-              <BucketDetailView
-                bucketName="research-notes/"
-                activeTab="files"
-                filesContent={<FilesTabContent appearAt={detailFullyShown - 4} />}
-                knowledgeContent={null}
-              />
-            </div>
-          )}
-        </AbsoluteFill>
-
-        {/* Cursor path: enter → anticipate row → click → drift to Knowledge tab */}
-        <AnimatedCursor
-          waypoints={[
-            { frame: cursorEnter,            pos: { x: 1820, y: 200 } },
-            { frame: hoverStart - 2,         pos: { x: clickX, y: clickY } },
-            { frame: clickAt,                pos: { x: clickX, y: clickY }, click: true },
-            { frame: cursorToKnowledge,      pos: { x: knowledgeTabX, y: knowledgeTabY } },
-            { frame: durationInFrames - 2,   pos: { x: knowledgeTabX, y: knowledgeTabY } },
-          ]}
-        />
-      </ForwardZoom>
-    </AbsoluteFill>
-  );
-};
-
-/**
- * Mini file list rendered inside the Files tab of the detail view.
- * Just enough to make the tab feel "lived in" before we switch to Knowledge.
- */
-const FilesTabContent: React.FC<{ appearAt: number }> = ({ appearAt }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-
-  const files = [
-    { name: "2026-overflow-thesis.md", size: "14.2 kB", modified: "3d ago" },
-    { name: "walrus-cost-model.md",    size: "6.8 kB",  modified: "5d ago" },
-    { name: "seal-envelope-flow.md",   size: "11.4 kB", modified: "1w ago" },
-    { name: "dashboard-copy.md",       size: "3.1 kB",  modified: "2w ago" },
-  ];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      {/* Sub-header */}
-      <div
+    <AbsoluteFill
+      style={{
+        background: color.cream,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: space[16],
+        padding: `${space[16]}px ${space[16]}px`,
+      }}
+    >
+      {/* Headline */}
+      <h2
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: `${space[2]}px ${space[2]}px`,
-          marginBottom: 8,
-          fontSize: 11,
-          color: color.stone[500],
-          fontWeight: weight.medium,
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          borderBottom: `1.5px solid ${color.hairlineLight}`,
-          paddingBottom: 10,
+          margin: 0,
+          fontFamily: fonts.sans,
+          fontSize: fs.display,
+          fontWeight: weight.regular,
+          color: color.ink,
+          textAlign: "center",
+          lineHeight: 0.95,
         }}
       >
-        <span>Name</span>
-        <div style={{ display: "flex", gap: 120 }}>
-          <span>Size</span>
-          <span>Modified</span>
-        </div>
-      </div>
+        <span style={{ display: "inline-block", letterSpacing: tracking.display }}>
+          <TrackingExpand text="Smart object storage." startFrame={HEADLINE_IN} />
+        </span>
+        <br />
+        <span
+          style={{
+            color: color.stone[600],
+            display: "inline-block",
+            letterSpacing: tracking.display,
+          }}
+        >
+          <TrackingExpand text="Humans and agents." startFrame={HEADLINE_IN + 14} />
+        </span>
+      </h2>
 
-      {files.map((f, i) => {
-        const local = frame - (appearAt + i * 2);
-        const sProg = spring({ frame: local, fps, config: BOUNCE });
-        const opacity = interpolate(sProg, [0, 0.5], [0, 1], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-        });
-        const y = interpolate(sProg, [0, 1], [6, 0]);
-        return (
-          <div
-            key={f.name}
+      {/* Cross-cut row */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: space[8],
+          width: 1280,
+        }}
+      >
+        {/* Human side */}
+        <div style={{ opacity: fadeIn(HUMAN_PANEL_IN, 14) }}>
+          <span
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: `10px ${space[2]}px`,
-              borderBottom: i < files.length - 1 ? `1px solid ${color.hairlineLight}` : "none",
-              opacity,
-              transform: `translateY(${y}px)`,
-              willChange: "transform, opacity",
+              fontFamily: fonts.sans,
+              fontSize: fs.micro,
+              fontWeight: weight.medium,
+              color: color.stone[500],
+              letterSpacing: tracking.caps,
+              textTransform: "uppercase",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 13, color: color.stone[500] }}>📄</span>
-              <span style={{ fontSize: 14, color: color.ink, fontFamily: fonts.mono, fontWeight: weight.medium }}>
-                {f.name}
-              </span>
+            Humans
+          </span>
+          <SubtractiveReveal
+            startFrame={HUMAN_PANEL_IN + 4}
+            durationInFrames={16}
+            direction="left"
+            overlay={color.cream}
+            style={{ width: "100%", marginTop: space[2] }}
+          >
+            <div
+              style={{
+                background: color.stone[50],
+                border: `1px solid ${color.border}`,
+                borderRadius: radius.card,
+                padding: `${space[6]}px ${space[6]}px`,
+                fontFamily: fonts.mono,
+                fontSize: fs.codeSmall,
+                color: color.ink,
+                lineHeight: 1.7,
+                width: "100%",
+              }}
+            >
+              <div>
+                <span style={{ color: color.stone[500] }}>$ </span>
+                aws s3 cp data.json s3://yours \
+              </div>
+              <div>
+                &nbsp;&nbsp;--endpoint-url{" "}
+                <span style={{ color: color.ink }}>s3.kraterion.com</span>
+              </div>
+              <div style={{ color: color.stone[500] }}>↳ upload: 314 KB · sealed</div>
             </div>
-            <div style={{ display: "flex", gap: 80, fontSize: 13, color: color.stone[500] }}>
-              <span style={{ width: 80, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{f.size}</span>
-              <span style={{ width: 100, textAlign: "right" }}>{f.modified}</span>
+          </SubtractiveReveal>
+        </div>
+
+        {/* Agent side */}
+        <div style={{ opacity: fadeIn(AGENT_PANEL_IN, 14) }}>
+          <span
+            style={{
+              fontFamily: fonts.sans,
+              fontSize: fs.micro,
+              fontWeight: weight.medium,
+              color: color.stone[500],
+              letterSpacing: tracking.caps,
+              textTransform: "uppercase",
+            }}
+          >
+            Agents
+          </span>
+          <SubtractiveReveal
+            startFrame={AGENT_PANEL_IN + 4}
+            durationInFrames={16}
+            direction="right"
+            overlay={color.cream}
+            style={{ width: "100%", marginTop: space[2] }}
+          >
+            <div
+              style={{
+                background: color.stone[50],
+                border: `1px solid ${color.border}`,
+                borderRadius: radius.card,
+                padding: `${space[6]}px ${space[6]}px`,
+                fontFamily: fonts.mono,
+                fontSize: fs.codeSmall,
+                color: color.ink,
+                lineHeight: 1.7,
+                width: "100%",
+              }}
+            >
+              <div>
+                <span style={{ color: color.stone[500] }}>{">"} </span>
+                openai.responses.create(&#123;
+              </div>
+              <div>
+                &nbsp;&nbsp;baseURL:{" "}
+                <span style={{ color: color.ink }}>"kraterion.com/v1/agents"</span>,
+              </div>
+              <div>&#125;)</div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          </SubtractiveReveal>
+        </div>
+      </div>
+    </AbsoluteFill>
   );
 };

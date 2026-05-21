@@ -3,6 +3,7 @@ import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { color, cardShadow } from "../tokens/color";
 import { fonts, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
+import { FolderIcon, SearchIcon } from "./Icon";
 
 type Tab = "files" | "knowledge";
 
@@ -155,9 +156,19 @@ export const BucketDetailView: React.FC<Props> = ({
           height: 48,
         }}
       >
-        <Tab label="Files" icon="📁" width={tabWidth} active={activeTab === "files"} />
+        <Tab
+          label="Files"
+          icon={<FolderIcon size={14} color={activeTab === "files" ? color.ink : color.stone[500]} />}
+          width={tabWidth}
+          active={activeTab === "files"}
+        />
         <div style={{ width: 4 }} />
-        <Tab label="Knowledge" icon="⌕" width={tabWidth} active={activeTab === "knowledge"} />
+        <Tab
+          label="Knowledge"
+          icon={<SearchIcon size={14} color={activeTab === "knowledge" ? color.ink : color.stone[500]} />}
+          width={tabWidth}
+          active={activeTab === "knowledge"}
+        />
 
         {/* Active indicator — slides between tabs */}
         <div
@@ -207,7 +218,7 @@ export const BucketDetailView: React.FC<Props> = ({
   );
 };
 
-const Tab: React.FC<{ label: string; icon: string; width: number; active: boolean }> = ({
+const Tab: React.FC<{ label: string; icon: React.ReactNode; width: number; active: boolean }> = ({
   label,
   icon,
   width,
@@ -226,7 +237,7 @@ const Tab: React.FC<{ label: string; icon: string; width: number; active: boolea
       fontFamily: fonts.sans,
     }}
   >
-    <span style={{ fontSize: 14 }}>{icon}</span>
+    {icon}
     {label}
   </div>
 );

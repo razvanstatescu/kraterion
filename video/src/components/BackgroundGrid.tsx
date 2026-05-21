@@ -1,53 +1,25 @@
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
+import { AbsoluteFill } from "remotion";
 import { color } from "../tokens/color";
-import { BEAT } from "../motion/timing";
 
+/**
+ * Brand says "No gradients. No noise textures. No background patterns."
+ * (design-system/README.md §Backgrounds.) The krater-orange dot grid we
+ * had here is gone.
+ *
+ * This component is now a flat cream backdrop kept only as a compatibility
+ * shim — scenes that import it just get a cream fill. New code shouldn't
+ * use it at all; just set the scene's AbsoluteFill background to cream.
+ */
 type Props = {
-  /** Whether to flash the grid on each downbeat. */
-  flashOnBeat?: boolean;
-  /** Base opacity of the grid dots. */
+  /** @deprecated */
   opacity?: number;
-  /**
-   * Scene-local frame at which the beat grid starts. Defaults to 0 — all
-   * top-level scenes are placed on bar downbeats by `motion/timing.ts`, so
-   * scene-local frame 0 IS a downbeat in every scene that uses this.
-   */
+  /** @deprecated */
+  flashOnBeat?: boolean;
+  /** @deprecated */
   beatOrigin?: number;
 };
 
-export const BackgroundGrid: React.FC<Props> = ({
-  flashOnBeat = false,
-  opacity = 0.08,
-  beatOrigin = 0,
-}) => {
-  const frame = useCurrentFrame();
-
-  let dotOpacity = opacity;
-  if (flashOnBeat && frame >= beatOrigin) {
-    const sinceOrigin = frame - beatOrigin;
-    const localBeat = sinceOrigin % BEAT;
-    const peak = BEAT * 0.15;
-    dotOpacity =
-      localBeat < peak
-        ? interpolate(localBeat, [0, peak], [0.22, opacity])
-        : opacity;
-  }
-
-  const dotSize = 2;
-  const gap = 48;
-  const bg = `radial-gradient(${color.krater} ${dotSize}px, transparent ${dotSize}px)`;
-
-  return (
-    <AbsoluteFill style={{ background: color.ink, zIndex: 0 }}>
-      <AbsoluteFill
-        style={{
-          backgroundImage: bg,
-          backgroundSize: `${gap}px ${gap}px`,
-          backgroundPosition: "0 0",
-          opacity: dotOpacity,
-        }}
-      />
-    </AbsoluteFill>
-  );
-};
+export const BackgroundGrid: React.FC<Props> = () => (
+  <AbsoluteFill style={{ background: color.cream, zIndex: 0 }} />
+);

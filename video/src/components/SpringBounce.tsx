@@ -1,63 +1,69 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
-import { BOUNCE } from "../motion/springs";
-
-type Props = {
-  /** Composition frame at which the bounce-in starts. */
-  startFrame?: number;
-  /** Where the spring starts visually. Defaults to scale 0.6. */
-  fromScale?: number;
-  /** Slight overshoot allowance. */
-  toScale?: number;
-  /** Optional rotation overshoot in degrees (defaults to ±1°). */
-  rotateDeg?: number;
-  /** Apply opacity fade-in synced to spring. */
-  fadeIn?: boolean;
-  /** Children to animate. */
-  children: React.ReactNode;
-  /** Optional inline style on the wrapper. */
-  style?: React.CSSProperties;
-};
+import { useCurrentFrame, interpolate } from "remotion";
+import { EASE_BRAND } from "../motion/easings";
 
 /**
- * Wraps children with a spring-overshoot scale-in + optional small rotation
- * wiggle. This is THE primary entrance gesture in the film.
+ * Soft entrance — fade + tiny Y translate, brand easing.
+ *
+ * Previously named SpringBounce because it overshot with a bouncy spring.
+ * That's banned by the brand ("No bouncy springs"). Same export name kept
+ * for code compatibility; underlying motion is now critically damped
+ * (mirrors the landing's FadeUp component).
  */
+type Props = {
+  startFrame?: number;
+  /** Total entrance duration in frames. */
+  durationInFrames?: number;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+
+  // Legacy props kept for compat; no longer bouncy or rotating.
+  /** @deprecated — used to scale from. Now ignored (we fade + Y only). */
+  fromScale?: number;
+  /** @deprecated */
+  toScale?: number;
+  /** @deprecated — rotation entrance banned. Ignored. */
+  rotateDeg?: number;
+  /** @deprecated — opacity is always animated. */
+  fadeIn?: boolean;
+};
+
 export const SpringBounce: React.FC<Props> = ({
   startFrame = 0,
-  fromScale = 0.6,
-  toScale = 1,
-  rotateDeg = 0,
-  fadeIn = true,
+  durationInFrames = 22,
   children,
   style,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
 
-  const progress = spring({
-    frame: frame - startFrame,
-    fps,
-    config: BOUNCE,
-  });
+  const opacity = interpolate(
+    frame - startFrame,
+    [0, Math.round(durationInFrames * 0.7)],
+    [0, 1],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: EASE_BRAND,
+    },
+  );
 
-  const scale = interpolate(progress, [0, 1], [fromScale, toScale]);
-  const rot = rotateDeg
-    ? interpolate(progress, [0, 0.5, 1], [-rotateDeg, rotateDeg * 0.4, 0])
-    : 0;
-  const opacity = fadeIn
-    ? interpolate(progress, [0, 0.4], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-      })
-    : 1;
+  const y = interpolate(
+    frame - startFrame,
+    [0, durationInFrames],
+    [12, 0],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: EASE_BRAND,
+    },
+  );
 
   return (
     <div
       style={{
         ...style,
-        transform: `scale(${scale}) rotate(${rot}deg)`,
         opacity,
+        transform: `translateY(${y}px)`,
         willChange: "transform, opacity",
       }}
     >

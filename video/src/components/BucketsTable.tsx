@@ -4,6 +4,7 @@ import { color, cardShadow } from "../tokens/color";
 import { fonts, weight } from "../tokens/type";
 import { space, radius } from "../tokens/spacing";
 import { BOUNCE } from "../motion/springs";
+import { FolderIcon, SearchIcon } from "./Icon";
 
 /**
  * Premium dashboard table — modeled on the real apps/dashboard/BucketsList:
@@ -172,7 +173,7 @@ export const BucketsTable: React.FC<Props> = ({
             minWidth: 240,
           }}
         >
-          <span style={{ fontSize: 14, color: color.stone[500] }}>⌕</span>
+          <SearchIcon size={14} color={color.stone[500]} />
           <span style={{ fontSize: 13, color: color.stone[500], fontFamily: fonts.mono }}>filter buckets</span>
         </div>
         <div
@@ -311,7 +312,7 @@ const BucketTableRow: React.FC<{
           minWidth: 0,
         }}
       >
-        <span style={{ fontSize: 14, color: color.stone[500], flexShrink: 0 }}>📁</span>
+        <FolderIcon size={14} color={color.stone[500]} />
         <span
           style={{
             fontSize: 14,

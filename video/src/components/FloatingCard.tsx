@@ -1,63 +1,65 @@
 import React from "react";
-import { color, cardShadow } from "../tokens/color";
+import { color } from "../tokens/color";
 import { radius } from "../tokens/spacing";
 
+/**
+ * Card primitive — brand-true.
+ *
+ * Per design-system/README.md §Cards:
+ *   "Cream/Stone-50 background, stone-200 hairline, **no shadow**,
+ *    radius-md, padding 16–24px. That's it."
+ *
+ * The previous brutalist offset-shadow implementation is gone.
+ * `shadowColor` / `shadowOffset` props are kept as a no-op for
+ * compatibility while scenes migrate.
+ */
 type Props = {
   children: React.ReactNode;
-  /** Cream (light) or ink (dark) interior. */
-  surface?: "cream" | "ink";
-  /** Hard offset shadow color (defaults to krater orange). */
-  shadowColor?: string;
-  /** Shadow offset in px. */
-  shadowOffset?: number;
-  /** Border thickness in px. */
-  borderWidth?: number;
-  /** Optional inline overrides. */
-  style?: React.CSSProperties;
-  /** Optional slight 3D perspective tilt in degrees. Defaults to 0 for crisp brutalism. */
-  tiltDeg?: number;
+  /** Cream (default, on cream surface) or ink (e.g. terminal). */
+  surface?: "cream" | "stone-50" | "ink";
+  /** Border radius. Brand: 4 (sm), 8 (md, default), or 12 (lg). */
+  rounded?: number;
   width?: number | string;
   height?: number | string;
   padding?: number | string;
-  /** Border-radius override. */
-  rounded?: number;
+  style?: React.CSSProperties;
+
+  /** @deprecated — shadows are banned. Ignored. */
+  shadowColor?: string;
+  /** @deprecated — shadows are banned. Ignored. */
+  shadowOffset?: number;
+  /** @deprecated — kept for migration; renders as standard 1 px hairline. */
+  borderWidth?: number;
+  /** @deprecated — tilt is brand-incompatible. Ignored. */
+  tiltDeg?: number;
 };
 
-/**
- * Brutalist floating card. Solid surface, hard 2-px ink border, hard offset
- * orange shadow. Optional small Y-tilt for a "stickered onto the page" feel.
- */
+const SURFACES: Record<NonNullable<Props["surface"]>, { bg: string; fg: string; border: string }> = {
+  cream:      { bg: color.cream,      fg: color.ink,   border: color.border },
+  "stone-50": { bg: color.stone[50],  fg: color.ink,   border: color.border },
+  ink:        { bg: color.ink,        fg: color.cream, border: color.stone[800] },
+};
+
 export const FloatingCard: React.FC<Props> = ({
   children,
   surface = "cream",
-  shadowColor = color.krater,
-  shadowOffset = 12,
-  borderWidth = 2,
-  style,
-  tiltDeg = 0,
+  rounded = radius.card,
   width,
   height,
   padding,
-  rounded = radius.card,
+  style,
 }) => {
-  const bg = surface === "cream" ? color.cream : color.ink;
-  const fg = surface === "cream" ? color.ink : color.cream;
-  const border = surface === "cream" ? color.ink : color.cream;
-
+  const s = SURFACES[surface];
   return (
     <div
       style={{
         width,
         height,
         padding,
-        background: bg,
-        color: fg,
-        border: `${borderWidth}px solid ${border}`,
+        background: s.bg,
+        color: s.fg,
+        border: `1px solid ${s.border}`,
         borderRadius: rounded,
-        boxShadow: cardShadow({ offset: shadowOffset, color: shadowColor }),
-        transform: tiltDeg ? `perspective(1400px) rotateY(${tiltDeg}deg)` : undefined,
-        transformOrigin: "center center",
-        willChange: tiltDeg ? "transform" : undefined,
         ...style,
       }}
     >

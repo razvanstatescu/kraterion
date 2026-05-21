@@ -1,63 +1,49 @@
 /**
- * Beat-locked timing grid for the Kraterion film — v3 (storytelling rebuild).
+ * Timing grid — v5 (dynamic rebuild, research-validated).
  *
- * Track BPM = 124 (the music we'll generate later targets this), 30 fps.
- *   beat (quarter) = 60 / 124 * 30 = 14.5161 frames
- *   bar  (4 beats) =                 58.0645 frames
+ * 9-scene arc, ~75 s total. Tighter per Stripe-launch benchmark
+ * (research said 2 min is too long for an infra product; 75 s hovers).
  *
- * Structural arc (per research — Vercel / Linear / Stripe / Supabase patterns):
- *   - Problem statement opens (single indictment line)
- *   - Promise lands the brand
- *   - Concrete trust-earning feature (S3 drop-in)
- *   - Lived-in product moment (Buckets)
- *   - "Wait, it does that?" features get MORE time: Knowledge, Agents, RAG
- *   - MCP lands as the strategic surprise
- *   - Recontextualize with Billing
- *   - Callback close (inverted indictment)
- *
- * Time-weighting rule from research: features that are hardest to *explain* or
- * hardest to *believe* get the most seconds. For us: Knowledge / Agents / RAG.
+ * Story (per user direction + research):
+ *   S00 Problem      — "Your storage isn't yours."  (cold open)
+ *   S01 Shift        — "Until now."                 (the pivot)
+ *   S02 Slam         — "Kraterion."                 (type slam, mark appears)
+ *   S03 Identity     — "Smart object storage. Humans + agents."
+ *   S04 Verifiable   — Knowledge base, on-chain proof
+ *   S05 Agents       — OpenAI-compatible
+ *   S06 MCP          — Claude / Cursor integration
+ *   S07 WOW Orbit    — Walrus + Sui + Seal composability (the screenshot)
+ *   S08 Close        — "Object storage. Stays yours."
  */
 
 export const FPS = 30;
 export const BPM = 124;
-export const MUSIC_START = 30;          // 1.0 s of pre-music silence
+export const MUSIC_START = 30;
 
-export const BEAT = (60 / BPM) * FPS;   // 14.5161
-export const BAR = BEAT * 4;            // 58.0645
+export const BEAT = (60 / BPM) * FPS;
+export const BAR = BEAT * 4;
 export const HALF = BEAT / 2;
 export const QUARTER = BEAT / 4;
 
-const barFrames = (count: number) => Math.round(BAR * count);
+const seconds = (s: number) => Math.round(s * FPS);
 
-/**
- * 10-scene arc, ~2:28 total. Scenes only carry `duration` because <Series>
- * places them sequentially — absolute frame positions are computed at render.
- */
 export const scenes = {
-  // 0:00 — Problem (~8.7 s): 1 s silent indictment + 4 bars of pain beats
-  S00_Problem:   { duration: MUSIC_START + barFrames(4) },
-  // 0:09 — Promise (~5.8 s): hero rect "lock" unfolds → aperture, tagline lands
-  S01_Promise:   { duration: barFrames(3) },
-  // 0:14 — S3 drop-in (~13.5 s): code reveal, URL strike-through morph
-  S02_S3Swap:    { duration: barFrames(7) },
-  // 0:28 — Buckets (~13.5 s): dashboard tour, one hero metric
-  S03_Buckets:   { duration: barFrames(7) },
-  // 0:42 — Knowledge (~19.4 s): toggle, indexing, the "wait, it does that?" beat
-  S04_Knowledge: { duration: barFrames(10) },
-  // 1:01 — Agents (~19.4 s): form fills field-by-field, create button, build moment
-  S05_Agents:    { duration: barFrames(10) },
-  // 1:20 — RAG (~19.4 s): chat + citations + grounded answer
-  S06_RAG:       { duration: barFrames(10) },
-  // 1:40 — MCP (~17.5 s): chat shrinks left, MCP appears right, 7 tools, revoke beat
-  S07_MCP:       { duration: barFrames(9) },
-  // 1:57 — Billing (~13.5 s): one sentence, one number, on-chain receipt
-  S08_Billing:   { duration: barFrames(7) },
-  // 2:11 — Close (~17.5 s): callback inversion + URL + small Sui mark
-  S09_Close:     { duration: barFrames(9) },
+  S00_Problem:     { duration: seconds(4)  },   // 4 s  — cold open indictment
+  S01_Promise:     { duration: seconds(3)  },   // 3 s  — "Until now."
+  S02_S3Swap:      { duration: seconds(5)  },   // 5 s  — "Kraterion." slam + mark
+  S03_Buckets:     { duration: seconds(11) },   // 11 s — S3 identity (renamed concept)
+  S04_Knowledge:   { duration: seconds(9)  },   // 9 s  — verifiable knowledge
+  S05_Agents:      { duration: seconds(8)  },   // 8 s  — agents
+  S06_RAG:         { duration: seconds(9)  },   // 9 s  — MCP (reused slot)
+  S07_MCP:         { duration: seconds(17) },   // 17 s — WOW orbit (Walrus+Sui+Seal)
+  S08_Billing:     { duration: seconds(9)  },   // 9 s  — close
+  S09_Close:       { duration: seconds(0)  },   // unused; kept for layout-key stability
 } as const;
 
-export const TOTAL_FRAMES = Object.values(scenes).reduce(
-  (sum, s) => sum + s.duration,
-  0,
-);
+/** Brief 8-frame fade only at major act boundaries. */
+export const TRANSITION_FRAMES = 8;
+const NUM_TRANSITIONS = 2;
+
+export const TOTAL_FRAMES =
+  Object.values(scenes).reduce((sum, s) => sum + s.duration, 0) -
+  TRANSITION_FRAMES * NUM_TRANSITIONS;
