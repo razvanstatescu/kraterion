@@ -4,11 +4,9 @@ import { BucketFlowRibbon } from "./BucketFlowRibbon";
 import { S3ScrubBeatServer } from "./S3ScrubBeatServer";
 import { AgentTools } from "./AgentTools";
 import { OwnershipClaims } from "./OwnershipClaims";
-import { SdkFanout } from "./visuals/SdkFanout";
 import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
-import { UploadPipeline } from "./visuals/UploadPipeline";
-import { MetricCard } from "./visuals/MetricCard";
 import { PremiumCTA } from "./visuals/PremiumCTA";
+import { StorageSchema } from "./visuals/StorageSchema";
 import { BookOpen, ScrollText, MessageCircle } from "lucide-react";
 import { TerminalSim, type TerminalLine } from "./TerminalSim";
 import { PricingTeaser } from "./PricingTeaser";
@@ -156,26 +154,11 @@ export function Landing() {
               </p>
             </div>
           </FadeUp>
-          <div className="mt-12 grid items-stretch gap-4 md:grid-cols-2">
-            <FadeUp className="flex">
-              <SdkFanout className="w-full" />
-            </FadeUp>
-            <FadeUp delay={0.1} className="flex flex-col gap-4">
-              <UploadPipeline />
-              <div className="grid grid-cols-2 gap-4">
-                <MetricCard
-                  value="11"
-                  label="S3 ops, supported"
-                  hint="Put, Get, List, Multipart…"
-                />
-                <MetricCard
-                  value="0 ms"
-                  label="rewrite needed"
-                  hint="One env var changes"
-                />
-              </div>
-            </FadeUp>
-          </div>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <StorageSchema />
+            </div>
+          </FadeUp>
         </div>
       </section>
 
