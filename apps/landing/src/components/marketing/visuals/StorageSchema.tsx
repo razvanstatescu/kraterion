@@ -5,26 +5,26 @@ import * as motion from "motion/react-client";
 import { cn } from "@/lib/cn";
 
 /**
- * Storage architecture schema — single unified visual that traces a request
- * from the user's S3 client through the Kraterion gateway to the three
- * back-end sub-systems (Seal, Walrus, Sui).
+ * Storage architecture schema — traces a request from the user's S3 client
+ * through the Kraterion gateway to the three back-end sub-systems.
  *
- * Style: hairline boxes, no shadows, single Krater accent on the animated
- * request packet. Brand icons load from /public/brands/.
+ * Design principle: refined minimalism. Each spine box says ONE thing —
+ * a headline claim plus a single mechanism line. No bullet lists. The
+ * footer band carries three brand promises that follow directly from the
+ * three layers, so the reader's eye traces: architecture → guarantees.
  */
 
 const VIEW_W = 1200;
-const VIEW_H = 540;
+const VIEW_H = 460;
 
 const BOX = {
-  // Client → Gateway is now a true horizontal arrow because their vertical
-  // mid-points match (y + h/2 = 275 for both). Gateway moved right + widened;
-  // spine narrowed by the same amount so the right edge stays anchored.
+  // Client and Gateway midpoints both land on y=275 → arrow is perfectly
+  // horizontal. Spine column is centered around the same Y for balance.
   client: { x: 24, y: 130, w: 268, h: 290 },
   gateway: { x: 412, y: 205, w: 270, h: 140 },
-  seal: { x: 782, y: 80, w: 394, h: 128 },
-  walrus: { x: 782, y: 224, w: 394, h: 128 },
-  sui: { x: 782, y: 368, w: 394, h: 128 },
+  seal: { x: 782, y: 115, w: 394, h: 92 },
+  walrus: { x: 782, y: 229, w: 394, h: 92 },
+  sui: { x: 782, y: 343, w: 394, h: 92 },
 };
 
 function leftMid(b: typeof BOX.client) {
@@ -34,7 +34,6 @@ function rightMid(b: typeof BOX.client) {
   return { x: b.x + b.w, y: b.y + b.h / 2 };
 }
 
-// Brand icon aspect ratios (sourced from each SVG's viewBox)
 const BRAND_ICON: Record<
   "seal" | "walrus" | "sui",
   { aspect: number; height: number }
@@ -42,6 +41,13 @@ const BRAND_ICON: Record<
   seal: { aspect: 284 / 162, height: 16 },
   walrus: { aspect: 1417 / 931, height: 20 },
   sui: { aspect: 300 / 384, height: 22 },
+};
+
+// Gateway exits — distributed across its right edge to fan out cleanly.
+const GATEWAY_EXITS = {
+  seal: { y: 240 },
+  walrus: { y: 275 },
+  sui: { y: 310 },
 };
 
 export function StorageSchema({ className }: { className?: string }) {
@@ -74,7 +80,7 @@ export function StorageSchema({ className }: { className?: string }) {
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           className="block w-full"
           role="img"
-          aria-label="Kraterion request lifecycle: client to gateway to Seal, Walrus, Sui"
+          aria-label="Kraterion request lifecycle"
         >
           <defs>
             <marker
@@ -90,17 +96,17 @@ export function StorageSchema({ className }: { className?: string }) {
             </marker>
           </defs>
 
-          {/* Zone labels — centered over each zone */}
-          <ZoneLabel x={158} y={70} n="01" label="YOUR SIDE" />
-          <ZoneLabel x={547} y={70} n="02" label="KRATERION GATEWAY" />
-          <ZoneLabel x={979} y={70} n="03" label="STORAGE SPINE" />
+          {/* Zone labels */}
+          <ZoneLabel x={158} y={56} n="01" label="YOUR SIDE" />
+          <ZoneLabel x={547} y={56} n="02" label="KRATERION GATEWAY" />
+          <ZoneLabel x={979} y={56} n="03" label="STORAGE SPINE" />
 
-          {/* Faint vertical separators — sit in the middle of each gap */}
+          {/* Faint vertical separators */}
           <line
             x1={352}
-            y1={96}
+            y1={78}
             x2={352}
-            y2={510}
+            y2={440}
             stroke="#E1D9C7"
             strokeWidth="1"
             strokeDasharray="2 5"
@@ -108,9 +114,9 @@ export function StorageSchema({ className }: { className?: string }) {
           />
           <line
             x1={732}
-            y1={96}
+            y1={78}
             x2={732}
-            y2={510}
+            y2={440}
             stroke="#E1D9C7"
             strokeWidth="1"
             strokeDasharray="2 5"
@@ -126,56 +132,37 @@ export function StorageSchema({ className }: { className?: string }) {
           {/* 02 · Gateway */}
           <GatewayBox />
 
-          {/* 03 · Spine */}
+          {/* 03 · Spine — three concise boxes */}
           <SpineBox
             box={BOX.seal}
             brand="seal"
             role="ENCRYPTION"
-            title="Envelope encryption · client-side"
-            bullets={[
-              "DEK generated on your device",
-              "KEK wraps the DEK, gated by policy",
-              "Threshold key servers · t-of-n",
-            ]}
+            title="Sealed on your device."
+            sub="Envelope encryption · keys split across independent servers"
           />
           <SpineBox
             box={BOX.walrus}
             brand="walrus"
             role="STORAGE"
-            title="Ciphertext only · erasure-coded n = 3f + 1"
-            bullets={[
-              "Content-addressed blobs",
-              "Plain HTTPS aggregator read",
-              "Zero plaintext on disk",
-            ]}
+            title="Ciphertext only, at rest."
+            sub="Erasure-coded across nodes · plain HTTPS read"
           />
           <SpineBox
             box={BOX.sui}
             brand="sui"
             role="IDENTITY & AUDIT"
-            title="Ownership · access policy · history"
-            bullets={[
-              "Owner = your address, not ours",
-              "Revoke is enforced, not promised",
-              "Tamper-evident manifest digest",
-            ]}
+            title="You own the object."
+            sub="Revocation stops decryption · digests are verifiable"
           />
 
-          {/* Client → Gateway label (the only label on the diagram) */}
           <ClientGatewayLabel />
 
-          {/* Animated request packets */}
           {!reduceMotion && <RequestPackets />}
         </svg>
       </div>
 
-      {/* Footer stat band */}
-      <div className="grid grid-cols-2 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60 md:grid-cols-4">
-        <FootStat label="S3 ops" value="11" hint="Put, Get, Head, List, Multipart…" />
-        <FootStat label="Rewrites" value="0" hint="One env var changes" />
-        <FootStat label="Plaintext stored" value="0 B" hint="Ciphertext only at rest" accent />
-        <FootStat label="Egress" value="$0.00" hint="Read what you store, free" success />
-      </div>
+      {/* Footer — three brand promises that follow from the three layers */}
+      <PromisesBand />
     </div>
   );
 }
@@ -359,20 +346,20 @@ function PillTag({ x, label }: { x: number; label: string }) {
   );
 }
 
-/* ─── 03 · Spine boxes ───────────────────────────────────────────── */
+/* ─── 03 · Spine boxes — single-tagline version ─────────────────── */
 
 function SpineBox({
   box,
   brand,
   role,
   title,
-  bullets,
+  sub,
 }: {
   box: typeof BOX.client;
   brand: "seal" | "walrus" | "sui";
   role: string;
   title: string;
-  bullets: string[];
+  sub: string;
 }) {
   const iconCfg = BRAND_ICON[brand];
   const iconW = iconCfg.height * iconCfg.aspect;
@@ -390,20 +377,18 @@ function SpineBox({
         strokeWidth="1"
       />
 
-      {/* Brand icon — anchored top-left, sized at its natural aspect ratio */}
+      {/* Top row — icon + role */}
       <image
         href={`/brands/${brand}.svg`}
         x={box.x + 18}
-        y={box.y + 14}
+        y={box.y + 16}
         width={iconW}
         height={iconCfg.height}
         preserveAspectRatio="xMinYMid meet"
       />
-
-      {/* Role label next to icon */}
       <text
         x={box.x + 18 + iconW + 14}
-        y={box.y + 28}
+        y={box.y + 16 + iconCfg.height / 2 + 4}
         fontSize="11"
         fontFamily="ui-monospace, monospace"
         fill="#7C7158"
@@ -412,11 +397,11 @@ function SpineBox({
         {role}
       </text>
 
-      {/* Title */}
+      {/* Title — the brand claim */}
       <text
         x={box.x + 18}
-        y={box.y + 62}
-        fontSize="14"
+        y={box.y + 56}
+        fontSize="15"
         fontFamily="Inter, ui-sans-serif"
         fontWeight="500"
         fill="#0F0E0C"
@@ -424,35 +409,21 @@ function SpineBox({
         {title}
       </text>
 
-      {/* Bullets — stacked vertically */}
-      <g
-        transform={`translate(${box.x + 18}, ${box.y + 80})`}
+      {/* Sub — single mechanism line, mono */}
+      <text
+        x={box.x + 18}
+        y={box.y + 78}
+        fontSize="12"
         fontFamily="ui-monospace, monospace"
-        fontSize="11"
-        fill="#5B5142"
+        fill="#7C7158"
       >
-        {bullets.map((b, i) => (
-          <g key={b} transform={`translate(0, ${i * 16})`}>
-            <circle cx="3" cy="6" r="1.75" fill="#A89C82" />
-            <text x="14" y="10">
-              {b}
-            </text>
-          </g>
-        ))}
-      </g>
+        {sub}
+      </text>
     </g>
   );
 }
 
 /* ─── Connectors ────────────────────────────────────────────────── */
-
-// Gateway is at y=205..345, so distribute the three exit points across
-// its right edge at ~25% / 50% / 75% of height.
-const GATEWAY_EXITS = {
-  seal: { y: 240 },
-  walrus: { y: 275 },
-  sui: { y: 310 },
-};
 
 function Connectors() {
   const cR = rightMid(BOX.client);
@@ -496,13 +467,13 @@ function BranchPath({
   return <path d={d} markerEnd="url(#schema-arrow-stone)" />;
 }
 
-/* ─── Client → Gateway label (only label on the diagram) ────────── */
+/* ─── Client → Gateway label ────────────────────────────────────── */
 
 function ClientGatewayLabel() {
   const cR = rightMid(BOX.client);
   const gL = leftMid(BOX.gateway);
   const midX = (cR.x + gL.x) / 2;
-  const midY = (cR.y + gL.y) / 2;
+  const midY = cR.y;
 
   return (
     <g>
@@ -626,37 +597,58 @@ function BranchPacket({
   );
 }
 
-/* ─── Footer stat ─────────────────────────────────────────────────── */
+/* ─── Footer: three brand promises ──────────────────────────────── */
 
-function FootStat({
-  label,
-  value,
-  hint,
+function PromisesBand() {
+  return (
+    <div className="grid grid-cols-1 divide-y divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/50 md:grid-cols-3 md:divide-x md:divide-y-0">
+      <Promise
+        eyebrow="STORAGE"
+        headline="Files stay yours."
+        detail="Cancel anytime — your bytes don't move. Any S3 client can pull them."
+      />
+      <Promise
+        eyebrow="ENCRYPTION"
+        headline="Keys stay yours."
+        detail="Revoke and decryption stops. Enforced by structure, not policy."
+        accent
+      />
+      <Promise
+        eyebrow="IDENTITY & AUDIT"
+        headline="Every artifact has a receipt."
+        detail="Tamper-evident manifest digests you can verify against the chain."
+      />
+    </div>
+  );
+}
+
+function Promise({
+  eyebrow,
+  headline,
+  detail,
   accent = false,
-  success = false,
 }: {
-  label: string;
-  value: string;
-  hint?: string;
+  eyebrow: string;
+  headline: string;
+  detail: string;
   accent?: boolean;
-  success?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1 px-4 py-3">
-      <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
-        {label}
-      </span>
+    <div className="flex items-start gap-4 px-5 py-5 md:px-6 md:py-6">
       <span
+        aria-hidden
         className={cn(
-          "font-mono tabular-nums text-[16px]",
-          accent && "text-krater",
-          success && "text-[color:var(--color-success)]",
-          !accent && !success && "text-ink"
+          "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+          accent ? "bg-krater" : "bg-stone-300"
         )}
-      >
-        {value}
-      </span>
-      {hint && <span className="text-[11px] text-stone-500">{hint}</span>}
+      />
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] uppercase tracking-[0.18em] font-medium text-stone-500">
+          {eyebrow}
+        </span>
+        <p className="text-[15px] leading-[1.35] text-ink">{headline}</p>
+        <p className="text-[12px] leading-[1.55] text-stone-600">{detail}</p>
+      </div>
     </div>
   );
 }
