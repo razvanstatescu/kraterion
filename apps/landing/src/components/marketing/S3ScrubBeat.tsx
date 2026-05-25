@@ -1,55 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { useGSAP } from "@gsap/react";
+import { useState } from "react";
 import { FadeUp } from "@/components/motion/FadeUp";
 import { CodeBlockClient } from "@/components/ui/CodeBlockClient";
 
-if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger, useGSAP);
-}
-
 type Tab = { lang: string; filename: string; code: string; html: string };
 
+/**
+ * S3 compatibility beat — a static, normal-flow section with manual tabs.
+ * (The previous scroll-pinned scrub timeline was removed; readers prefer
+ * to click through SDKs at their own pace.)
+ */
 export function S3ScrubBeat({ tabs }: { tabs: Tab[] }) {
-  const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduceMotion(mq.matches);
-    const on = () => setReduceMotion(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-
-  useGSAP(
-    () => {
-      if (!ref.current || reduceMotion) return;
-      const trigger = ScrollTrigger.create({
-        trigger: ref.current,
-        start: "top top",
-        end: "+=120%",
-        pin: true,
-        scrub: 0.4,
-        onUpdate: (self) => {
-          const p = self.progress;
-          // 4 tabs → 4 segments
-          const idx = Math.min(tabs.length - 1, Math.floor(p * tabs.length));
-          setActive(idx);
-        },
-      });
-      return () => trigger.kill();
-    },
-    { scope: ref, dependencies: [reduceMotion, tabs.length] }
-  );
 
   return (
-    <section ref={ref} className="bg-stone-50">
-      <div className="mx-auto grid h-full max-w-[1280px] grid-cols-1 items-center gap-12 px-6 py-24 md:grid-cols-2 md:gap-16 md:py-32">
+    <section className="bg-stone-50">
+      <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-6 py-24 md:grid-cols-2 md:gap-16 md:py-32">
         <div className="flex flex-col justify-center">
           <FadeUp>
             <p className="micro text-stone-500">S3 compatibility</p>
@@ -71,9 +38,7 @@ export function S3ScrubBeat({ tabs }: { tabs: Tab[] }) {
               </li>
             </ul>
             <p className="mt-6 text-[13px] text-stone-500">
-              {reduceMotion
-                ? "Tap a tab to switch SDK."
-                : "Scroll to step through SDKs."}
+              Tap a tab to switch SDK.
             </p>
           </FadeUp>
         </div>

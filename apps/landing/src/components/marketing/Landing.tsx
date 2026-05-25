@@ -2,7 +2,8 @@ import { Hero } from "./Hero";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { BucketFlowRibbon } from "./BucketFlowRibbon";
 import { S3ScrubBeatServer } from "./S3ScrubBeatServer";
-import { AgentTools } from "./AgentTools";
+import { AgentRunPanel } from "./AgentRunPanel";
+import { MCPCallout } from "./MCPCallout";
 import { OwnershipClaims } from "./OwnershipClaims";
 import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "./visuals/PremiumCTA";
@@ -65,14 +66,6 @@ await s3.send(
 
 const AGENT_TABS = [
   {
-    lang: "bash",
-    filename: "curl",
-    code: `curl https://api.kraterion.com/v1/agents/support/chat/completions \\
-  -H "Authorization: Bearer $KRATERION_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"messages":[{"role":"user","content":"What is our refund policy?"}]}'`,
-  },
-  {
     lang: "typescript",
     filename: "openai.ts",
     code: `import OpenAI from "openai";
@@ -82,10 +75,55 @@ const client = new OpenAI({
   apiKey: process.env.KRATERION_KEY,
 });
 
-const r = await client.chat.completions.create({
+const reply = await client.chat.completions.create({
   model: "support",
-  messages: [{ role: "user", content: "What is our refund policy?" }],
-});`,
+  messages: [
+    { role: "user", content: "What is our refund policy?" },
+  ],
+});
+
+console.log(reply.choices[0].message.content);
+// → Refunds are processed within 7 business days
+//   from the original payment method.
+//
+// citations: [pricing-faq.md · §3 · 0.92]`,
+  },
+  {
+    lang: "python",
+    filename: "openai.py",
+    code: `import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.kraterion.com/v1/agents/support",
+    api_key=os.environ["KRATERION_KEY"],
+)
+
+reply = client.chat.completions.create(
+    model="support",
+    messages=[
+        {"role": "user", "content": "What is our refund policy?"},
+    ],
+)
+
+print(reply.choices[0].message.content)
+# → Refunds are processed within 7 business days
+#   from the original payment method.
+#
+# citations: [pricing-faq.md · §3 · 0.92]`,
+  },
+  {
+    lang: "bash",
+    filename: "curl",
+    code: `curl https://api.kraterion.com/v1/agents/support/chat/completions \\
+  -H "Authorization: Bearer $KRATERION_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "support",
+    "messages": [
+      {"role": "user", "content": "What is our refund policy?"}
+    ]
+  }'`,
   },
 ];
 
@@ -97,13 +135,6 @@ const TERMINAL_LINES: TerminalLine[] = [
   { kind: "output", text: "upload: ./photo.jpg to s3://my-bucket/photo.jpg" },
   { kind: "prompt", text: "kraterion index s3://my-bucket --enable-rag" },
   { kind: "success", text: "✓ indexed 1 file • ready to query" },
-];
-
-const RECENT_CALLS = [
-  { id: "1", t: "14:02:11", q: "What is our refund policy?", ms: "184ms" },
-  { id: "2", t: "14:01:48", q: "How long does annual proration last?", ms: "212ms" },
-  { id: "3", t: "13:58:22", q: "Compare Pro and Team tiers", ms: "198ms" },
-  { id: "4", t: "13:55:07", q: "Cancel mid-cycle?", ms: "171ms" },
 ];
 
 export function Landing() {
@@ -195,73 +226,18 @@ export function Landing() {
               </p>
             </div>
           </FadeUp>
-          <div className="mt-12 grid items-stretch gap-4 md:grid-cols-[1.15fr_0.85fr]">
+          <div className="mt-12 grid items-stretch gap-4 md:grid-cols-2">
             <FadeUp className="flex">
-              <div className="w-full">
-                <CodeBlock tabs={AGENT_TABS} />
+              <div className="flex w-full">
+                <CodeBlock tabs={AGENT_TABS} className="w-full min-h-[440px]" />
               </div>
             </FadeUp>
             <FadeUp delay={0.1} className="flex">
-              <div className="hairline flex w-full flex-col overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
-                <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
-                  <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
-                    Agent · support
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-stone-600">
-                    <span
-                      aria-hidden
-                      className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)]"
-                    />
-                    ready
-                  </span>
-                </div>
-                <dl className="divide-y divide-stone-200/60">
-                  <Row label="Endpoint" value="/v1/agents/support" />
-                  <Row label="Bucket" value="support-docs · 18 files" />
-                  <Row label="Model" value="claude-haiku-4-5" />
-                  <Row label="Tools" value="5 · search, read, list, write, manifest" />
-                  <Row label="Quota" value="100k / mo" />
-                  <Row label="Last call" value="3 minutes ago" />
-                </dl>
-
-                <div className="flex flex-1 flex-col border-t border-stone-200/60">
-                  <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50/60 px-4 py-2">
-                    <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
-                      Recent calls
-                    </span>
-                    <span className="font-mono text-[10px] text-stone-500">last 24h</span>
-                  </div>
-                  <ul className="flex-1 divide-y divide-stone-200/60">
-                    {RECENT_CALLS.map((c) => (
-                      <li
-                        key={c.id}
-                        className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2.5 text-[12px]"
-                      >
-                        <span className="font-mono tabular-nums text-[10px] text-stone-500">
-                          {c.t}
-                        </span>
-                        <span className="truncate text-stone-700">{c.q}</span>
-                        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-stone-500">
-                          <span
-                            aria-hidden
-                            className="h-1 w-1 rounded-full bg-[color:var(--color-success)]"
-                          />
-                          {c.ms}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
-                    <Stat label="P50" value="184 ms" />
-                    <Stat label="Tools" value="5" accent />
-                    <Stat label="Lock-in" value="0" />
-                  </div>
-                </div>
-              </div>
+              <AgentRunPanel className="w-full" />
             </FadeUp>
           </div>
-          <div className="mt-12">
-            <AgentTools />
+          <div className="mt-20">
+            <MCPCallout />
           </div>
         </div>
       </section>
@@ -371,38 +347,3 @@ export function Landing() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-2.5 text-[12px]">
-      <dt className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
-        {label}
-      </dt>
-      <dd className="font-mono text-stone-800">{value}</dd>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5 px-4 py-3">
-      <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
-        {label}
-      </span>
-      <span
-        className={`font-mono tabular-nums text-[14px] ${
-          accent ? "text-krater" : "text-ink"
-        }`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
