@@ -71,6 +71,8 @@ export function KraterionChatWidget({
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // In demo mode the input is disabled — guard against any stray submit.
+    if (mode === "demo") return;
     if (!input.trim()) return;
     setMessages((m) => [...m, { role: "user", text: input.trim() }]);
     setInput("");
@@ -89,9 +91,18 @@ export function KraterionChatWidget({
   };
 
   const isDark = theme === "dark";
+  const isDemo = mode === "demo";
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    // Reserve the open-state height (panel 420 + gap 12 + button 48 = 480)
+    // and pin the bubble button to the bottom so closing the panel doesn't
+    // collapse the parent layout.
+    <div
+      className={cn(
+        "flex min-h-[480px] flex-col justify-end",
+        className
+      )}
+    >
       <AnimatePresence>
         {open && (
           <motion.div
@@ -133,21 +144,30 @@ export function KraterionChatWidget({
                 "flex items-center gap-2 border-t px-3 py-2.5",
                 isDark ? "border-stone-800" : "border-stone-200/60"
               )}
+              aria-disabled={isDemo}
             >
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask a question…"
+                placeholder={isDemo ? "Demo preview · input disabled" : "Ask a question…"}
+                disabled={isDemo}
                 className={cn(
                   "flex-1 bg-transparent text-[14px] outline-none",
-                  isDark ? "text-cream placeholder:text-stone-500" : "text-ink placeholder:text-stone-500"
+                  isDark ? "text-cream placeholder:text-stone-500" : "text-ink placeholder:text-stone-500",
+                  isDemo && "cursor-not-allowed opacity-70"
                 )}
                 aria-label="Message"
               />
               <button
                 type="submit"
                 aria-label="Send"
-                className="grid h-8 w-8 place-items-center rounded-sm bg-krater text-cream hover:opacity-90"
+                disabled={isDemo}
+                className={cn(
+                  "grid h-8 w-8 place-items-center rounded-sm bg-krater text-cream",
+                  isDemo
+                    ? "cursor-not-allowed opacity-40"
+                    : "hover:opacity-90"
+                )}
               >
                 <Send size={14} strokeWidth={1.75} />
               </button>

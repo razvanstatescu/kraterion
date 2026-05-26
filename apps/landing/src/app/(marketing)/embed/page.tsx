@@ -121,7 +121,13 @@ export default function Page() {
               </div>
               <div className="relative px-4 pb-6 pt-2">
                 <CornerTicks color="#A89C82" size={12} inset={-4} />
-                <KraterionChatWidget mode="demo" theme="light" />
+                {/* Subtle page-content skeleton behind the widget — fills
+                    the negative space when the chat is closed so the area
+                    reads as "this is the page the widget sits on". */}
+                <FakePageSkeleton />
+                <div className="relative z-10">
+                  <KraterionChatWidget mode="demo" theme="light" />
+                </div>
               </div>
             </FadeUp>
           </div>
@@ -320,6 +326,54 @@ function PolicyRow({
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+/* ─── Fake page skeleton (behind the chat widget) ───────────────── */
+
+/**
+ * Subtle page-content skeleton rendered behind the chat widget in the
+ * hero. When the widget is closed (only the bubble visible), this fills
+ * the negative space so the area reads as "a page that the widget sits
+ * on" rather than empty white space. Low-opacity stone tones — never
+ * compete with the widget for attention.
+ */
+function FakePageSkeleton() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 top-2 z-0 px-2"
+    >
+      {/* Eyebrow */}
+      <div className="h-2 w-14 rounded-sm bg-stone-300/45" />
+
+      {/* Title (2 lines) */}
+      <div className="mt-3 space-y-1.5">
+        <div className="h-3.5 w-[78%] rounded-sm bg-stone-300/55" />
+        <div className="h-3.5 w-[52%] rounded-sm bg-stone-300/55" />
+      </div>
+
+      {/* Body paragraph */}
+      <div className="mt-5 space-y-1.5">
+        <div className="h-2 w-full rounded-sm bg-stone-200/60" />
+        <div className="h-2 w-[92%] rounded-sm bg-stone-200/60" />
+        <div className="h-2 w-[78%] rounded-sm bg-stone-200/60" />
+        <div className="h-2 w-[86%] rounded-sm bg-stone-200/60" />
+        <div className="h-2 w-[64%] rounded-sm bg-stone-200/60" />
+      </div>
+
+      {/* Inline "code-ish" card */}
+      <div className="mt-5 rounded-md border border-stone-200/40 bg-stone-100/30 p-3">
+        <div className="h-2 w-28 rounded-sm bg-stone-300/40" />
+        <div className="mt-1.5 h-2 w-20 rounded-sm bg-stone-300/40" />
+      </div>
+
+      {/* Another short paragraph */}
+      <div className="mt-5 space-y-1.5">
+        <div className="h-2 w-[88%] rounded-sm bg-stone-200/60" />
+        <div className="h-2 w-[72%] rounded-sm bg-stone-200/60" />
+      </div>
     </div>
   );
 }
