@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
-import { Check, Minus, Clock } from "lucide-react";
+import {
+  FileText,
+  Terminal as TerminalIcon,
+  Key,
+  ShieldCheck,
+  XCircle,
+  Sparkles,
+} from "lucide-react";
 import { ButtonLink } from "@/components/ui/Button";
 import { FadeUp } from "@/components/motion/FadeUp";
 import { CodeBlock } from "@/components/ui/CodeBlock";
@@ -7,21 +14,23 @@ import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
 import { StorageSchema } from "@/components/marketing/visuals/StorageSchema";
 import { BookOpen, ScrollText, Layers } from "lucide-react";
 import { NumberedEyebrow } from "@/components/marketing/rich/NumberedEyebrow";
+import { StatStrip } from "@/components/marketing/rich/StatStrip";
 import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
+import { CornerTicks } from "@/components/marketing/visuals/CornerTicks";
 
 export const dynamic = "force-static";
 
-const OG = "/api/og?surface=S3%20API%20%26%20SDKs&title=Speak%20S3%20from%20day%20one.";
+const OG = "/api/og?surface=S3%20API%20%26%20SDKs&title=S3%20you%20actually%20own.";
 
 export const metadata: Metadata = {
   title: "S3 API & SDKs — Kraterion",
   description:
-    "Speak S3 from day one. Point any S3 client at our endpoint — boto3, aws-cli, rclone, JS SDK all work today.",
+    "Same S3 SDKs. Sealed before upload, recorded against your account, every action stamped to a tamper-evident log you can verify independently.",
   openGraph: { images: [OG] },
   twitter: { images: [OG] },
 };
 
-const FULL_TABS = [
+const SDK_TABS = [
   {
     lang: "python",
     filename: "boto3.py",
@@ -33,8 +42,7 @@ s3 = boto3.client(
     aws_access_key_id="...",
     aws_secret_access_key="...",
 )
-s3.upload_file("photo.jpg", "my-bucket", "photo.jpg")
-print(s3.list_objects_v2(Bucket="my-bucket"))`,
+s3.upload_file("photo.jpg", "my-bucket", "photo.jpg")`,
   },
   {
     lang: "bash",
@@ -86,27 +94,11 @@ const MIGRATION_TABS = [
   },
 ];
 
-/**
- * Compatibility table — verified against the actual gateway in
- * apps/gateway/src/s3/*. Honest about what's full, partial, and roadmap.
- */
-type Support = "full" | "partial" | "roadmap";
-const COMPAT: { feature: string; support: Support; note?: string }[] = [
-  { feature: "PutObject / GetObject / HeadObject / DeleteObject", support: "full" },
-  { feature: "ListObjectsV2", support: "full" },
-  { feature: "CreateBucket / DeleteBucket / HeadBucket / ListBuckets", support: "full" },
-  { feature: "SigV4 signing (header + presigned URL)", support: "full" },
-  { feature: "Public-read buckets (anonymous GET / HEAD)", support: "full" },
-  { feature: "Path-style addressing (bucket in the path)", support: "full" },
-  { feature: "Server-side encryption (always-on AES256)", support: "full", note: "Returns x-amz-server-side-encryption: AES256; sealing is client-side via Seal" },
-  { feature: "Virtual-hosted addressing (bucket.s3.kraterion.com)", support: "partial", note: "Localhost-shaped origins today; production-domain wildcards next" },
-  { feature: "Multipart uploads (CreateMultipartUpload / UploadPart)", support: "roadmap", note: "Single-PUT works up to the Walrus 13 GiB blob ceiling" },
-  { feature: "Lifecycle rules", support: "roadmap" },
-  { feature: "Bucket versioning", support: "roadmap" },
-  { feature: "Object Lock", support: "roadmap" },
-  { feature: "CORS configuration", support: "roadmap" },
-  { feature: "S3 Select", support: "roadmap" },
-  { feature: "Replication", support: "roadmap" },
+const S3_STATS = [
+  { value: "Yours", label: "By construction", sub: "Every object recorded against your account" },
+  { value: "Sealed", label: "Before upload", sub: "Encryption is the default, not a setting" },
+  { value: "Verifiable", label: "End-to-end", sub: "Every action has a tamper-evident record" },
+  { value: "Portable", label: "Anytime", sub: "Standard S3 clients on the way in and out" },
 ];
 
 export default function Page() {
@@ -114,17 +106,17 @@ export default function Page() {
     <>
       {/* Hero */}
       <section className="relative overflow-hidden bg-cream pt-24 pb-16 md:pt-32 md:pb-20">
-        <div className="mx-auto max-w-[1280px] px-6">
-          <FadeUp>
-            <div className="max-w-[860px]">
-              <NumberedEyebrow n="S3" label="API & SDKs" />
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-16">
+          <div>
+            <FadeUp>
+              <NumberedEyebrow n="S3" label="Object storage" />
               <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
-                Speak S3
+                S3 you
                 <br />
-                <span className="text-stone-500">from day one.</span>
+                <span className="text-stone-500">actually own.</span>
               </h1>
-              <p className="mt-6 max-w-[560px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-                Point any S3 client at our endpoint. boto3, aws-cli, rclone, the AWS SDKs — all work today against the same gateway, with sealed objects and on-chain ownership underneath.
+              <p className="mt-6 max-w-[540px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
+                Same SDKs you already use. The bucket lives somewhere new — sealed before upload, recorded against your account, every action stamped to a log you can verify independently. Not a customer promise. A property of the system.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
                 <ButtonLink
@@ -141,24 +133,119 @@ export default function Page() {
                   Quickstart
                 </a>
               </div>
+              <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Sealed
+                </span>
+                <span aria-hidden className="h-px w-6 bg-stone-300" />
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Audited
+                </span>
+                <span aria-hidden className="h-px w-6 bg-stone-300" />
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Portable
+                </span>
+              </div>
+            </FadeUp>
+          </div>
+
+          <div className="relative">
+            <FadeUp delay={0.35} className="mx-auto w-full max-w-[520px]">
+              <LiveBucketVisual />
+            </FadeUp>
+          </div>
+        </div>
+      </section>
+
+      {/* Value-prop stat strip */}
+      <section className="bg-cream pb-24">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <StatStrip stats={S3_STATS} />
+        </div>
+      </section>
+
+      {/* Four claims — the central differentiator */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="01" label="What's different" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
+                Four properties
+                <br />
+                <span className="text-stone-500">no provider promises in writing.</span>
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
+                Most storage products promise these in a marketing line. Kraterion makes them properties of the system — enforced by structure, not by trust.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-2">
+              <Claim
+                n="01"
+                icon={Key}
+                title="You own the bytes."
+                body="Every object is recorded against your account, not ours. Cancel the service tomorrow — the files don't disappear. You can keep them funded directly, or pull them out via any S3 client. We're a service, not a custodian."
+              />
+              <Claim
+                n="02"
+                icon={ShieldCheck}
+                title="Sealed before upload."
+                body="Bytes are encrypted on your device, then sent. The platform stores ciphertext only — we hold the data, we can't read it. Encryption isn't a setting you remember to turn on. It's the default and the only mode."
+              />
+              <Claim
+                n="03"
+                icon={XCircle}
+                title="Revocable by structure."
+                body="When you remove access, the keys stop being issued. Independent key servers verify the policy on every request and refuse to release shares for revoked parties — the ciphertext stays on disk, but it's unreadable to them. Enforced, not promised."
+              />
+              <Claim
+                n="04"
+                icon={Sparkles}
+                title="Tamper-evident audit trail."
+                body="Every upload, read, share-link issuance, revocation, indexing run, and agent answer writes a uniquely-IDed, version-tracked record. Anyone can independently verify the history of any object — including parties you no longer trust."
+              />
             </div>
           </FadeUp>
         </div>
       </section>
 
-      {/* Request lifecycle — the full schema */}
-      <section className="bg-cream pb-24 md:pb-32">
+      {/* Audit trail visual — proof of the fourth claim */}
+      <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="01" label="Request lifecycle" />
+              <NumberedEyebrow n="02" label="Audit trail" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Every action leaves a record.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
+                Storage activity, access changes, knowledge runs, agent invocations — they all write to the same append-only log. Each row has a uniquely-IDed digest you can verify independently, without trusting us.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <AuditTrailVisual />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Architecture — supporting detail, no longer headline */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="03" label="Under the surface" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
-                One endpoint.
+                Same S3 surface.
                 <br />
-                <span className="text-stone-500">Three back-end concerns.</span>
+                <span className="text-stone-500">Different spine.</span>
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                Same surface, different spine. Your S3 client hits a single gateway endpoint; we orchestrate Seal (encryption), Walrus (storage), and Sui (identity + audit) in parallel.
+                Your S3 client hits a single gateway endpoint. Behind it, three concerns run in parallel — the encryption envelope, the storage layer, and the ownership + audit record — without you wiring any of them.
               </p>
             </div>
           </FadeUp>
@@ -170,153 +257,55 @@ export default function Page() {
         </div>
       </section>
 
-      {/* Drop-in code */}
-      <section className="bg-stone-50 py-24 md:py-32">
+      <BridgeHeadline align="left">
+        Same SDKs you already use.
+        <br />
+        <span className="text-stone-500">Just change the endpoint.</span>
+      </BridgeHeadline>
+
+      {/* Drop-in code — single tight section, no technical deep-dive */}
+      <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="02" label="Drop-in" />
-              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-                Change one env var. Keep your stack.
+              <NumberedEyebrow n="04" label="Drop-in" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
+                Point a client at us.
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                Set <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">AWS_ENDPOINT_URL</code> to <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">s3.kraterion.com</code>. Re-run your code. Done.
+                One environment variable. The S3 commands you already write — <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">PUT</code>, <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">GET</code>, <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">LIST</code>, presigned URLs — work without modification.
               </p>
             </div>
           </FadeUp>
           <FadeUp delay={0.1}>
             <div className="mt-12">
-              <CodeBlock tabs={FULL_TABS} />
+              <CodeBlock tabs={SDK_TABS} />
             </div>
           </FadeUp>
         </div>
       </section>
 
-      {/* Compatibility — honest table */}
-      <section className="bg-cream py-24 md:py-32">
-        <div className="mx-auto max-w-[1280px] px-6">
-          <FadeUp>
-            <div className="max-w-[760px]">
-              <NumberedEyebrow n="03" label="Compatibility" />
-              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
-                What works. What&apos;s partial. What&apos;s on the roadmap.
-              </h2>
-              <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
-                Honest map of the surface — what your existing client will exercise today, what's a known gap, and what's already on the queue.
-              </p>
-            </div>
-          </FadeUp>
-          <FadeUp delay={0.1}>
-            <div className="mt-12 overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
-              <div className="grid grid-cols-[1fr_120px] items-center gap-4 border-b border-stone-200/60 bg-stone-50 px-4 py-3 text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
-                <span>Feature</span>
-                <span>Status</span>
-              </div>
-              {COMPAT.map((c, i) => (
-                <div
-                  key={c.feature}
-                  className={`grid grid-cols-[1fr_120px] items-start gap-4 px-4 py-3 text-[13px] hover:bg-stone-50 ${
-                    i < COMPAT.length - 1 ? "border-b border-stone-200/60" : ""
-                  }`}
-                >
-                  <div className="flex flex-col gap-1">
-                    <span className="text-ink">{c.feature}</span>
-                    {c.note && (
-                      <span className="font-mono text-[11px] text-stone-500">{c.note}</span>
-                    )}
-                  </div>
-                  <SupportPill support={c.support} />
-                </div>
-              ))}
-            </div>
-          </FadeUp>
-        </div>
-      </section>
-
-      {/* Region honesty — single region today */}
+      {/* Migration — coming and going */}
       <section className="bg-stone-50 py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="04" label="Endpoint & regions" />
+              <NumberedEyebrow n="05" label="Move in. Leave the same way." />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
-                One region today.
+                No proprietary import.
                 <br />
-                <span className="text-stone-500">Multi-region next.</span>
+                <span className="text-stone-500">No proprietary export.</span>
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                We're shipping out of <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-700">eu-central-1</code> while we run a private beta. Multi-region routing follows after the public launch — talk to us if you need a specific region first.
+                Repoint your client and write new objects against the new endpoint, or run a one-shot sync from your old bucket. Leaving works exactly the same way — reverse the endpoint flags, pull every byte out via standard tools. No exit tax, no migration window.
               </p>
             </div>
           </FadeUp>
           <FadeUp delay={0.1}>
-            <div className="mt-12 overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
-              <div className="grid grid-cols-[1fr_2fr_auto] gap-4 border-b border-stone-200/60 bg-stone-50 px-4 py-3 text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
-                <span>Region</span>
-                <span>Endpoint</span>
-                <span>Status</span>
-              </div>
-              <div className="grid grid-cols-[1fr_2fr_auto] items-center gap-4 border-b border-stone-200/60 px-4 py-3 text-[14px]">
-                <span className="text-ink">eu-central-1</span>
-                <code className="font-mono text-[13px] text-stone-700">https://s3.kraterion.com</code>
-                <span className="inline-flex items-center gap-2 text-[12px] text-stone-600">
-                  <span
-                    aria-hidden
-                    className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)]"
-                  />
-                  Operational
-                </span>
-              </div>
-              <div className="grid grid-cols-[1fr_2fr_auto] items-center gap-4 px-4 py-3 text-[14px]">
-                <span className="text-stone-500">us-east-1, ap-southeast-1</span>
-                <code className="font-mono text-[13px] text-stone-500">—</code>
-                <span className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">
-                  <Clock size={11} strokeWidth={1.5} />
-                  roadmap
-                </span>
-              </div>
-            </div>
-          </FadeUp>
-        </div>
-      </section>
-
-      <BridgeHeadline align="left">
-        Move in over a weekend.
-        <br />
-        <span className="text-stone-500">Or one terminal session.</span>
-      </BridgeHeadline>
-
-      {/* Migration */}
-      <section className="bg-cream py-24 md:py-32">
-        <div className="mx-auto max-w-[1280px] px-6">
-          <FadeUp>
-            <div className="max-w-[760px]">
-              <NumberedEyebrow n="05" label="Migration" />
-              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
-                Two paths in.
-              </h2>
-              <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                Either point your client at us and let new writes land here, or run a one-shot sync from your old bucket. No proprietary import tool — both paths use the standard S3 ecosystem.
-              </p>
-            </div>
-          </FadeUp>
-          <div className="mt-12 grid gap-12 md:grid-cols-[1fr_1.2fr]">
-            <FadeUp className="flex flex-col gap-8">
-              <MigStep n="01" title="Repoint your client">
-                Set <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-700">AWS_ENDPOINT_URL</code> to{" "}
-                <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-700">s3.kraterion.com</code>. New uploads land on Kraterion, old reads keep going to the old bucket until you cut over.
-              </MigStep>
-              <MigStep n="02" title="Or run a one-shot sync">
-                <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-700">rclone sync</code> or <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[12px] text-stone-700">aws s3 sync</code> with two endpoint flags. Reliable, resumable, idempotent.
-              </MigStep>
-              <MigStep n="03" title="Leave whenever, the same way">
-                Reverse the flags. Every byte stored as a plain object you can pull through any S3 client — no proprietary export step.
-              </MigStep>
-            </FadeUp>
-            <FadeUp delay={0.1}>
+            <div className="mt-12">
               <CodeBlock tabs={MIGRATION_TABS} />
-            </FadeUp>
-          </div>
+            </div>
+          </FadeUp>
         </div>
       </section>
 
@@ -334,7 +323,7 @@ export default function Page() {
         sub="One environment variable changes. Everything else stays the same."
         satellites={[
           { icon: BookOpen, label: "Quickstart", detail: "Five lines to a sealed bucket.", href: "/docs/quickstart" },
-          { icon: Layers, label: "Compatibility", detail: "What works, what's partial, what's roadmap.", href: "#" },
+          { icon: Layers, label: "Security model", detail: "Sealing, revocation, audit trail — in depth.", href: "/security" },
           { icon: ScrollText, label: "Pricing", detail: "Cheap egress, real free band, no tier surprises.", href: "/pricing" },
         ]}
       />
@@ -342,49 +331,336 @@ export default function Page() {
   );
 }
 
-function SupportPill({ support }: { support: Support }) {
-  if (support === "full") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-sm border border-[color:var(--color-success)]/30 bg-[color:var(--color-success)]/[0.06] px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[color:var(--color-success)]">
-        <Check size={11} strokeWidth={2} />
-        Full
-      </span>
-    );
-  }
-  if (support === "partial") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-sm border border-krater/30 bg-krater/[0.05] px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.12em] text-krater">
-        <Minus size={11} strokeWidth={2} />
-        Partial
-      </span>
-    );
-  }
+/* ─── Claim card (used 4× in the differentiator grid) ──────────── */
+
+function Claim({
+  n,
+  icon: Icon,
+  title,
+  body,
+}: {
+  n: string;
+  icon: typeof Key;
+  title: string;
+  body: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-sm border border-stone-200/60 bg-stone-50 px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.12em] text-stone-500">
-      <Clock size={11} strokeWidth={1.5} />
-      Roadmap
-    </span>
+    <FadeUp className="flex flex-col gap-4 bg-cream p-8 md:p-10">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[12px] tabular-nums text-krater">{n}</span>
+        <Icon size={18} strokeWidth={1.5} className="text-stone-500" />
+      </div>
+      <h3 className="mt-2 text-[24px] leading-[1.2] tracking-[-0.01em] text-ink md:text-[28px]">
+        {title}
+      </h3>
+      <p className="text-[14px] leading-[1.65] text-stone-700">{body}</p>
+    </FadeUp>
   );
 }
 
-function MigStep({
-  n,
-  title,
-  children,
-}: {
-  n: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+/* ─── Live bucket visual (hero right) ───────────────────────────── */
+
+const BUCKET_FILES: { name: string; size: string }[] = [
+  { name: "photo-final-v3.jpg", size: "2.1 MB" },
+  { name: "dataset-2026-05.parquet", size: "118 MB" },
+  { name: "report-q1.pdf", size: "482 KB" },
+  { name: "logo-v2.svg", size: "24 KB" },
+];
+
+function LiveBucketVisual() {
   return (
-    <div className="flex gap-6">
-      <span className="font-mono text-[14px] tabular-nums text-krater shrink-0 mt-1">
-        {n}
-      </span>
-      <div>
-        <h3 className="text-[20px] leading-[1.2] font-medium text-ink">{title}</h3>
-        <p className="mt-2 text-[14px] leading-[1.6] text-stone-700">{children}</p>
+    <div className="relative">
+      <CornerTicks color="#A89C82" size={10} inset={-8} />
+      <div className="hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+        {/* Browser chrome */}
+        <div className="flex items-center gap-2.5 border-b border-stone-200/60 bg-stone-50 px-3 py-2">
+          <div className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="h-2 w-2 rounded-full bg-stone-300" />
+            ))}
+          </div>
+          <span className="flex items-center gap-1 font-mono text-[10.5px] text-stone-500">
+            <span className="text-stone-400">https://</span>
+            <span className="text-ink">s3.kraterion.com</span>
+            <span className="text-stone-400">/assets-prod</span>
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between border-b border-stone-200/60 bg-cream px-4 py-2.5">
+          <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+            Bucket · assets-prod
+          </span>
+          <span className="font-mono text-[11px] text-stone-600">
+            4 files · 138 MB
+          </span>
+        </div>
+
+        <ul className="divide-y divide-stone-200/60">
+          {BUCKET_FILES.map((f) => (
+            <li
+              key={f.name}
+              className="grid grid-cols-[1fr_auto_84px] items-center gap-3 px-4 py-2 text-[12px]"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <FileText size={13} strokeWidth={1.5} className="text-stone-500" />
+                <span className="truncate font-mono text-ink">{f.name}</span>
+              </span>
+              <span className="font-mono tabular-nums text-[11px] text-stone-600">
+                {f.size}
+              </span>
+              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-stone-600">
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)]"
+                />
+                Sealed
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Recent action with the audit moment */}
+        <div className="border-t border-stone-200/60 bg-stone-50/40">
+          <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50/60 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <TerminalIcon
+                size={11}
+                strokeWidth={1.5}
+                className="text-stone-500"
+              />
+              <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                Just now · aws-cli
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-stone-500">
+              recorded
+            </span>
+          </div>
+          <div className="space-y-1 px-4 py-3 font-mono text-[12px] leading-[1.55]">
+            <div className="flex gap-2 text-stone-700">
+              <span className="text-stone-400">$</span>
+              <span>
+                aws s3 cp ./photo.jpg{" "}
+                <span className="text-ink">s3://assets-prod/</span>
+              </span>
+            </div>
+            <div className="text-[color:var(--color-success)]">
+              upload: ./photo.jpg → photo.jpg
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] text-stone-500">
+              <span aria-hidden className="h-1 w-1 rounded-full bg-krater" />
+              audit record · 0x9c4a8b21f0e7…
+            </div>
+          </div>
+        </div>
+
+        {/* Footer — provenance summary */}
+        <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
+          <FootStat label="Owner" value="0x7c…3f4d" />
+          <FootStat label="At rest" value="Sealed" accent />
+          <FootStat label="Trail" value="6 events" />
+        </div>
       </div>
     </div>
   );
 }
+
+function FootStat({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 px-4 py-2.5">
+      <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+        {label}
+      </span>
+      <span
+        className={`font-mono tabular-nums text-[12px] ${
+          accent ? "text-krater" : "text-ink"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* ─── Audit trail visual ────────────────────────────────────────── */
+
+type AuditEvent = {
+  time: string;
+  action: string;
+  subject: string;
+  detail: string;
+  digest: string;
+  variant: "default" | "revoke" | "issue";
+};
+
+const AUDIT_EVENTS: AuditEvent[] = [
+  {
+    time: "14:02:11",
+    action: "UPLOAD",
+    subject: "photo-final-v3.jpg",
+    detail: "by 0x7c…3f4d · 2.1 MB · sealed AES256",
+    digest: "0x9c4a8b21f0e7c2…",
+    variant: "default",
+  },
+  {
+    time: "14:01:48",
+    action: "READ",
+    subject: "pricing-faq.md",
+    detail: "via kr_live_3f4d…1c · 184 ms",
+    digest: "0x4d2f0e9c7b81a2…",
+    variant: "default",
+  },
+  {
+    time: "13:58:22",
+    action: "ISSUE",
+    subject: "share token · kr_share_test_92ac…",
+    detail: "scope support-docs · origin docs.acme-co.com",
+    digest: "0x4f1ab3a0e7c2f9…",
+    variant: "issue",
+  },
+  {
+    time: "13:55:07",
+    action: "REVOKE",
+    subject: "share token · kr_share_test_1a8b…",
+    detail: "access policy updated · enforced at t+0",
+    digest: "0xfa0012a4e7c2f1…",
+    variant: "revoke",
+  },
+  {
+    time: "13:51:30",
+    action: "INDEX",
+    subject: "bucket · support-docs",
+    detail: "5 files → 24 chunks · manifest committed",
+    digest: "0xa1b2c3d4e5f6a7…",
+    variant: "default",
+  },
+  {
+    time: "13:48:15",
+    action: "AGENT",
+    subject: "support · “What is our refund policy?”",
+    detail: "cited pricing-faq.md §3 · score 0.92 · 184 ms",
+    digest: "0xb2c3d4e5f6a7b8…",
+    variant: "default",
+  },
+];
+
+function AuditTrailVisual() {
+  return (
+    <div className="hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+      {/* Chrome */}
+      <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
+        <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+          Audit · bucket assets-prod
+        </span>
+        <span className="font-mono text-[11px] text-stone-600">
+          last 24 hours · 6 events
+        </span>
+      </div>
+
+      {/* Column header (desktop) */}
+      <div className="hidden grid-cols-[88px_88px_1fr_180px] items-center gap-4 border-b border-stone-200/60 bg-stone-50/40 px-5 py-2.5 text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500 md:grid">
+        <span>Time</span>
+        <span>Action</span>
+        <span>Subject</span>
+        <span>Record</span>
+      </div>
+
+      <ul className="divide-y divide-stone-200/60">
+        {AUDIT_EVENTS.map((e, i) => (
+          <EventRow key={i} event={e} />
+        ))}
+      </ul>
+
+      {/* Footer band — the promise the trail makes */}
+      <div className="grid grid-cols-1 divide-y divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60 md:grid-cols-3 md:divide-x md:divide-y-0">
+        <FooterBlock label="Verifiable" value="Independently" accent />
+        <FooterBlock label="Append-only" value="No mutations" />
+        <FooterBlock
+          label="Visibility"
+          value="By you · by anyone you choose"
+        />
+      </div>
+    </div>
+  );
+}
+
+function EventRow({ event }: { event: AuditEvent }) {
+  const dotColor =
+    event.variant === "revoke"
+      ? "#A89C82"
+      : event.variant === "issue"
+      ? "#C45B36"
+      : "#5C7A3F";
+  const actionColor =
+    event.variant === "revoke"
+      ? "text-stone-500"
+      : event.variant === "issue"
+      ? "text-krater"
+      : "text-ink";
+
+  return (
+    <li className="grid grid-cols-1 items-baseline gap-x-4 gap-y-1 px-5 py-3.5 text-[13px] md:grid-cols-[88px_88px_1fr_180px]">
+      {/* Time (always visible) */}
+      <span className="flex items-center gap-2 font-mono text-[12px] tabular-nums text-stone-600">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: dotColor }}
+        />
+        {event.time}
+      </span>
+
+      {/* Action (mono, uppercase) */}
+      <span className={`font-mono text-[12px] uppercase tracking-[0.12em] ${actionColor}`}>
+        {event.action}
+      </span>
+
+      {/* Subject + detail */}
+      <div className="flex flex-col gap-0.5 md:col-span-1">
+        <span className="text-ink">{event.subject}</span>
+        <span className="font-mono text-[11.5px] leading-[1.45] text-stone-500">
+          {event.detail}
+        </span>
+      </div>
+
+      {/* Record digest */}
+      <span className="font-mono text-[11px] text-stone-500 md:text-right">
+        {event.digest}
+      </span>
+    </li>
+  );
+}
+
+function FooterBlock({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 px-5 py-3">
+      <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+        {label}
+      </span>
+      <span
+        className={`font-mono text-[13px] ${
+          accent ? "text-krater" : "text-ink"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
