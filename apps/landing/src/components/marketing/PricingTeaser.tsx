@@ -44,7 +44,7 @@ export function PricingTeaser() {
         ))}
       </div>
       <div className="mt-8 flex items-center justify-between rounded-md bg-stone-50 px-6 py-4 text-[14px]">
-        <span className="text-stone-700">No egress fees. No retrieval fees. Predictable storage pricing.</span>
+        <span className="text-stone-700">Cheap egress — 50 GB free, then $0.01/GB. ~9× under AWS, no tier surprises.</span>
         <Link href="/pricing" className="font-medium text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
           See full pricing →
         </Link>

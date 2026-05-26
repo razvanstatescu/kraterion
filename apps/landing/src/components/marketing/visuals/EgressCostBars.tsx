@@ -3,19 +3,51 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * Egress cost benchmark for the pricing page. Three providers across the
+ * spectrum of "what the same workload actually costs":
+ *
+ *   - AWS S3      — what the egress trap looks like at scale
+ *   - Kraterion   — much cheaper egress, plus encryption + ownership
+ *   - Cloudflare R2 — cheapest pure $/GB, no client-side encryption or
+ *                     ownership layer (the honest trade-off)
+ *
+ * Scenario: 1 TB stored, 10 TB read per month. Numbers reflect each
+ * provider's published rates as of 2026-05.
+ */
+
 type Provider = {
   name: string;
   storage: number;
   egress: number;
   total: number;
+  note: string;
   accent?: boolean;
 };
 
-// Scenario: 1 TB stored, 10 TB read per month
 const PROVIDERS: Provider[] = [
-  { name: "AWS S3", storage: 23.55, egress: 921.6, total: 945.15 },
-  { name: "Cloudflare R2", storage: 15.0, egress: 0, total: 15.0 },
-  { name: "Kraterion", storage: 12.0, egress: 0, total: 12.0, accent: true },
+  {
+    name: "AWS S3",
+    storage: 23.55,
+    egress: 921.6,
+    total: 945.15,
+    note: "Server-side KMS · plaintext on the wire to AWS",
+  },
+  {
+    name: "Kraterion",
+    storage: 61.44,
+    egress: 101.9,
+    total: 163.34,
+    note: "Sealed client-side · owned bytes · 50 GB egress free",
+    accent: true,
+  },
+  {
+    name: "Cloudflare R2",
+    storage: 15.36,
+    egress: 0,
+    total: 15.36,
+    note: "Zero egress · no client-side encryption or ownership",
+  },
 ];
 
 const MAX = Math.max(...PROVIDERS.map((p) => p.total));
@@ -63,15 +95,16 @@ export function EgressCostBars({ className }: { className?: string }) {
         <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
           1 TB stored · 10 TB read / month
         </span>
-        <span className="font-mono text-[11px] text-stone-600">USD / month · linear scale</span>
+        <span className="font-mono text-[11px] text-stone-600">
+          USD / month · published rates
+        </span>
       </div>
 
-      {/* Horizontal bars — the breakdown reads at a glance */}
       <div className="px-6 py-8 md:px-10 md:py-10">
         <div className="space-y-7">
           {PROVIDERS.map((p) => {
             const totalPct = (p.total / MAX) * 100 * progress;
-            const storagePct = (p.storage / p.total) * totalPct;
+            const storagePct = p.total > 0 ? (p.storage / p.total) * totalPct : 0;
             const egressPct = totalPct - storagePct;
             return (
               <div key={p.name}>
@@ -118,7 +151,7 @@ export function EgressCostBars({ className }: { className?: string }) {
                       style={{ width: `${storagePct}%` }}
                       title={`Storage: $${p.storage.toFixed(2)}`}
                     />
-                    {/* Egress segment — lighter, hatched-feel via opacity */}
+                    {/* Egress segment */}
                     <div
                       className={cn(
                         "h-full transition-[width] duration-700 ease-out",
@@ -130,8 +163,8 @@ export function EgressCostBars({ className }: { className?: string }) {
                   </div>
                 </div>
 
-                {/* Breakdown row */}
-                <div className="mt-2 flex items-center justify-between font-mono text-[11px] text-stone-600">
+                {/* Breakdown + honest note */}
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] text-stone-600">
                   <span className="flex items-center gap-3">
                     <span className="inline-flex items-center gap-1.5">
                       <span
@@ -163,11 +196,7 @@ export function EgressCostBars({ className }: { className?: string }) {
                       </span>
                     </span>
                   </span>
-                  {p.egress === 0 && (
-                    <span className="text-[color:var(--color-success)]">
-                      no egress
-                    </span>
-                  )}
+                  <span className="text-stone-500">{p.note}</span>
                 </div>
               </div>
             );
@@ -184,12 +213,11 @@ export function EgressCostBars({ className }: { className?: string }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-stone-200/60 bg-stone-50 px-4 py-2.5 font-mono text-[11px] text-stone-600">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-stone-200/60 bg-stone-50 px-4 py-2.5 font-mono text-[11px] text-stone-600">
         <span>
-          S3 pricing per aws.amazon.com/s3/pricing · R2 per
-          developers.cloudflare.com/r2/pricing
+          S3 per aws.amazon.com/s3/pricing · R2 per developers.cloudflare.com/r2/pricing
         </span>
-        <span className="text-krater">~98% lower than S3</span>
+        <span className="text-krater">~83% lower than S3 · ~9× cheaper egress</span>
       </div>
     </div>
   );

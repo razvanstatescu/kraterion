@@ -181,7 +181,7 @@ export function Landing() {
                 <span className="text-stone-500">Stays yours.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-700">
-                Point any S3 client at us — boto3, aws-cli, rclone, the SDKs. The bytes are stored as plain objects you can pull from any region. Leaving means walking out with your files, not paying egress to do it.
+                Point any S3 client at us — boto3, aws-cli, rclone, the SDKs. The bytes are stored as plain objects you can pull from any region. Leaving means walking out with your files at ~9× lower egress than AWS — not paying a tax to do it.
               </p>
             </div>
           </FadeUp>
@@ -301,7 +301,7 @@ export function Landing() {
                 No egress traps.
               </h2>
               <p className="mt-6 text-[18px] leading-[1.55] text-stone-700">
-                You store; you pay for storage. Reading what you put in costs nothing — no per-GB egress, no retrieval fees, no surprise bill on a busy weekend.
+                Egress is $0.01/GB with a 50 GB monthly free band — about 9× cheaper than AWS S3, and a flat rate above the free band. No tiered penalties, no surprise bill when a weekend goes viral.
               </p>
             </div>
           </FadeUp>

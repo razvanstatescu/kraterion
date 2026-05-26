@@ -15,7 +15,7 @@ const CLAIMS = [
   },
   {
     title: "Predictable pricing.",
-    lede: "No egress traps. No retrieval fees. No surprise bill on a busy weekend.",
+    lede: "Cheap egress with a 50 GB monthly free band. Flat rate above it — no tier cliffs, no retrieval fees, no surprise bill on a busy weekend.",
   },
 ];
 

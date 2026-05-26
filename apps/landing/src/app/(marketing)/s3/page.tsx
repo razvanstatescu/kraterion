@@ -97,7 +97,7 @@ const MIGRATION_TABS = [
 const S3_STATS = [
   { value: "11", label: "S3 ops, fully compatible", sub: "Put / Get / List / Multipart" },
   { value: "4", label: "official client libraries", sub: "boto3, JS SDK, rclone, aws-cli" },
-  { value: "0", label: "egress fees", sub: "Pull what you put in, free" },
+  { value: "$0.01", label: "egress / GB", sub: "50 GB free · ~9× under S3" },
   { value: "100%", label: "drop-in", sub: "One env var changes" },
 ];
 
@@ -332,7 +332,7 @@ export default function Page() {
         satellites={[
           { icon: BookOpen, label: "Quickstart", detail: "Five lines to a queryable bucket.", href: "/docs/quickstart" },
           { icon: Layers, label: "Compatibility", detail: "What works, what's partial, what's roadmap.", href: "#" },
-          { icon: ScrollText, label: "Pricing", detail: "Egress costs less than nothing.", href: "/pricing" },
+          { icon: ScrollText, label: "Pricing", detail: "Cheap egress, real free band, no tier surprises.", href: "/pricing" },
         ]}
       />
     </>

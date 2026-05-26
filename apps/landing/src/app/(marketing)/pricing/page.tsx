@@ -16,7 +16,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Pricing — Kraterion",
   description:
-    "Predictable pricing. No egress traps. No retrieval fees. No surprise bill on a busy weekend.",
+    "Predictable pricing. Cheap egress with a 50 GB free band — ~9× under AWS S3. No tier surprises, no retrieval fees.",
 };
 
 type TierKey = "free" | "pro" | "scale";
@@ -40,8 +40,16 @@ const GROUPS: Group[] = [
   {
     title: "Bandwidth",
     rows: [
-      { feature: "Egress fees", values: { free: "$0", pro: "$0", scale: "$0" } },
+      {
+        feature: "Egress",
+        values: {
+          free: "50 GB free · then $0.01/GB",
+          pro: "50 GB free · then $0.01/GB",
+          scale: "50 GB free · then $0.01/GB",
+        },
+      },
       { feature: "Retrieval fees", values: { free: "$0", pro: "$0", scale: "$0" } },
+      { feature: "Cross-region or cross-AZ surprises", values: { free: "$0", pro: "$0", scale: "$0" } },
       { feature: "Class A ops included", values: { free: "1M / mo", pro: "10M / mo", scale: "100M / mo" } },
     ],
   },
@@ -68,20 +76,24 @@ const GROUPS: Group[] = [
 ];
 
 const HONESTY_STATS = [
-  { value: "$0", label: "Egress fees", sub: "Read what you store, free" },
+  { value: "$0.01", label: "Per GB egress", sub: "~9× under AWS S3" },
+  { value: "50 GB", label: "Egress free band", sub: "Every project, every month" },
   { value: "$0", label: "Retrieval fees", sub: "No cold-tier penalty" },
-  { value: "$0.012", label: "Per GB-month, Standard", sub: "20% under R2" },
-  { value: "5 GB", label: "Free forever", sub: "No card required" },
+  { value: "$0", label: "Tier surprises", sub: "Flat rate, no cliffs" },
 ];
 
 const FAQ = [
   {
-    q: "Do you really charge $0 for egress?",
-    a: "Yes. You pay for storage, not for reading what you put in. Benchmarked against Cloudflare R2's $0.015/GB-month standard storage with zero egress.",
+    q: "How much do you charge for egress?",
+    a: "$0.01 per GB, with a 50 GB free band every month. That's about 9× cheaper than AWS S3's standard internet egress ($0.09/GB) — and it's a flat rate above the free band, not a tier-curve. You'll never get hit by a surprise cliff because a Hacker News post sent traffic.",
+  },
+  {
+    q: "Why not zero egress, like Cloudflare R2?",
+    a: "R2 cross-subsidizes egress from Cloudflare's existing CDN business. We don't have that lever — our reads pull through Walrus and require a Seal threshold call per sealed object, both of which cost real money. Charging $0 would mean burning cash on heavy readers, which isn't sustainable. $0.01/GB lets us absorb the infra cost honestly and stay roughly an order of magnitude under AWS.",
   },
   {
     q: "What happens if I leave?",
-    a: "Run rclone, aws-cli, or any S3 client against your bucket and pull every byte. No proprietary export, no exit fee.",
+    a: "Run rclone, aws-cli, or any S3 client against your bucket and pull every byte. No proprietary export, no exit fee on top of egress. Walrus is content-addressed, so you can also pull straight from the network if you want to skip Kraterion entirely.",
   },
   {
     q: "How is storage measured?",
@@ -115,7 +127,7 @@ export default function Page() {
               <span className="text-stone-500">No egress traps.</span>
             </h1>
             <p className="mx-auto mt-8 max-w-[640px] text-[18px] text-stone-700">
-              You store; you pay for storage. We don&apos;t penalize you for reading what you put in.
+              Cheap egress with a real free band — about 9× under AWS S3, with a flat rate above 50 GB free. No tier cliffs, no cross-region surprises.
             </p>
           </FadeUp>
         </div>
@@ -187,7 +199,7 @@ export default function Page() {
                 The honest math.
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] text-stone-700">
-                Benchmarked against Cloudflare R2 — the public bar for standard object storage. Same zero egress; lower storage rate.
+                Three providers, same workload, published rates. We sit between AWS S3 (the punishing egress curve) and Cloudflare R2 (cheapest pure $/GB, no client-side encryption or ownership) — about 83% under S3, with sealed objects and revocable access included.
               </p>
             </div>
           </FadeUp>
@@ -198,7 +210,7 @@ export default function Page() {
             <EgressCostBars />
           </div>
           <p className="mt-4 text-[12px] text-stone-500">
-            R2 pricing per developers.cloudflare.com/r2/pricing (May 2026). Independently verifiable.
+            S3 per aws.amazon.com/s3/pricing · R2 per developers.cloudflare.com/r2/pricing (May 2026). Independently verifiable.
           </p>
         </div>
       </section>
@@ -295,7 +307,7 @@ export default function Page() {
             <span className="text-stone-500">Free, forever.</span>
           </>
         }
-        sub="No card required. Pay for storage when you grow. Never for egress."
+        sub="No card required. Pay for storage when you grow. Egress is cheap, not free — 50 GB on the house every month."
         satellites={[
           { icon: Layers, label: "Compare plans", detail: "Free, Pro, Scale — feature by feature.", href: "#" },
           { icon: BookOpen, label: "Read the docs", detail: "Same S3 API, same commands.", href: "/docs" },
