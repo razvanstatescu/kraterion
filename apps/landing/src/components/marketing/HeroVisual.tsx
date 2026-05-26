@@ -77,7 +77,7 @@ function IndexCard() {
   const hot = new Set(HOT_SETS[hotIdx]);
 
   return (
-    <Card eyebrow="02 · Knowledge" meta="48 chunks · 1,536 dims">
+    <Card eyebrow="02 · Knowledge" meta="48 chunks · 1024 dims">
       <div className="space-y-3 px-4 py-3.5">
         <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-0.5">
           {Array.from({ length: 16 }).map((_, i) => (
@@ -100,7 +100,7 @@ function IndexCard() {
         </div>
         <div className="flex items-center justify-between font-mono text-[11px] text-stone-600">
           <span>BM25 + dense vectors</span>
-          <span>top-k 8 → rerank to 4</span>
+          <span>top-k = 8 · hybrid</span>
         </div>
       </div>
     </Card>

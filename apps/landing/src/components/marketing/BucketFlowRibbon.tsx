@@ -121,7 +121,7 @@ export function BucketFlowRibbon({
           label="Indexed knowledge"
           detail="BM25 + dense vectors."
           active={activeStage === 1}
-          meta="48 chunks · 1,536 dims"
+          meta="48 chunks · 1024 dims"
         >
           <div className="grid grid-cols-6 gap-1">
             {Array.from({ length: CHUNKS }).map((_, i) => {
@@ -140,11 +140,11 @@ export function BucketFlowRibbon({
           <ul className="mt-3 space-y-1 font-mono text-[10px] text-stone-500">
             <li className="flex justify-between">
               <span>top-k</span>
-              <span className="text-stone-300">8 → rerank to 4</span>
+              <span className="text-stone-300">8 · hybrid</span>
             </li>
             <li className="flex justify-between">
               <span>encoder</span>
-              <span className="text-stone-300">bge-m3 · multilingual</span>
+              <span className="text-stone-300">text-embedding-3-small</span>
             </li>
           </ul>
         </Stage>

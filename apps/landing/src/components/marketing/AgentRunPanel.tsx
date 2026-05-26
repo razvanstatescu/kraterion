@@ -104,7 +104,7 @@ export function AgentRunPanel({ className }: { className?: string }) {
             ·
           </span>
           <span className="font-mono text-[11px] text-stone-500">
-            pk_share_3f4d…
+            kr_share_test_3f4d…
           </span>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-sm border border-krater/30 bg-krater/[0.05] px-2 py-1 font-mono text-[10px] text-krater">
@@ -121,7 +121,7 @@ export function AgentRunPanel({ className }: { className?: string }) {
         </TraceBlock>
 
         <TraceBlock
-          label={`TOOL CALLS · ${run.tools.length} of 5 available`}
+          label={`TOOL CALLS · ${run.tools.length} of 6 available`}
           icon={Wrench}
         >
           <ul className="space-y-1">
@@ -189,7 +189,7 @@ export function AgentRunPanel({ className }: { className?: string }) {
           />
         </Stat>
         <Stat label="Tools called" accent>
-          {run.tools.length} of 5
+          {run.tools.length} of 6
         </Stat>
         <Stat label="Citation">verified</Stat>
       </div>

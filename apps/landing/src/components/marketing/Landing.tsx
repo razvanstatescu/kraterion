@@ -10,7 +10,7 @@ import { PremiumCTA } from "./visuals/PremiumCTA";
 import { StorageSchema } from "./visuals/StorageSchema";
 import { BookOpen, ScrollText, MessageCircle } from "lucide-react";
 import { TerminalSim, type TerminalLine } from "./TerminalSim";
-import { PricingTeaser } from "./PricingTeaser";
+import { PricingCalculator } from "./PricingCalculator";
 import { FadeUp } from "@/components/motion/FadeUp";
 import { NumberedEyebrow } from "./rich/NumberedEyebrow";
 import { BridgeHeadline } from "./rich/BridgeHeadline";
@@ -133,8 +133,13 @@ const TERMINAL_LINES: TerminalLine[] = [
   { kind: "prompt", text: "aws s3 mb s3://my-bucket" },
   { kind: "prompt", text: "aws s3 cp ./photo.jpg s3://my-bucket/" },
   { kind: "output", text: "upload: ./photo.jpg to s3://my-bucket/photo.jpg" },
-  { kind: "prompt", text: "kraterion index s3://my-bucket --enable-rag" },
-  { kind: "success", text: "✓ indexed 1 file • ready to query" },
+  {
+    kind: "prompt",
+    text:
+      "curl -X POST https://api.kraterion.com/v1/buckets/my-bucket/knowledge \\\n" +
+      '  -H "Authorization: Bearer $KRATERION_KEY"',
+  },
+  { kind: "success", text: "✓ knowledge layer enabled · indexing 1 file" },
 ];
 
 export function Landing() {
@@ -206,7 +211,7 @@ export function Landing() {
               Bucket → indexed → answered.
             </>
           }
-          lede="Flip one toggle. Hybrid retrieval — BM25 plus dense vectors, reranked. Every answer carries a citation you can verify against the source file."
+          lede="Flip one toggle. Hybrid retrieval — BM25 plus dense vectors, top-k 8. Every answer carries a citation you can verify against the source file."
         />
       </section>
 
@@ -291,37 +296,41 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 07 — Pricing teaser */}
+      {/* 07 — Pricing */}
       <section className="bg-stone-50 py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
-            <div className="max-w-[640px]">
+            <div className="max-w-[760px]">
               <NumberedEyebrow n="06" label="Pricing" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-                No egress traps.
+                Pay for what you use.
               </h2>
-              <p className="mt-6 text-[18px] leading-[1.55] text-stone-700">
-                Egress is $0.01/GB with a 50 GB monthly free band — about 9× cheaper than AWS S3, and a flat rate above the free band. No tiered penalties, no surprise bill when a weekend goes viral.
+              <p className="mt-6 max-w-[620px] text-[18px] leading-[1.55] text-stone-700">
+                Pick a project shape and we'll estimate from there — generous free band on every meter, flat per-unit rate above it, no minimums or tier cliffs.
               </p>
             </div>
           </FadeUp>
-          <div className="mt-12">
-            <PricingTeaser />
-          </div>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <PricingCalculator />
+            </div>
+          </FadeUp>
         </div>
       </section>
 
       {/* 08 — Final CTA */}
       <PremiumCTA
-        eyebrow="Get started"
+        eyebrow="Get early access"
         headline={
           <>
-            Start a bucket
+            Start a bucket.
             <br />
-            <span className="text-stone-500">in 30 seconds.</span>
+            <span className="text-stone-500">Join the beta.</span>
           </>
         }
-        sub="No card. 5 GB free forever. Bring the S3 client you already use."
+        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+        primaryLabel="Request beta access →"
+        sub="No card. 500 MB free forever. Bring the S3 client you already use."
         satellites={[
           {
             icon: BookOpen,
@@ -337,8 +346,8 @@ export function Landing() {
           },
           {
             icon: MessageCircle,
-            label: "Talk to sales",
-            detail: "Custom regions, SSO, SLAs.",
+            label: "Talk to us",
+            detail: "Volume pricing, custom regions, beta access.",
             href: "mailto:hello@kraterion.com",
           },
         ]}

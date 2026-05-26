@@ -30,7 +30,7 @@ const GROUPS: Group[] = [
   {
     title: "Storage",
     rows: [
-      { feature: "Storage included", values: { free: "5 GB", pro: "1 TB", scale: "10 TB" } },
+      { feature: "Storage included", values: { free: "500 MB", pro: "1 TB", scale: "10 TB" } },
       { feature: "Buckets", values: { free: "1", pro: "Unlimited", scale: "Unlimited" } },
       { feature: "Multipart uploads", values: { free: true, pro: true, scale: true } },
       { feature: "Lifecycle rules", values: { free: false, pro: true, scale: true }, badge: "Pro" },
@@ -68,9 +68,7 @@ const GROUPS: Group[] = [
       { feature: "Sealed before upload", values: { free: true, pro: true, scale: true } },
       { feature: "Revocable access policies", values: { free: true, pro: true, scale: true } },
       { feature: "Audit log retention", values: { free: "7 days", pro: "30 days", scale: "1 year" } },
-      { feature: "SSO", values: { free: false, pro: false, scale: true }, badge: "Scale" },
-      { feature: "Priority support", values: { free: false, pro: false, scale: true }, badge: "Scale" },
-      { feature: "SLA", values: { free: false, pro: false, scale: "99.9%" }, badge: "Scale" },
+      { feature: "Email support", values: { free: "Community", pro: "Email", scale: "Email" } },
     ],
   },
 ];
@@ -166,7 +164,7 @@ export default function Page() {
                 </ul>
                 <div className="mt-10">
                   <ButtonLink
-                    href="/signup"
+                    href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
                     variant={t.highlight ? "primary" : "secondary"}
                     size="md"
                     className="w-full"
@@ -302,16 +300,18 @@ export default function Page() {
         eyebrow="Predictable"
         headline={
           <>
-            Start with 5 GB.
+            Start with 500 MB.
             <br />
             <span className="text-stone-500">Free, forever.</span>
           </>
         }
+        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+        primaryLabel="Request beta access →"
         sub="No card required. Pay for storage when you grow. Egress is cheap, not free — 50 GB on the house every month."
         satellites={[
           { icon: Layers, label: "Compare plans", detail: "Free, Pro, Scale — feature by feature.", href: "#" },
           { icon: BookOpen, label: "Read the docs", detail: "Same S3 API, same commands.", href: "/docs" },
-          { icon: MessageCircle, label: "Talk to sales", detail: "Custom regions, SSO, SLAs.", href: "mailto:hello@kraterion.com" },
+          { icon: MessageCircle, label: "Talk to us", detail: "Volume pricing, custom regions, beta access.", href: "mailto:hello@kraterion.com" },
         ]}
       />
     </>

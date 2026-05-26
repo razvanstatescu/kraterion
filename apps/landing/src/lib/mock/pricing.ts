@@ -17,7 +17,7 @@ export const TIERS: readonly Tier[] = [
     period: "forever",
     headline: "Personal projects",
     features: [
-      "5 GB storage",
+      "500 MB storage",
       "1 bucket",
       "S3 API",
       "No card required",
@@ -49,9 +49,9 @@ export const TIERS: readonly Tier[] = [
     features: [
       "10 TB storage",
       "Custom regions",
-      "SSO",
-      "SLA & priority support",
+      "Higher metered budgets",
       "Audit log retention",
+      "Email support",
     ],
     cta: "Start Scale",
   },

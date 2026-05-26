@@ -73,7 +73,7 @@ export default function Page() {
                 Issue a share token. Paste the script tag. Your customers can ask questions; we bind answers to citations from the bucket you connect.
               </p>
               <div className="mt-10 flex items-center gap-6">
-                <ButtonLink href="/signup" variant="primary" size="lg">Start free →</ButtonLink>
+                <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary" size="lg">Get early access →</ButtonLink>
                 <a href="/docs" className="text-[15px] underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
                   Embed docs
                 </a>

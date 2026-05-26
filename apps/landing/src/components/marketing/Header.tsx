@@ -125,8 +125,12 @@ export function Header() {
           <Link href="/signin" className="text-[14px] text-stone-700 hover:text-ink">
             Sign in
           </Link>
-          <ButtonLink href="/signup" variant="primary" size="sm">
-            Start free →
+          <ButtonLink
+            href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+            variant="primary"
+            size="sm"
+          >
+            Get early access →
           </ButtonLink>
         </div>
 

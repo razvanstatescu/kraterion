@@ -34,8 +34,12 @@ export function MobileNav({
 
   return (
     <div className="md:hidden flex items-center gap-2">
-      <ButtonLink href="/signup" variant="primary" size="sm">
-        Start free →
+      <ButtonLink
+        href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+        variant="primary"
+        size="sm"
+      >
+        Get early access →
       </ButtonLink>
       <button
         type="button"
@@ -113,8 +117,13 @@ export function MobileNav({
               >
                 Sign in
               </Link>
-              <ButtonLink href="/signup" variant="primaryOnInk" size="lg" onClick={() => setOpen(false)}>
-                Start free →
+              <ButtonLink
+                href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                variant="primaryOnInk"
+                size="lg"
+                onClick={() => setOpen(false)}
+              >
+                Get early access →
               </ButtonLink>
             </div>
           </nav>

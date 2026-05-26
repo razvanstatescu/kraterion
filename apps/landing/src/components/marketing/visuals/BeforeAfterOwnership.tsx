@@ -175,9 +175,9 @@ function TypicalS3Panel() {
 type CycleState = "active" | "revoking" | "revoked";
 
 const KRATERION_KEYS: { id: string; role: string }[] = [
-  { id: "ak_share_3f4d8e1c…a2", role: "read-only" },
-  { id: "ak_app_92ac6712b1…7c", role: "read-write" },
-  { id: "ak_agent_1a8b4c5d…99", role: "agent" },
+  { id: "kr_test_3f4d8e1c…a2", role: "read-only" },
+  { id: "kr_test_92ac6712b1…7c", role: "read-write" },
+  { id: "kr_share_test_1a8b4c…99", role: "agent" },
 ];
 
 function KraterionPanel() {

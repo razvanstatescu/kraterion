@@ -122,7 +122,7 @@ function ClientsPanel() {
 
       {/* Footer band — what the protocol gives you */}
       <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
-        <MicroStat label="Tools" value="5 · same" />
+        <MicroStat label="Tools" value="6 · same" />
         <MicroStat label="Scope" value="per-agent" accent />
         <MicroStat label="Auth" value="OAuth 2.1" />
       </div>

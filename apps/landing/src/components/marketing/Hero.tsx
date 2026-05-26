@@ -43,8 +43,12 @@ export function Hero() {
           </FadeUp>
           <FadeUp delay={0.55}>
             <div className="mt-8 flex items-center gap-6">
-              <ButtonLink href="/signup" variant="primary" size="lg">
-                Start free →
+              <ButtonLink
+                href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                variant="primary"
+                size="lg"
+              >
+                Get early access →
               </ButtonLink>
               <a
                 href="/docs"

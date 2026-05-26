@@ -119,7 +119,7 @@ export default function Page() {
                 Point any S3 client at our endpoint. boto3, aws-cli, rclone, MinIO Client — all work today.
               </p>
               <div className="mt-10 flex items-center gap-6">
-                <ButtonLink href="/signup" variant="primary" size="lg">Start free →</ButtonLink>
+                <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary" size="lg">Get early access →</ButtonLink>
                 <a href="/docs/quickstart" className="text-[15px] underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
                   Quickstart
                 </a>

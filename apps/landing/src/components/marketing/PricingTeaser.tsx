@@ -32,7 +32,7 @@ export function PricingTeaser() {
             </ul>
             <div className="mt-8">
               <ButtonLink
-                href="/signup"
+                href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
                 variant={t.highlight ? "primary" : "secondary"}
                 size="md"
                 className="w-full"
