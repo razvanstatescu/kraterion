@@ -9,7 +9,7 @@ import { NumberedEyebrow } from "@/components/marketing/rich/NumberedEyebrow";
 import { StatStrip } from "@/components/marketing/rich/StatStrip";
 import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
 import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
-import { BookOpen, MessageCircle, Layers } from "lucide-react";
+import { BookOpen, MessageCircle, Layers, Quote, ShieldCheck, FileText } from "lucide-react";
 import { DashboardChrome, FileRow } from "@/components/marketing/rich/DashboardSlice";
 
 export const dynamic = "force-static";
@@ -227,12 +227,55 @@ export default function Page() {
         Every answer carries a receipt.
       </BridgeHeadline>
 
-      {/* Agents — code + live trace, matching homepage */}
-      <section id="agents" className="bg-cream py-24 md:py-32">
+      {/* Answer receipts — show your work */}
+      <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="03" label="Agents" />
+              <NumberedEyebrow n="03" label="Answer receipts" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Show your work.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
+                Every agent answer is paired with a structured receipt — the sources it pulled from, the relevance scores, the chunk hashes, and a verification digest you can check against the index manifest independently. The agent doesn't ask you to trust the answer. It shows you why to.
+              </p>
+            </div>
+          </FadeUp>
+
+          <FadeUp delay={0.1}>
+            <div className="mx-auto mt-12 max-w-[760px]">
+              <CitationReceipt />
+            </div>
+          </FadeUp>
+
+          <FadeUp delay={0.15}>
+            <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-3">
+              <ReceiptClaim
+                n="01"
+                title="Where the answer came from."
+                body="Every cited file, section, and relevance score is in the receipt. No phantom sources. No synthesized references."
+              />
+              <ReceiptClaim
+                n="02"
+                title="What the content was, then."
+                body="Each chunk's hash is recorded at retrieval time. If a source file is mutated later, the mismatch flags it on the next read."
+              />
+              <ReceiptClaim
+                n="03"
+                title="You don't have to trust us."
+                body="The index manifest digest is committed independently. Anyone can verify a citation came from a real chunk of a real file at a real moment."
+              />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Agents — code + live trace, matching homepage */}
+      <section id="agents" className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="04" label="Agents" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
                 OpenAI-compatible.
                 <br />
@@ -261,11 +304,11 @@ export default function Page() {
       </section>
 
       {/* Tools inventory — six built-in tools */}
-      <section className="bg-stone-50 py-24 md:py-32">
+      <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="04" label="Built-in tools" />
+              <NumberedEyebrow n="05" label="Built-in tools" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
                 Six tools the agent already knows how to call.
               </h2>
@@ -337,6 +380,169 @@ function Card({
       </div>
       <div className="mt-3 text-[20px] font-medium text-ink">{title}</div>
       <p className="mt-3 text-[14px] leading-[1.6] text-stone-700">{detail}</p>
+    </FadeUp>
+  );
+}
+
+/* ─── Answer receipt visual ─────────────────────────────────────── */
+
+type Citation = {
+  file: string;
+  section: string;
+  score: string;
+  meta: string;
+  chunkHash: string;
+};
+
+const RECEIPT_CITATIONS: Citation[] = [
+  {
+    file: "pricing-faq.md",
+    section: "§3 · refunds & cancellations",
+    score: "0.92",
+    meta: "bucket support-docs · 12 KB · indexed 13:51:30",
+    chunkHash: "0x4d2f0e9c7b81a2c9d4e5f6a7…",
+  },
+  {
+    file: "billing-policy.md",
+    section: "§1.4 · payment terms",
+    score: "0.74",
+    meta: "bucket support-docs · 18 KB · indexed 13:51:30",
+    chunkHash: "0x4f1ab3a0e7c2f9b8c1d2e3f4…",
+  },
+];
+
+function CitationReceipt() {
+  return (
+    <div className="hairline overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+      {/* Chrome — receipt ID + verified state */}
+      <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
+        <span className="font-mono text-[11px] text-stone-600">
+          Answer receipt · b2c3d4e5f6a7b8c9
+        </span>
+        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[color:var(--color-success)]">
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)]"
+          />
+          verified · 184 ms
+        </span>
+      </div>
+
+      {/* QUERY */}
+      <ReceiptSection label="Query">
+        <p className="text-[15px] leading-[1.45] text-ink">
+          “What is our refund policy?”
+        </p>
+        <p className="mt-1.5 font-mono text-[11px] text-stone-500">
+          agent · support · 14:02:11 · kr_share_test_3f4d…1c
+        </p>
+      </ReceiptSection>
+
+      {/* ANSWER */}
+      <ReceiptSection label="Answer">
+        <p className="text-[14px] leading-[1.55] text-ink">
+          Refunds are processed within 7 business days from the original payment method.
+        </p>
+      </ReceiptSection>
+
+      {/* SOURCES */}
+      <ReceiptSection
+        label="Sources"
+        rightSlot={
+          <span className="font-mono text-[10px] text-stone-500">
+            top-k 8 · 2 cited
+          </span>
+        }
+      >
+        <ul className="space-y-3">
+          {RECEIPT_CITATIONS.map((c) => (
+            <li key={c.file} className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-sm border border-krater/30 bg-krater/[0.06] px-2 py-0.5 font-mono text-[11px] text-krater">
+                  <Quote size={10} strokeWidth={1.5} />
+                  {c.file} · {c.section}
+                </span>
+                <span className="inline-flex items-center rounded-sm border border-stone-200/80 bg-stone-50 px-2 py-0.5 font-mono text-[11px] text-stone-600">
+                  score · {c.score}
+                </span>
+              </div>
+              <span className="font-mono text-[11px] text-stone-500">
+                {c.meta}
+              </span>
+              <span className="flex items-center gap-1.5 font-mono text-[11px] text-stone-500">
+                <FileText size={10} strokeWidth={1.5} className="text-stone-400" />
+                chunk hash {c.chunkHash}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </ReceiptSection>
+
+      {/* VERIFICATION */}
+      <ReceiptSection label="Verification">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start gap-2">
+            <ShieldCheck
+              size={14}
+              strokeWidth={1.5}
+              className="mt-0.5 shrink-0 text-stone-500"
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-mono text-[12px] text-ink">
+                manifest digest 0xfa0012a4e7c2f1b8c1d2e3f4a5b6c7d8
+              </span>
+              <span className="font-mono text-[11px] text-stone-500">
+                bound to bucket support-docs · committed 13:51:30
+              </span>
+            </div>
+          </div>
+          <p className="border-l border-stone-200/80 pl-3 text-[12.5px] leading-[1.55] text-stone-600">
+            Anyone — including parties you no longer trust — can independently verify that this answer was assembled from these chunks of these files, at that moment.
+          </p>
+        </div>
+      </ReceiptSection>
+    </div>
+  );
+}
+
+function ReceiptSection({
+  label,
+  rightSlot,
+  children,
+}: {
+  label: string;
+  rightSlot?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border-t border-stone-200/60 px-5 py-4 first-of-type:border-t-0 md:px-6">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+          {label}
+        </span>
+        {rightSlot}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ReceiptClaim({
+  n,
+  title,
+  body,
+}: {
+  n: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <FadeUp className="bg-cream p-8">
+      <div className="font-mono text-[12px] tabular-nums text-krater">{n}</div>
+      <h3 className="mt-3 text-[18px] leading-[1.25] text-ink md:text-[20px]">
+        {title}
+      </h3>
+      <p className="mt-3 text-[14px] leading-[1.6] text-stone-700">{body}</p>
     </FadeUp>
   );
 }
