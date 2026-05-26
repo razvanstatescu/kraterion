@@ -30,11 +30,11 @@ export function S3ScrubBeat({ tabs }: { tabs: Tab[] }) {
               </li>
               <li className="flex gap-3">
                 <span aria-hidden className="mt-3 h-px w-4 shrink-0 bg-stone-400" />
-                rclone, aws-cli, MinIO Client work today.
+                rclone, aws-cli, and the AWS SDKs all work today.
               </li>
               <li className="flex gap-3">
                 <span aria-hidden className="mt-3 h-px w-4 shrink-0 bg-stone-400" />
-                Multipart, presigned URLs, lifecycle rules, server-side encryption.
+                Presigned URLs, public-read buckets, always-on AES256 at rest.
               </li>
             </ul>
             <p className="mt-6 text-[13px] text-stone-500">

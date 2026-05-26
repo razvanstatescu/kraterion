@@ -67,19 +67,19 @@ export default function Page() {
   return (
     <>
       {/* Hero */}
-      <section className="relative overflow-hidden bg-cream pt-40 pb-16">
+      <section className="relative overflow-hidden bg-cream pt-24 pb-16 md:pt-32 md:pb-20">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <NumberedEyebrow n="SO" label="Security & ownership" />
-            <h1 className="mt-6 max-w-[1100px] text-[44px] leading-[1.05] tracking-[-0.02em] md:text-[88px]">
+            <h1 className="mt-6 max-w-[860px] text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
               Your data.
               <br />
               Your keys.
               <br />
               <span className="text-stone-500">Your exit.</span>
             </h1>
-            <p className="mt-8 max-w-[640px] text-[18px] text-stone-700">
-              Most storage products promise ownership in a marketing line. We make it a property of the system.
+            <p className="mt-6 max-w-[600px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
+              Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — sealed before upload via Seal, owned on-chain via Sui, stored as ciphertext-only on Walrus.
             </p>
           </FadeUp>
         </div>
@@ -210,7 +210,7 @@ export default function Page() {
                 </div>
                 <div className="pl-4">
                   <span className="text-stone-500">allow</span>{" "}
-                  <span className="text-ink">pk_share_3f4d…</span>{" "}
+                  <span className="text-ink">kr_share_test_3f4d…</span>{" "}
                   <span className="text-stone-500">→</span> read (origin: acme-co.com)
                 </div>
                 <div className="pl-4 line-through opacity-50">
