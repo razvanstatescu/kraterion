@@ -7,6 +7,8 @@ import { NumberedEyebrow } from "@/components/marketing/rich/NumberedEyebrow";
 import { StatStrip } from "@/components/marketing/rich/StatStrip";
 import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
 import { EmbedSiteDemo } from "@/components/marketing/EmbedSiteDemo";
+import { KraterionChatWidget } from "@/components/marketing/KraterionChatWidget";
+import { CornerTicks } from "@/components/marketing/visuals/CornerTicks";
 import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
 import { BookOpen, ScrollText } from "lucide-react";
 
@@ -57,18 +59,18 @@ const EMBED_STATS = [
 export default function Page() {
   return (
     <>
-      {/* Hero */}
+      {/* Hero — clean split: copy left, widget alone right */}
       <section className="relative overflow-hidden bg-cream pt-24 pb-16 md:pt-32 md:pb-20">
-        <div className="mx-auto max-w-[1280px] px-6">
-          <FadeUp>
-            <div className="max-w-[860px]">
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-16">
+          <div>
+            <FadeUp>
               <NumberedEyebrow n="EW" label="Embed widget" />
               <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
                 Drop a chat
                 <br />
                 <span className="text-stone-500">on any site. One line.</span>
               </h1>
-              <p className="mt-6 max-w-[640px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
+              <p className="mt-6 max-w-[540px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
                 Issue a share token. Paste the script tag. Your customers can ask questions; the agent answers with citations from the bucket you connect — never the raw bytes.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
@@ -86,13 +88,43 @@ export default function Page() {
                   Embed docs
                 </a>
               </div>
-            </div>
-          </FadeUp>
-          <FadeUp delay={0.2}>
-            <div className="mt-16">
-              <EmbedSiteDemo />
-            </div>
-          </FadeUp>
+              <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Origin-locked
+                </span>
+                <span aria-hidden className="h-px w-6 bg-stone-300" />
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Per-token caps
+                </span>
+                <span aria-hidden className="h-px w-6 bg-stone-300" />
+                <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Cited answers
+                </span>
+              </div>
+            </FadeUp>
+          </div>
+
+          {/* Right column — just the widget, generous space around it */}
+          <div className="relative">
+            <FadeUp delay={0.35} className="mx-auto w-full max-w-[420px]">
+              <div className="mb-4 flex items-center justify-between">
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+                  Live preview
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-stone-500">
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-success)] animate-[pulse_1.6s_ease-in-out_infinite]"
+                  />
+                  acme-co.com / docs
+                </span>
+              </div>
+              <div className="relative px-4 pb-6 pt-2">
+                <CornerTicks color="#A89C82" size={12} inset={-4} />
+                <KraterionChatWidget mode="demo" theme="light" />
+              </div>
+            </FadeUp>
+          </div>
         </div>
       </section>
 
@@ -192,6 +224,28 @@ export default function Page() {
               <PolicyRow label="Daily cap" value="10,000 req / day" />
               <PolicyRow label="Issued" value="2026-05-12" />
               <PolicyRow label="Last used" value="just now" highlight />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* Customize & preview — full-site demo with theme/position controls */}
+      <section className="bg-cream py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="04" label="Customize & preview" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[44px]">
+                See it on a real-shape page.
+              </h2>
+              <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
+                Theme it. Position it. Watch it sit on a real-shape page — same layout your customers will see. Theme and placement are token-level settings; rotate the token and the widget reconfigures without a redeploy.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <EmbedSiteDemo />
             </div>
           </FadeUp>
         </div>
