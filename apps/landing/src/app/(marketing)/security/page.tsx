@@ -8,7 +8,17 @@ import { SealingFlow } from "@/components/marketing/SealingFlow";
 import { EnvelopeSealingSchema } from "@/components/marketing/visuals/EnvelopeSealingSchema";
 import { BeforeAfterOwnership } from "@/components/marketing/visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
-import { BookOpen, Layers, MessageCircle } from "lucide-react";
+import { CornerTicks } from "@/components/marketing/visuals/CornerTicks";
+import {
+  BookOpen,
+  Layers,
+  MessageCircle,
+  Key,
+  ShieldCheck,
+  Check,
+  XCircle,
+  Lock,
+} from "lucide-react";
 
 export const dynamic = "force-static";
 
@@ -68,19 +78,39 @@ export default function Page() {
     <>
       {/* Hero */}
       <section className="relative overflow-hidden bg-cream pt-24 pb-16 md:pt-32 md:pb-20">
-        <div className="mx-auto max-w-[1280px] px-6">
+        <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-16">
           <FadeUp>
             <NumberedEyebrow n="SO" label="Security & ownership" />
-            <h1 className="mt-6 max-w-[860px] text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
+            <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
               Your data.
               <br />
               Your keys.
               <br />
               <span className="text-stone-500">Your exit.</span>
             </h1>
-            <p className="mt-6 max-w-[600px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-              Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — sealed before upload via Seal, owned on-chain via Sui, stored as ciphertext-only on Walrus.
+            <p className="mt-6 max-w-[560px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
+              Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — sealed before upload, owned by you, stored as ciphertext-only on Walrus.
             </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">
+                Get early access →
+              </ButtonLink>
+              <ButtonLink href="#sealing" variant="ghost">
+                How sealing works
+              </ButtonLink>
+            </div>
+            <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-stone-500">
+              <span>You hold the keys</span>
+              <span aria-hidden className="h-1 w-1 rounded-full bg-stone-300" />
+              <span>Sealed at upload</span>
+              <span aria-hidden className="h-1 w-1 rounded-full bg-stone-300" />
+              <span>Revocable by structure</span>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mx-auto w-full max-w-[520px]">
+              <KeyCustodyPanel />
+            </div>
           </FadeUp>
         </div>
       </section>
@@ -142,7 +172,7 @@ export default function Page() {
       </BridgeHeadline>
 
       {/* Sealing flow */}
-      <section className="bg-ink py-24 md:py-32 text-cream">
+      <section id="sealing" className="bg-ink py-24 md:py-32 text-cream">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
@@ -326,6 +356,172 @@ export default function Page() {
         ]}
       />
     </>
+  );
+}
+
+function KeyCustodyPanel() {
+  return (
+    <div className="relative">
+      <CornerTicks />
+      <div className="overflow-hidden rounded-lg border border-stone-200/60 bg-cream">
+        {/* Chrome */}
+        <div className="flex items-center justify-between border-b border-stone-200/60 bg-stone-50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Lock size={12} strokeWidth={1.75} className="text-stone-500" />
+            <span className="font-mono text-[11px] tabular-nums text-stone-700">
+              bucket.support-docs
+            </span>
+          </div>
+          <span className="text-[10px] uppercase tracking-[0.16em] text-stone-500">
+            Key custody
+          </span>
+        </div>
+
+        {/* You hold */}
+        <div className="border-b border-stone-200/60 px-5 py-5">
+          <div className="flex items-center gap-2">
+            <Key size={11} strokeWidth={1.75} className="text-krater" />
+            <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-krater">
+              You hold
+            </span>
+          </div>
+          <div className="mt-3 space-y-2.5">
+            <CustodyRow
+              label="DEK"
+              detail="generated on device · per file"
+              hash="0x9c4a8b21f0e7c2"
+              accent
+            />
+            <CustodyRow
+              label="KEK"
+              detail="threshold split · 2-of-3 key servers"
+              hash="t-of-n shares"
+              accent
+            />
+          </div>
+        </div>
+
+        {/* Policy */}
+        <div className="border-b border-stone-200/60 px-5 py-5">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={11} strokeWidth={1.75} className="text-stone-600" />
+            <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-600">
+              Policy · who can decrypt
+            </span>
+          </div>
+          <div className="mt-3 space-y-1.5 font-mono text-[12px] leading-[1.5]">
+            <PolicyRow
+              state="allow"
+              who="team@acme-co.com"
+              meta="read · write"
+            />
+            <PolicyRow
+              state="allow"
+              who="kr_share_test_3f4d…01ab"
+              meta="read · origin acme-co.com"
+            />
+            <PolicyRow
+              state="revoked"
+              who="ex-employee@acme-co.com"
+              meta="revoked · t+0"
+            />
+          </div>
+        </div>
+
+        {/* Platform holds */}
+        <div className="bg-stone-50 px-5 py-5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-[0.16em] font-medium text-stone-500">
+              Platform holds
+            </span>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span aria-hidden className="grid h-7 w-7 place-items-center rounded-sm bg-stone-200/70">
+                <Lock size={12} strokeWidth={1.75} className="text-stone-500" />
+              </span>
+              <div>
+                <div className="font-mono text-[12px] text-stone-700">ciphertext</div>
+                <div className="font-mono text-[11px] text-stone-500">2.1 MB · opaque</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] text-stone-500">cannot decrypt</div>
+              <div className="text-[11px] text-stone-500">without your keys</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustodyRow({
+  label,
+  detail,
+  hash,
+  accent,
+}: {
+  label: string;
+  detail: string;
+  hash: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className={`grid h-6 w-6 place-items-center rounded-sm ${
+            accent ? "bg-krater/10 text-krater" : "bg-stone-100 text-stone-500"
+          }`}
+        >
+          <Check size={11} strokeWidth={2} />
+        </span>
+        <div>
+          <span className="font-mono text-[12px] text-ink">{label}</span>
+          <span className="ml-2 text-[12px] text-stone-600">{detail}</span>
+        </div>
+      </div>
+      <span className="font-mono text-[10px] tabular-nums text-stone-500">{hash}</span>
+    </div>
+  );
+}
+
+function PolicyRow({
+  state,
+  who,
+  meta,
+}: {
+  state: "allow" | "revoked";
+  who: string;
+  meta: string;
+}) {
+  const revoked = state === "revoked";
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-sm px-2 py-1.5 ${
+        revoked ? "bg-[color:var(--color-error)]/5" : "bg-stone-50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {revoked ? (
+          <XCircle size={11} strokeWidth={1.75} className="text-[color:var(--color-error)]" />
+        ) : (
+          <Check size={11} strokeWidth={2} className="text-stone-500" />
+        )}
+        <span className={`${revoked ? "text-stone-500 line-through" : "text-ink"}`}>
+          {who}
+        </span>
+      </div>
+      <span
+        className={`text-[10px] uppercase tracking-[0.14em] ${
+          revoked ? "text-[color:var(--color-error)]" : "text-stone-500"
+        }`}
+      >
+        {meta}
+      </span>
+    </div>
   );
 }
 

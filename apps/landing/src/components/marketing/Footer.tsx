@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { KraterionWordmark } from "@/components/ui/KraterionWordmark";
+import { KraterionMark } from "@/components/ui/KraterionMark";
+import { cn } from "@/lib/cn";
 
 const COLUMNS = [
   {
@@ -74,13 +75,20 @@ export function Footer() {
         </div>
 
         <div className="mt-24 flex flex-col items-start gap-4 border-t border-stone-800 pt-8 md:flex-row md:items-center md:justify-between">
-          <KraterionWordmark variant="dark" size={20} />
+          <span
+            className={cn(
+              "inline-flex items-center gap-[10px] text-[15px] font-medium text-cream"
+            )}
+            style={{ letterSpacing: "0.06em" }}
+          >
+            <KraterionMark variant="mono" size={22} />
+            <span>Kraterion</span>
+          </span>
           <div className="text-[13px] text-stone-400">© 2026 Kraterion</div>
           <div className="flex items-center gap-2 text-[13px] text-stone-300">
             <span
               aria-hidden
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: "#3B6F73" }}
+              className="inline-block h-1.5 w-1.5 rounded-full bg-current"
             />
             All systems normal
           </div>
