@@ -19,7 +19,8 @@
     "db:studio": "prisma studio --schema prisma/schema.prisma",
     "db:format": "prisma format --schema prisma/schema.prisma",
     "db:reset": "prisma migrate reset --schema prisma/schema.prisma",
-    "stripe:sync": "pnpm --filter @kraterion/control-plane stripe:sync"
+    "stripe:sync": "pnpm --filter @kraterion/control-plane stripe:sync",
+    "replay": "pnpm --filter @kraterion/control-plane replay --"
   },
   "devDependencies": {
     "@prisma/client": "5.22.0",

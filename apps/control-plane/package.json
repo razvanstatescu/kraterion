@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "enoki:smoke": "tsx scripts/enoki-live-smoke.ts",
-    "stripe:sync": "tsx scripts/stripe/sync.ts"
+    "stripe:sync": "tsx scripts/stripe/sync.ts",
+    "replay": "tsx scripts/kraterion-replay.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

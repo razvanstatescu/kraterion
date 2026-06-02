@@ -15,6 +15,7 @@ import { PooledBlobCertifiedHandler } from "./handlers/pooled-blob-certified.han
 import { PooledBlobDeletedHandler } from "./handlers/pooled-blob-deleted.handler.js";
 import { PoolExtendedHandler } from "./handlers/pool-extended.handler.js";
 import { PoolResizedHandler } from "./handlers/pool-resized.handler.js";
+import { SessionAnchoredHandler } from "./handlers/session-anchored.handler.js";
 import type { EventHandler, ParsedEvent } from "./handlers/handler.interface.js";
 
 /**
@@ -56,6 +57,7 @@ export class DispatcherService {
     pooledBlobDeleted: PooledBlobDeletedHandler,
     poolExtended: PoolExtendedHandler,
     poolResized: PoolResizedHandler,
+    sessionAnchored: SessionAnchoredHandler,
   ) {
     this.handlers = [
       bucketCreated,
@@ -68,6 +70,7 @@ export class DispatcherService {
       pooledBlobDeleted,
       poolExtended,
       poolResized,
+      sessionAnchored,
     ];
   }
 

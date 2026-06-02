@@ -51,3 +51,4 @@ prisma/*.db-journal
 
 # deploy archive — full sui client publish responses, kept locally for forensics
 deploy/
+docs/kraterion-strategy-v3.md

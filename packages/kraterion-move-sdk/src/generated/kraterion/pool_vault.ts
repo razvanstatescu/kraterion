@@ -527,6 +527,76 @@ export function resizeGrow(options: ResizeGrowOptions) {
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
+export interface AnchorSessionArguments {
+    vault: RawTransactionArgument<string>;
+    reserve: RawTransactionArgument<string>;
+    blobId: RawTransactionArgument<number | bigint>;
+    sealIdentity: RawTransactionArgument<Array<number>>;
+    traceHash: RawTransactionArgument<Array<number>>;
+    sessionId: RawTransactionArgument<Array<number>>;
+    agentId: RawTransactionArgument<Array<number>>;
+    invocationCount: RawTransactionArgument<number>;
+}
+export interface AnchorSessionOptions {
+    package?: string;
+    arguments: AnchorSessionArguments | [
+        vault: RawTransactionArgument<string>,
+        reserve: RawTransactionArgument<string>,
+        blobId: RawTransactionArgument<number | bigint>,
+        sealIdentity: RawTransactionArgument<Array<number>>,
+        traceHash: RawTransactionArgument<Array<number>>,
+        sessionId: RawTransactionArgument<Array<number>>,
+        agentId: RawTransactionArgument<Array<number>>,
+        invocationCount: RawTransactionArgument<number>
+    ];
+}
+/**
+ * Emit a `KraterionSessionAnchored` event linking a Walrus PooledBlob (already
+ * registered in this vault by the companion `register_blob` call composed earlier
+ * in the same PTB) to an off-chain agent session. Pure event emission — no Walrus
+ * capacity ops, no reserve drain.
+ *
+ * Single transaction emits two events the indexer consumes:
+ *
+ * 1.  `KraterionPooledBlobRegistered` from `register_blob` — drives the
+ *     `PooledBlob` Postgres row (just like S3 PUT or K5 manifest archive).
+ * 2.  `KraterionSessionAnchored` from this call — drives the `AgentSessionTrace`
+ *     row. Its tx digest is the replay handle.
+ *
+ * `blob_id` is the same u256 passed to `register_blob`. We resolve the
+ * PooledBlob's on-chain object ID here via `walrus::storage_pool::blob_object_id`
+ * rather than asking the gateway to pass it through — Walrus already guarantees
+ * deterministic resolution.
+ *
+ * `trace_hash` is the 32-byte SHA-256 of the canonical-JSON, plaintext trace
+ * before Seal encryption + gzip. Off-chain replay verifies this hash after
+ * decrypting; mismatch means the platform tampered.
+ *
+ * Same trust gates as the blob ops: `platform_authorized` must be true and caller
+ * must be on the reserve whitelist. After user revocation, new sessions cannot be
+ * anchored, but blobs from prior sessions stay readable (Seal policy gates decrypt
+ * independently).
+ */
+export function anchorSession(options: AnchorSessionOptions) {
+    const packageAddress = options.package ?? '@local-pkg/kraterion';
+    const argumentsTypes = [
+        null,
+        null,
+        'u256',
+        'vector<u8>',
+        'vector<u8>',
+        'vector<u8>',
+        'vector<u8>',
+        'u32'
+    ] satisfies (string | null)[];
+    const parameterNames = ["vault", "reserve", "blobId", "sealIdentity", "traceHash", "sessionId", "agentId", "invocationCount"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'pool_vault',
+        function: 'anchor_session',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+    });
+}
 export interface RevokeAllArguments {
     vault: RawTransactionArgument<string>;
 }

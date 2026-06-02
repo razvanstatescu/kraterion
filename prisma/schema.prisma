@@ -45,11 +45,19 @@ model Project {
   default_region String   @default("eu-central-1")
   created_at     DateTime @default(now())
 
+  /// Replayable-runs setting. An AgentSession is auto-flushed (Walrus
+  /// blob + Sui anchor) after this many seconds without activity.
+  /// Default 10 min. The demo override is ~60s set per-project for fast
+  /// iteration. Hard caps (1 MB / 24h) apply regardless.
+  session_idle_seconds Int @default(600)
+
   account              Account              @relation(fields: [account_id], references: [id])
   buckets              Bucket[]
   api_keys             ApiKey[]
   provider_credentials ProviderCredential[]
   agents               KraterionAgent[]
+  agent_sessions       AgentSession[]
+  agent_session_traces AgentSessionTrace[]
   /// Lazy 1:1 — set the first time the project does a PUT. The vault is
   /// created on-chain by the gateway (whitelisted on the reserve);
   /// indexer writes this row from `KraterionVaultCreated`.
@@ -397,8 +405,9 @@ model PooledBlob {
   certified_at          DateTime?
   deleted_at            DateTime?
 
-  storage_pool StoragePool @relation(fields: [storage_pool_id], references: [id])
-  s3_object    S3Object?
+  storage_pool  StoragePool        @relation(fields: [storage_pool_id], references: [id])
+  s3_object     S3Object?
+  session_trace AgentSessionTrace?
 
   @@index([storage_pool_id, status])
   @@index([walrus_blob_id])
@@ -788,6 +797,7 @@ model KraterionAgent {
   tools        AgentTool[]
   invocations  AgentInvocation[]
   share_tokens AgentShareToken[]
+  sessions     AgentSession[]
 
   @@unique([project_id, name])
   @@index([project_id])
@@ -853,6 +863,11 @@ model AgentInvocation {
   // own site; the token (not a user) is the principal we audit against.
   share_token_id  String?
 
+  /// Parent AgentSession this invocation rolls into. Set on the live path
+  /// before the LLM call. Nullable for backfill safety + agents with no
+  /// attached knowledge bucket (sessionless, no on-chain anchor produced).
+  session_id String?
+
   // 'pending' | 'completed' | 'failed' | 'revoked'.
   // 'revoked' is set when the agent was revoked mid-request (post-credential-fetch, pre-LLM-call).
   status String @default("pending")
@@ -881,6 +896,25 @@ model AgentInvocation {
   // `output` and resolvable against on-chain manifests for verification.
   cited_hashes Bytes[]
 
+  /// Frozen retrieval breakdown at the moment of this turn. JSON array of
+  /// `{bucket_id, chunk_id, ordinal, content_hash, s3_key, rrf_score}` —
+  /// no chunk text, recoverable by hash. Used by the session-archive
+  /// worker to assemble the canonical trace blob, and by the replay
+  /// endpoint to short-circuit retrieval on re-execution. Null while the
+  /// invocation is still pending; populated at completion.
+  retrieval_snapshot Json?
+
+  /// OpenAI `seed` parameter for this turn. Derived from the first 4
+  /// bytes of `id` interpreted as int32 so replays are reproducible
+  /// given the same input. Null on legacy rows + on provider paths
+  /// that don't support seed.
+  seed Int?
+  /// OpenAI `system_fingerprint` returned with the completion.
+  /// Identifies the backend config version. On replay, a mismatch
+  /// surfaces as a yellow banner ("backend changed since this run") —
+  /// determinism guarantees fall back to best-effort.
+  system_fingerprint String?
+
   // Billing imputation. Populated by the agents controller right after
   // the OpenAI response, using the price catalog snapshot recorded in
   // `cost_price_version` so the dollar value is immune to later
@@ -901,9 +935,11 @@ model AgentInvocation {
 
   agent      KraterionAgent  @relation(fields: [agent_id], references: [id], onDelete: Cascade)
   tool_calls AgentToolCall[]
+  session    AgentSession?   @relation(fields: [session_id], references: [id])
 
   @@index([agent_id, created_at])
   @@index([project_id, created_at])
+  @@index([session_id])
 }
 
 /// Per-tool-call audit row. Zero-to-many per AgentInvocation; one row
@@ -957,6 +993,100 @@ model AgentToolCall {
 
   @@unique([invocation_id, tool_call_id])
   @@index([invocation_id, created_at])
+}
+
+/// A buffered, multi-turn agent conversation. One row spans N
+/// `AgentInvocation`s for the same agent + principal until idle for
+/// `Project.session_idle_seconds` (default 600s), trace exceeds 1 MB, or
+/// session age exceeds 24h — whichever first. On flush, the worker
+/// builds a canonical-JSON trace, Seal-encrypts, registers as a
+/// PooledBlob in the project's pool, and emits `KraterionSessionAnchored`
+/// in the same PTB as `register_blob`. The anchor tx digest is the
+/// replay handle.
+///
+/// `principal_kind` mirrors `AgentInvocation`'s auth columns:
+/// 'user' | 'api_key' | 'oauth_client' | 'share_token'. `principal_id`
+/// is the matching ID (User.id / ApiKey.id / OAuthClient.id /
+/// AgentShareToken.id). Session keying is `(agent_id, principal_kind,
+/// principal_id)`; the SDK middleware may override via
+/// `X-Kraterion-Session-Id` to join sessions explicitly.
+model AgentSession {
+  id         String @id @default(uuid())
+  project_id String
+  agent_id   String
+
+  /// 'user' | 'api_key' | 'oauth_client' | 'share_token'.
+  principal_kind String
+  /// Matching ID for `principal_kind`. Not a FK because the target table
+  /// varies; the agents controller validates the join at attach time.
+  principal_id   String
+
+  /// 'open' | 'flushing' | 'anchored' | 'failed'. State machine:
+  ///   open       — accepting more invocations
+  ///   flushing   — sweeper picked it up; worker job pending
+  ///   anchored   — Walrus blob + Sui event committed; immutable
+  ///   failed     — worker exhausted retries; surfaced in dashboard
+  status String @default("open")
+
+  opened_at        DateTime  @default(now())
+  /// Bumped on every chat completion. The sweeper reads this against
+  /// `now - Project.session_idle_seconds` to find sessions to flush.
+  last_activity_at DateTime  @default(now())
+  closed_at        DateTime?
+  /// 'idle' | 'size_cap' | 'age_cap' | 'explicit_end'. Set at flush.
+  close_reason     String?
+
+  invocation_count Int @default(0)
+
+  /// 32-byte Sui digest. Set by the indexer when
+  /// `KraterionSessionAnchored` lands. Until then, null.
+  anchored_tx_digest Bytes?
+
+  project     Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  agent       KraterionAgent    @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  invocations AgentInvocation[]
+  trace       AgentSessionTrace?
+
+  @@index([agent_id, principal_kind, principal_id, status])
+  @@index([status, last_activity_at])
+  @@index([project_id, opened_at])
+}
+
+/// On-chain artifact for one anchored AgentSession. Indexer writes this
+/// from `KraterionSessionAnchored`. Joined to the PooledBlob row written
+/// by the paired `KraterionPooledBlobRegistered` event in the same tx.
+model AgentSessionTrace {
+  id             String @id @default(uuid())
+  session_id     String @unique
+  project_id     String
+  pooled_blob_id String @unique
+
+  /// Mirror of PooledBlob.walrus_blob_id for direct lookup without join.
+  walrus_blob_id String
+  /// 48-byte Seal IBE identity: `bucket_uid (32) || session_uuid (16)`.
+  seal_identity  Bytes
+  /// 32-byte SHA-256 of the canonical-JSON, plaintext trace bytes.
+  trace_hash     Bytes
+  /// Number of distinct chat completions rolled into the trace.
+  invocation_count       Int
+  /// Plaintext serialized JSON bytes (pre-gzip, pre-Seal). For dashboard
+  /// display and the size-cap path.
+  trace_size_bytes       Int
+  /// Gzipped, post-Seal bytes — what we actually paid Walrus to store.
+  trace_gzip_size_bytes  Int
+
+  /// 32-byte Sui digest of the anchor tx. URL-safe replay handle.
+  tx_digest  Bytes
+  event_seq  Int
+
+  anchored_at DateTime @default(now())
+
+  session     AgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  pooled_blob PooledBlob   @relation(fields: [pooled_blob_id], references: [id])
+
+  @@unique([tx_digest, event_seq])
+  @@index([project_id, anchored_at])
 }
 
 /// P6 — Embeddable chat widget share token. Customers paste a

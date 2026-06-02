@@ -309,6 +309,83 @@ fun test_extend_happy_path_advances_end_epoch() {
     ts::end(scenario);
 }
 
+// === anchor_session ===
+//
+// Happy-path requires a registered PooledBlob (needs committee signatures),
+// covered end-to-end via the worker session-archive pipeline against live
+// Walrus testnet. The Move-level tests here cover the auth & revocation
+// gates only — both asserts fire before the `blob_object_id` lookup so we
+// can pass any `blob_id` value.
+
+#[test, expected_failure(abort_code = ::kraterion::pool_vault::ERevoked)]
+fun test_anchor_session_aborts_after_revoke() {
+    let mut scenario = ts::begin(ADMIN);
+    setup_reserve(&mut scenario);
+    authorize_and_fund_reserve(&mut scenario, GATEWAY, RESERVE_TOPUP_FROST);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    let mut system = walrus_system::new_for_testing(ts::ctx(&mut scenario));
+    do_create_vault(&mut scenario, &mut system, GATEWAY, USER, b"project-010");
+
+    ts::next_tx(&mut scenario, USER);
+    {
+        let mut vault = ts::take_shared<KraterionPoolVault>(&scenario);
+        pool_vault::revoke_all(&mut vault, ts::ctx(&mut scenario));
+        ts::return_shared(vault);
+    };
+
+    ts::next_tx(&mut scenario, GATEWAY);
+    let reserve = ts::take_shared<PlatformReserve>(&scenario);
+    let mut vault = ts::take_shared<KraterionPoolVault>(&scenario);
+    pool_vault::anchor_session(
+        &mut vault,
+        &reserve,
+        0u256,
+        b"seal_identity_48_bytes_placeholder_..............",
+        b"trace_hash_32_bytes_placeholder_",
+        b"session_uuid_16b",
+        b"agent_uuid_16__b",
+        3u32,
+        ts::ctx(&mut scenario),
+    );
+    ts::return_shared(reserve);
+    ts::return_shared(vault);
+
+    walrus_system::destroy_for_testing(system);
+    ts::end(scenario);
+}
+
+#[test, expected_failure(abort_code = ::kraterion::reserve::ENotAuthorized)]
+fun test_anchor_session_aborts_when_caller_not_on_whitelist() {
+    let mut scenario = ts::begin(ADMIN);
+    setup_reserve(&mut scenario);
+    authorize_and_fund_reserve(&mut scenario, GATEWAY, RESERVE_TOPUP_FROST);
+
+    ts::next_tx(&mut scenario, ADMIN);
+    let mut system = walrus_system::new_for_testing(ts::ctx(&mut scenario));
+    do_create_vault(&mut scenario, &mut system, GATEWAY, USER, b"project-011");
+
+    ts::next_tx(&mut scenario, STRANGER);
+    let reserve = ts::take_shared<PlatformReserve>(&scenario);
+    let mut vault = ts::take_shared<KraterionPoolVault>(&scenario);
+    pool_vault::anchor_session(
+        &mut vault,
+        &reserve,
+        0u256,
+        b"seal_identity_48_bytes_placeholder_..............",
+        b"trace_hash_32_bytes_placeholder_",
+        b"session_uuid_16b",
+        b"agent_uuid_16__b",
+        3u32,
+        ts::ctx(&mut scenario),
+    );
+    ts::return_shared(reserve);
+    ts::return_shared(vault);
+
+    walrus_system::destroy_for_testing(system);
+    ts::end(scenario);
+}
+
 #[test]
 fun test_resize_grow_happy_path_increases_reserved_capacity() {
     let mut scenario = ts::begin(ADMIN);

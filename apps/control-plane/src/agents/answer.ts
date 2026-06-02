@@ -56,6 +56,13 @@ export interface AnswerNonStreamRequest {
    *  tokens with `cite_sources=false` — the model produces clean
    *  prose without any inline markers. */
   omitCitationInstructions?: boolean;
+  /** P9 (D10) — OpenAI `seed` parameter. Derived from the invocation
+   *  UUID by the caller so replays of the same run produce the same
+   *  output for deterministic providers. Best-effort: OpenAI documents
+   *  seed support as "best-effort" — `system_fingerprint` in the
+   *  response identifies the backend config; on replay, mismatched
+   *  fingerprints mean determinism no longer holds. */
+  seed?: number;
   stream?: false;
 }
 
@@ -69,6 +76,10 @@ export interface AnswerResult {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  /** P9 — OpenAI's backend config identifier. Returned alongside the
+   *  completion; recorded on the AgentInvocation row for later
+   *  comparison at replay time. */
+  system_fingerprint: string | null;
 }
 
 const CITATION_INSTRUCTIONS = `Cite every claim inline using the format [chunk N] where N is the 1-indexed chunk number from the supplied retrieval block. Multiple citations are allowed: [chunk 1][chunk 3]. Quote exact identifiers (function names, file paths, error strings) verbatim from the chunks where relevant. If the chunks don't cover the question, say "The supplied chunks don't cover this question."`;
@@ -129,6 +140,7 @@ export async function answerWithAgent(
     messages: buildMessages(req),
     temperature: req.temperature,
     max_tokens: req.maxTokens,
+    ...(typeof req.seed === "number" ? { seed: req.seed } : {}),
     ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
   });
   const answer = completion.choices[0]?.message?.content ?? "";
@@ -138,6 +150,7 @@ export async function answerWithAgent(
     model: completion.model ?? req.model,
     prompt_tokens: completion.usage?.prompt_tokens ?? 0,
     completion_tokens: completion.usage?.completion_tokens ?? 0,
+    system_fingerprint: completion.system_fingerprint ?? null,
     // The full completion is returned so the tool-call loop can read
     // `choices[0].finish_reason` and `tool_calls` without a second
     // parse.
@@ -160,6 +173,7 @@ export async function streamWithAgent(req: AnswerStreamRequest) {
     max_tokens: req.maxTokens,
     stream: true,
     stream_options: { include_usage: true },
+    ...(typeof req.seed === "number" ? { seed: req.seed } : {}),
     ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
   });
 }

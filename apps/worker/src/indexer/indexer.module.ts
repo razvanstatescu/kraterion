@@ -15,6 +15,7 @@ import { PooledBlobCertifiedHandler } from "./handlers/pooled-blob-certified.han
 import { PooledBlobDeletedHandler } from "./handlers/pooled-blob-deleted.handler.js";
 import { PoolExtendedHandler } from "./handlers/pool-extended.handler.js";
 import { PoolResizedHandler } from "./handlers/pool-resized.handler.js";
+import { SessionAnchoredHandler } from "./handlers/session-anchored.handler.js";
 
 @Module({
   // `EmbeddingsModule` is imported so `PooledBlobRegisteredHandler` can
@@ -26,9 +27,9 @@ import { PoolResizedHandler } from "./handlers/pool-resized.handler.js";
     DeadLetterService,
     DispatcherService,
     IndexerService,
-    // Active handlers — one per indexable event type. 10 total:
+    // Active handlers — one per indexable event type. 11 total:
     // 3 storage-backend-agnostic (bucket lifecycle + access) + 7 pool
-    // model handlers.
+    // model handlers + 1 P9 session-anchor handler.
     BucketCreatedHandler,
     ApiAccessHandler,
     BucketVisibilityChangedHandler,
@@ -39,6 +40,7 @@ import { PoolResizedHandler } from "./handlers/pool-resized.handler.js";
     PooledBlobDeletedHandler,
     PoolExtendedHandler,
     PoolResizedHandler,
+    SessionAnchoredHandler,
   ],
 })
 export class IndexerModule {}

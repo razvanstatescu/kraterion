@@ -47,11 +47,25 @@ export class PooledBlobRegisteredHandler implements EventHandler {
   async handle(tx: Prisma.TransactionClient, event: ParsedEvent): Promise<void> {
     const parsed = KraterionPooledBlobRegisteredSchema.parse(event.payload);
 
-    // Reserved-namespace guard — knowledge manifests come through a
-    // different path. The gateway already refuses user PUTs under
-    // `_kraterion/`, so this should never fire in practice; defensive.
+    // Reserved-namespace handling.
+    //
+    // `_kraterion/manifests/*` — K5 knowledge manifest archives write
+    // their `manifest_walrus_blob_id` directly to `KnowledgeManifest`
+    // from the worker; no PooledBlob/S3Object row needed. Skip entirely.
+    //
+    // `_kraterion/sessions/*` — P9 session traces. The companion
+    // `SessionAnchoredHandler` (running on the next event in the same
+    // tx) looks up the PooledBlob row by `pooled_blob_object_id` to
+    // join to `AgentSessionTrace`. So we DO need the PooledBlob row;
+    // we just skip the S3Object upsert (these aren't user-facing
+    // objects). Fall through to the registration logic below, with an
+    // early-exit flag set before the S3Object section.
+    //
+    // The gateway already refuses user PUTs under `_kraterion/`, so
+    // any other reserved prefix is a programming bug.
     const s3Key = parsed.s3_key.toString("utf8");
-    if (s3Key.startsWith("_kraterion/")) {
+    const isSessionTrace = s3Key.startsWith("_kraterion/sessions/");
+    if (s3Key.startsWith("_kraterion/") && !isSessionTrace) {
       this.logger.warn(
         `Skipping reserved-namespace blob: vault=${parsed.vault_id} key=${s3Key}`,
       );
@@ -180,6 +194,18 @@ export class PooledBlobRegisteredHandler implements EventHandler {
           last_synced_at: new Date(),
         },
       });
+    }
+
+    // Session traces stop here — they don't have an S3Object surface
+    // and they don't get embedded. The companion
+    // `SessionAnchoredHandler` will read the PooledBlob row above to
+    // link the `AgentSessionTrace` row.
+    if (isSessionTrace) {
+      this.logger.log(
+        `PooledBlob registered (session trace): vault=${parsed.vault_id.slice(0, 12)}… ` +
+          `pooled=${parsed.pooled_blob_object_id.slice(0, 12)}… key="${s3Key}"`,
+      );
+      return;
     }
 
     // Upsert S3Object keyed on (bucket_id, s3_key). On overwrite (same

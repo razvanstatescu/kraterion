@@ -151,6 +151,32 @@ export const KraterionPoolResizedGrowSchema = z
   .passthrough();
 export type KraterionPoolResizedGrow = z.infer<typeof KraterionPoolResizedGrowSchema>;
 
+/// P9 — `KraterionSessionAnchored` emitted by `pool_vault::anchor_session`
+/// in the same PTB as `register_blob`. Paired event: the
+/// `KraterionPooledBlobRegistered` handler writes the PooledBlob row;
+/// `SessionAnchoredHandler` then writes the AgentSessionTrace row
+/// linking that PooledBlob to its parent AgentSession.
+export const KraterionSessionAnchoredSchema = z
+  .object({
+    vault_id: suiId,
+    pooled_blob_object_id: suiId,
+    walrus_blob_id: u64Str,
+    /// 48-byte Seal IBE identity: `bucket_uid (32) || session_uuid (16)`.
+    seal_identity: bytesB64,
+    /// 32-byte SHA-256 of the canonical-JSON plaintext trace.
+    trace_hash: bytesB64,
+    /// 16-byte AgentSession UUID raw bytes. Decoded in the handler to
+    /// look up the parent session row.
+    session_id: bytesB64,
+    /// 16-byte KraterionAgent UUID raw bytes. Recorded on the trace row
+    /// for fast filtering.
+    agent_id: bytesB64,
+    invocation_count: u32,
+    anchored_by: suiId,
+  })
+  .passthrough();
+export type KraterionSessionAnchored = z.infer<typeof KraterionSessionAnchoredSchema>;
+
 export const ApiAccessGrantedSchema = z
   .object({ bucket_id: suiId, owner: suiId, granted_to: suiId })
   .passthrough();

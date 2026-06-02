@@ -783,6 +783,97 @@ export function useAgent(agentId: string | undefined) {
   });
 }
 
+// === P9 (D12) — Replayable runs ===========================================
+
+/** Mirrors the JSON returned by `GET /v1/agents/:agentId/sessions`. */
+export interface AgentSessionJson {
+  id: string;
+  status: "open" | "flushing" | "anchored" | "failed";
+  principal_kind: "session" | "api_key" | "share_token" | (string & {});
+  opened_at: string;
+  last_activity_at: string;
+  closed_at: string | null;
+  close_reason: string | null;
+  invocation_count: number;
+  /** Set only when `status === 'anchored'`. The base58 Sui digest the
+   *  user pastes into `kraterion replay` (or clicks through to
+   *  Suiscan). */
+  tx_digest: string | null;
+}
+
+interface AgentSessionListResponse {
+  sessions: AgentSessionJson[];
+}
+
+/** Latest sessions for an agent, newest first. Polls every 5s so the
+ *  dashboard reflects the sweeper transition open → flushing →
+ *  anchored without a manual refresh. */
+export function useAgentSessions(agentId: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "agents", agentId ?? "none", "sessions"],
+    queryFn: () =>
+      cpFetch<AgentSessionListResponse>(`/v1/agents/${agentId}/sessions`),
+    enabled: Boolean(session?.token && agentId),
+    refetchInterval: 5_000,
+    staleTime: 2_000,
+  });
+}
+
+/** Replay-endpoint response shape. Mirrors `RunsService.verify(...)`'s
+ *  return; the optional `replay` field is populated when the dashboard
+ *  passes `rerun=true`. */
+export interface ReplayResponseJson {
+  tx_digest: string;
+  session_id: string;
+  agent_id: string;
+  project_id: string;
+  invocation_count: number;
+  anchored_at: string;
+  walrus_blob_id: string;
+  trace_hash_hex: string;
+  trace_hash_matches: boolean;
+  trace: Record<string, unknown>;
+  replay?: {
+    turns: Array<{
+      ordinal: number;
+      invocation_id: string;
+      captured_output: string;
+      replay_output: string;
+      captured_system_fingerprint: string | null;
+      replay_system_fingerprint: string | null;
+      system_fingerprint_matched: boolean;
+      tool_calls_replayed: string[];
+      diff: {
+        differs: boolean;
+        lines: Array<{ kind: "equal" | "captured" | "replay"; text: string }>;
+      };
+    }>;
+    any_output_differs: boolean;
+    any_fingerprint_mismatch: boolean;
+  };
+}
+
+/** Fetch a run by tx digest. Loaded on-demand when the user clicks a
+ *  session row in the Runs tab. */
+export function useRunReplay(args: {
+  txDigest: string | undefined;
+  rerun: boolean;
+}) {
+  const { session } = useCpSession();
+  const { txDigest, rerun } = args;
+  return useQuery({
+    queryKey: ["v1", "runs", txDigest ?? "none", rerun ? "rerun" : "verify"],
+    queryFn: () =>
+      cpFetch<ReplayResponseJson>(
+        `/v1/runs/${txDigest}/replay${rerun ? "?rerun=true" : ""}`,
+      ),
+    enabled: Boolean(session?.token && txDigest),
+    // Rerun is expensive (real LLM calls). Keep it cached aggressively.
+    staleTime: 60_000,
+  });
+}
+
 export interface CreateAgentInput {
   name: string;
   description?: string;

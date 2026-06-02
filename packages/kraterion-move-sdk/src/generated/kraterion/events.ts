@@ -141,3 +141,34 @@ export const KraterionPoolResizedShrink = new MoveStruct({ name: `${$moduleName}
         new_reserved_encoded_capacity_bytes: bcs.u64(),
         resized_by: bcs.Address
     } });
+export const KraterionSessionAnchored = new MoveStruct({ name: `${$moduleName}::KraterionSessionAnchored`, fields: {
+        vault_id: bcs.Address,
+        /**
+         * PooledBlob object id resolved from the pool at emit time. Same value the
+         * companion `KraterionPooledBlobRegistered` event carries for the same blob_id.
+         */
+        pooled_blob_object_id: bcs.Address,
+        walrus_blob_id: bcs.u256(),
+        /**
+         * 48-byte Seal IBE identity. `bucket_uid (32) || session_uuid (16)` — mirrors the
+         * standard pattern so the existing `seal_approve` policy gates decryption without
+         * a new entry.
+         */
+        seal_identity: bcs.vector(bcs.u8()),
+        /**
+         * 32-byte SHA-256 of the canonical-JSON, plaintext trace bytes (recursively sorted
+         * keys, before Seal encryption and gzip).
+         */
+        trace_hash: bcs.vector(bcs.u8()),
+        /**
+         * 16-byte AgentSession UUID. Off-chain join key into the `AgentSession` Postgres
+         * row.
+         */
+        session_id: bcs.vector(bcs.u8()),
+        /** 16-byte KraterionAgent UUID. */
+        agent_id: bcs.vector(bcs.u8()),
+        /** Number of distinct chat completions rolled into this session. */
+        invocation_count: bcs.u32(),
+        /** The address that signed the anchor tx (gateway operator). */
+        anchored_by: bcs.Address
+    } });

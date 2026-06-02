@@ -178,6 +178,45 @@ public struct KraterionPoolResizedShrink has copy, drop {
     resized_by: address,
 }
 
+/// Anchors an agent session's execution trace on chain. The trace itself
+/// lives in a Walrus PooledBlob (registered by the companion
+/// `register_blob` call composed in the same PTB); this event ties the
+/// blob to an off-chain session and commits the canonical-JSON hash so
+/// readers can verify integrity without decrypting.
+///
+/// One session, one anchor: multi-turn conversations buffer in Postgres
+/// during the session and flush as a single blob + single event when the
+/// session goes idle (default 10 min) or hits a size/age cap. The tx
+/// digest of the emitting transaction is the replay handle.
+///
+/// Open/close timestamps are intentionally NOT in this event — the
+/// `AgentSession` Postgres row carries them, and they're inside the
+/// trace blob itself.
+public struct KraterionSessionAnchored has copy, drop {
+    vault_id: ID,
+    /// PooledBlob object id resolved from the pool at emit time. Same
+    /// value the companion `KraterionPooledBlobRegistered` event carries
+    /// for the same blob_id.
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    /// 48-byte Seal IBE identity. `bucket_uid (32) || session_uuid (16)`
+    /// — mirrors the standard pattern so the existing `seal_approve`
+    /// policy gates decryption without a new entry.
+    seal_identity: vector<u8>,
+    /// 32-byte SHA-256 of the canonical-JSON, plaintext trace bytes
+    /// (recursively sorted keys, before Seal encryption and gzip).
+    trace_hash: vector<u8>,
+    /// 16-byte AgentSession UUID. Off-chain join key into the
+    /// `AgentSession` Postgres row.
+    session_id: vector<u8>,
+    /// 16-byte KraterionAgent UUID.
+    agent_id: vector<u8>,
+    /// Number of distinct chat completions rolled into this session.
+    invocation_count: u32,
+    /// The address that signed the anchor tx (gateway operator).
+    anchored_by: address,
+}
+
 public(package) fun emit_bucket_created(
     bucket_id: ID,
     owner: address,
@@ -365,5 +404,29 @@ public(package) fun emit_pool_resized_shrink(
         percent_shrunk,
         new_reserved_encoded_capacity_bytes,
         resized_by,
+    });
+}
+
+public(package) fun emit_session_anchored(
+    vault_id: ID,
+    pooled_blob_object_id: ID,
+    walrus_blob_id: u256,
+    seal_identity: vector<u8>,
+    trace_hash: vector<u8>,
+    session_id: vector<u8>,
+    agent_id: vector<u8>,
+    invocation_count: u32,
+    anchored_by: address,
+) {
+    event::emit(KraterionSessionAnchored {
+        vault_id,
+        pooled_blob_object_id,
+        walrus_blob_id,
+        seal_identity,
+        trace_hash,
+        session_id,
+        agent_id,
+        invocation_count,
+        anchored_by,
     });
 }

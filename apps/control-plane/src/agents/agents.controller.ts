@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_CHAT_MODEL_ID, isKnownChatModel } from "@kraterion/shared";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { imputeAndRecordInvocationCost } from "../billing/invocation-cost.js";
+import { Prisma } from "@prisma/client";
 import {
   requireAccountPrincipal,
   requirePrincipal,
@@ -28,7 +29,14 @@ import { KnowledgeService } from "../knowledge/knowledge.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProviderCredentialService } from "../providers/provider-credential.service.js";
 import { parseBody } from "../validation/zod-pipe.js";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import { AgentsService } from "./agents.service.js";
+import { SessionService, type SessionPrincipalKind } from "./session.service.js";
+import {
+  SESSION_ARCHIVE_QUEUE,
+  type SessionArchiveJobData,
+} from "./session-archive-queue.constants.js";
 import { answerWithAgent, resolveCitations, streamWithAgent } from "./answer.js";
 import {
   chatCompletionsSchema,
@@ -88,10 +96,58 @@ export class AgentsController {
     private readonly presign: PresignService,
     private readonly shareTokenUsage: ShareTokenUsageService,
     private readonly shareTokens: ShareTokensService,
+    private readonly sessions: SessionService,
+    @InjectQueue(SESSION_ARCHIVE_QUEUE)
+    private readonly archiveQueue: Queue<SessionArchiveJobData>,
   ) {}
+
+  /** Map a `Principal` to the `(kind, id)` pair we record on AgentSession.
+   *  Session principals key on accountId (project ownership is implicit
+   *  via the agent); api_key on the bearer row id; share_token on the
+   *  share-token row id. */
+  private resolveSessionPrincipal(
+    user: ReturnType<typeof requirePrincipal>,
+    accountId: string,
+  ): { kind: SessionPrincipalKind; id: string } {
+    switch (user.kind) {
+      case "session":
+        return { kind: "session", id: accountId };
+      case "api_key":
+        return { kind: "api_key", id: user.apiKeyId };
+      case "share_token":
+        return { kind: "share_token", id: user.shareTokenId };
+    }
+  }
+
+  /** Build the `retrieval_snapshot` payload persisted on AgentInvocation
+   *  at completion. The session-archive worker (D4) assembles the
+   *  canonical trace from these snapshots. No chunk text — recoverable
+   *  by hash from KnowledgeChunk. */
+  private retrievalSnapshot(
+    hits: Awaited<ReturnType<KnowledgeService["search"]>>["hits"],
+    bucketIds: string[],
+    topK: number,
+  ): Prisma.InputJsonValue {
+    return {
+      bucket_ids: bucketIds,
+      top_k: topK,
+      hits: hits.map((h) => ({
+        bucket_id: h.bucket_id,
+        chunk_id: h.id,
+        ordinal: h.ordinal,
+        content_hash: h.content_hash,
+        s3_key: h.s3_key,
+        source_walrus_blob_id: h.source_walrus_blob_id,
+        rrf_score: h.rrf_score,
+      })),
+    };
+  }
 
   /** Build a ToolContext for the current chat invocation. Pure object —
    *  no DI hops at call time. */
+  // (See `seedFromInvocationId` at the bottom of this file for the
+  // module-scoped helper that derives the OpenAI `seed` from an
+  // AgentInvocation UUID.)
   private toolContext(args: {
     accountId: string;
     projectId: string;
@@ -233,6 +289,170 @@ export class AgentsController {
   }
 
   /**
+   * P9 (D12) — List the agent's recent AgentSession rows. Powers the
+   * dashboard's "Runs" tab. Account-scoped: only the owning account
+   * sees its own sessions.
+   *
+   * Returns latest 20 by default, ordered by `opened_at` DESC.
+   * Anchored sessions include `tx_digest` (the replay handle); open
+   * or flushing sessions return null so the dashboard can render the
+   * "still anchoring" state.
+   */
+  @Get("agents/:agentId/sessions")
+  async listSessions(
+    @Req() req: FastifyRequest,
+    @Param("agentId") agentId: string,
+    @Query("limit") limitStr?: string,
+  ): Promise<{
+    sessions: Array<{
+      id: string;
+      status: string;
+      principal_kind: string;
+      opened_at: string;
+      last_activity_at: string;
+      closed_at: string | null;
+      close_reason: string | null;
+      invocation_count: number;
+      tx_digest: string | null;
+    }>;
+  }> {
+    const user = requireAccountPrincipal(req);
+    // Ownership: agent → project → account.
+    const agent = await this.prisma.kraterionAgent.findUnique({
+      where: { id: agentId },
+      select: { project: { select: { account_id: true } } },
+    });
+    if (!agent || agent.project.account_id !== user.accountId) {
+      throw new ControlPlaneError("NotFound", "Agent not found");
+    }
+
+    const limit = Math.min(Math.max(parseInt(limitStr ?? "20", 10) || 20, 1), 100);
+    const rows = await this.prisma.agentSession.findMany({
+      where: { agent_id: agentId },
+      orderBy: { opened_at: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        principal_kind: true,
+        opened_at: true,
+        last_activity_at: true,
+        closed_at: true,
+        close_reason: true,
+        invocation_count: true,
+        anchored_tx_digest: true,
+      },
+    });
+    return {
+      sessions: rows.map((r) => ({
+        id: r.id,
+        status: r.status,
+        principal_kind: r.principal_kind,
+        opened_at: r.opened_at.toISOString(),
+        last_activity_at: r.last_activity_at.toISOString(),
+        closed_at: r.closed_at?.toISOString() ?? null,
+        close_reason: r.close_reason,
+        invocation_count: r.invocation_count,
+        // The digest is stored as UTF-8 bytes of the base58 string —
+        // matches the indexer convention. Decode to the canonical
+        // user-facing form here.
+        tx_digest: r.anchored_tx_digest
+          ? r.anchored_tx_digest.toString("utf-8")
+          : null,
+      })),
+    };
+  }
+
+  /**
+   * P9 — Force-flush an open AgentSession. Skips the worker's 60s idle
+   * sweep so the session anchors immediately on chain. Used by:
+   *   - the dashboard's "End session" button on the agent detail page
+   *   - SDK middleware (Feature 3) signalling "the consumer's outer
+   *     loop is done; archive now"
+   *
+   * Auth: session JWT or bearer API key, scoped to the agent's
+   * account. Share-token principals are deliberately excluded —
+   * the embed widget can't end its own session; the worker idle
+   * sweep handles that case.
+   *
+   * State machine: only `open` sessions accept the request. If the
+   * row is already `flushing`, `anchored`, or `failed` we return the
+   * current state without re-enqueueing.
+   */
+  @Post("agents/:agentId/sessions/:sessionId/end")
+  async endSession(
+    @Req() req: FastifyRequest,
+    @Param("agentId") agentId: string,
+    @Param("sessionId") sessionId: string,
+  ): Promise<{ session_id: string; status: string; enqueued: boolean }> {
+    const user = requireAccountPrincipal(req);
+    // Ownership: session → agent → project → account.
+    const session = await this.prisma.agentSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        status: true,
+        agent: { select: { id: true, project: { select: { account_id: true } } } },
+      },
+    });
+    if (!session || session.agent.id !== agentId) {
+      throw new ControlPlaneError("NotFound", "Session not found");
+    }
+    if (session.agent.project.account_id !== user.accountId) {
+      throw new ControlPlaneError("NotFound", "Session not found");
+    }
+
+    if (session.status !== "open") {
+      // Terminal or in-flight states are no-ops, surfaced to the caller.
+      return { session_id: session.id, status: session.status, enqueued: false };
+    }
+
+    // Atomic CAS to `flushing` — same pattern the worker sweeper uses.
+    // If a concurrent sweeper got there first, our count=0 and we just
+    // report the new state.
+    const flipped = await this.prisma.agentSession.updateMany({
+      where: { id: sessionId, status: "open" },
+      data: { status: "flushing" },
+    });
+    if (flipped.count !== 1) {
+      const after = await this.prisma.agentSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true },
+      });
+      return {
+        session_id: sessionId,
+        status: after?.status ?? "unknown",
+        enqueued: false,
+      };
+    }
+
+    try {
+      await this.archiveQueue.add(
+        "archive-session",
+        { session_id: sessionId, close_reason: "explicit_end" },
+        {
+          jobId: `session_${sessionId}`,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5_000 },
+          removeOnComplete: { age: 7 * 24 * 60 * 60, count: 1_000 },
+          removeOnFail: { age: 14 * 24 * 60 * 60 },
+        },
+      );
+      return { session_id: sessionId, status: "flushing", enqueued: true };
+    } catch (err) {
+      // Roll back so the worker sweeper can retry on its next tick.
+      await this.prisma.agentSession.updateMany({
+        where: { id: sessionId, status: "flushing" },
+        data: { status: "open" },
+      });
+      throw new ControlPlaneError(
+        "InternalError",
+        `Could not enqueue session archive: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * OpenAI Chat Completions-compatible endpoint. When `stream: true`,
    * responds with SSE chunks in the standard OpenAI shape; the
    * Kraterion citation block follows as a final non-standard event
@@ -348,6 +568,28 @@ export class AgentsController {
     const temperature = dto.temperature ?? agent.temperature;
     const maxTokens = dto.max_tokens ?? agent.max_tokens;
 
+    // P9 — Replayable agent runs: attach this invocation to an open
+    // AgentSession (or open a new one) so its trace can be batched and
+    // anchored on idle. Sessions are opt-out for agents with zero
+    // knowledge buckets attached (no bucket → no seal_identity prefix →
+    // no on-chain anchor possible). The worker would no-op anyway; keep
+    // the DB clean by not opening orphan sessions in the first place.
+    let sessionId: string | null = null;
+    if (agent.buckets.length > 0) {
+      const principal = this.resolveSessionPrincipal(user, accountId);
+      const project = await this.prisma.project.findUnique({
+        where: { id: agent.project_id },
+        select: { session_idle_seconds: true },
+      });
+      sessionId = await this.sessions.attachOrOpen({
+        agentId: agent.id,
+        projectId: agent.project_id,
+        principalKind: principal.kind,
+        principalId: principal.id,
+        idleSeconds: project?.session_idle_seconds ?? 600,
+      });
+    }
+
     // Audit row up-front so credential / provider failures still
     // produce a trace. The row starts `pending`; we patch it to
     // 'completed' or 'failed' before returning / on error.
@@ -362,11 +604,18 @@ export class AgentsController {
         user_id: user.kind === "session" ? user.accountId : null,
         api_key_id: user.kind === "api_key" ? user.apiKeyId : null,
         share_token_id: user.kind === "share_token" ? user.shareTokenId : null,
+        session_id: sessionId,
         input,
         model: requestedModel,
         bucket_ids: agent.buckets.map((b) => b.bucket_id),
       },
     });
+
+    // P9 (D10) — Derive a deterministic seed from the invocation UUID
+    // so a replay of this turn (same seed + temp + retrieval) produces
+    // the same output on deterministic providers. `seed` is OpenAI's
+    // own knob and a no-op for providers that don't support it.
+    const seed = seedFromInvocationId(invocation.id);
 
     const wallStart = Date.now();
 
@@ -456,6 +705,9 @@ export class AgentsController {
           omitCitationInstructions: suppressCitations,
           tools,
           toolCtx,
+          sessionId,
+          agentTopK: agent.top_k,
+          seed,
           ...(user.kind === "share_token"
             ? { shareTokenId: user.shareTokenId }
             : {}),
@@ -480,6 +732,7 @@ export class AgentsController {
               hits: topHits,
               temperature,
               maxTokens,
+              seed,
               ...(suppressCitations ? { omitCitationInstructions: true } : {}),
               ...(tools ? { tools, extraMessages } : { extraMessages }),
             }),
@@ -542,9 +795,19 @@ export class AgentsController {
           cited_hashes: answered.citations.map((c) =>
             Buffer.from(c.chunk_hash, "hex"),
           ),
+          retrieval_snapshot: this.retrievalSnapshot(topHits, bucketIds, agent.top_k),
+          seed,
+          system_fingerprint: answered.system_fingerprint,
           finished_at: new Date(),
         },
       });
+
+      // P9 — Bump the parent AgentSession's invocation_count +
+      // last_activity_at so the idle-flush clock restarts. Fire-and-forget:
+      // a session bump failure must never break a completed chat turn.
+      if (sessionId) {
+        void this.sessions.recordCompletion(sessionId);
+      }
 
       // B1 billing — compute cost from the canonical OpenAI price
       // catalog, patch `cost_usd_micros` / `cost_price_version` /
@@ -736,6 +999,19 @@ export class AgentsController {
     /** P6 — when the chat was authed via a share token, the token id
      *  used to bump `ShareTokenUsageDay` after a successful stream. */
     shareTokenId?: string | undefined;
+    /** P9 — parent AgentSession id (null if the agent has no attached
+     *  buckets and therefore no anchorable session). Used to bump
+     *  `invocation_count` + `last_activity_at` at the clean-stream
+     *  completion site. */
+    sessionId: string | null;
+    /** P9 — agent's `top_k` retrieval setting, persisted in the
+     *  per-invocation `retrieval_snapshot` so the replay path can
+     *  reproduce retrieval mode. */
+    agentTopK: number;
+    /** P9 (D10) — deterministic seed for the OpenAI call. Derived from
+     *  the invocation UUID so replays reproduce on deterministic
+     *  providers. */
+    seed: number;
   }) {
     const { req, reply } = args;
 
@@ -773,6 +1049,7 @@ export class AgentsController {
     let accumulated = "";
     let promptTokens = 0;
     let completionTokens = 0;
+    let systemFingerprint: string | null = null;
     const llmStart = Date.now();
 
     try {
@@ -815,6 +1092,7 @@ export class AgentsController {
               hits: args.hits,
               temperature: args.temperature,
               maxTokens: args.maxTokens,
+              seed: args.seed,
               stream: true,
               ...(args.omitCitationInstructions
                 ? { omitCitationInstructions: true }
@@ -838,6 +1116,12 @@ export class AgentsController {
           accumulateToolCallDeltas(toolCallBuf, choice?.delta?.tool_calls);
           if (choice?.finish_reason) {
             roundFinishReason = choice.finish_reason;
+          }
+          // P9 — `system_fingerprint` is present on most chunks in the
+          // OpenAI streaming shape. Capture the latest non-null value;
+          // by stream-end this holds the backend config id we persist.
+          if (chunk.system_fingerprint) {
+            systemFingerprint = chunk.system_fingerprint;
           }
           // Forward verbatim — stock OpenAI SDKs expect this exact shape.
           sseSend({
@@ -981,9 +1265,23 @@ export class AgentsController {
           cited_hashes: citations.map((c) =>
             Buffer.from(c.chunk_hash, "hex"),
           ),
+          retrieval_snapshot: this.retrievalSnapshot(
+            args.hits,
+            args.bucketIds,
+            args.agentTopK,
+          ),
+          seed: args.seed,
+          system_fingerprint: systemFingerprint,
           finished_at: new Date(),
         },
       });
+
+      // P9 — Bump parent AgentSession's invocation_count +
+      // last_activity_at. Fire-and-forget; never block a stream that
+      // already finished cleanly.
+      if (args.sessionId) {
+        void this.sessions.recordCompletion(args.sessionId);
+      }
 
       // B1 billing — same hook as the non-streaming path. Best-effort
       // and fire-and-forget so a billing failure can never break a
@@ -1023,6 +1321,22 @@ export class AgentsController {
 /** Best-effort JSON parse for embedding arguments in the
  *  `kraterion.tool_call` SSE frame (or returning the raw string when
  *  the model emitted invalid JSON mid-stream). */
+/** P9 (D10) — Derive a deterministic OpenAI `seed` from an
+ *  AgentInvocation UUID. Takes the first 4 hex chars (16 bits) and
+ *  signs them so they fit in JS's safe-integer range. OpenAI's seed
+ *  is a number; consistent input gives the same number, which gives
+ *  the same output for deterministic providers.
+ *
+ *  We deliberately use only 16 bits (~65k unique seeds) because (a)
+ *  OpenAI's seed-determinism only kicks in when ALL inputs are
+ *  identical, so collisions are harmless, and (b) staying inside u16
+ *  avoids any int32-overflow surprise on roundtrip through Postgres
+ *  (Int) + JSON. */
+function seedFromInvocationId(invocationId: string): number {
+  const hex = invocationId.replace(/-/g, "").slice(0, 4);
+  return parseInt(hex, 16);
+}
+
 function safeJson(raw: string): unknown {
   try {
     return raw.length === 0 ? {} : JSON.parse(raw);

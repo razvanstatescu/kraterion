@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { BullModule } from "@nestjs/bullmq";
 import { KeyWrappingService } from "../auth/key-wrapping.service.js";
 import { BucketsModule } from "../buckets/buckets.module.js";
 import { KnowledgeModule } from "../knowledge/knowledge.module.js";
@@ -8,6 +9,8 @@ import { ProvidersModule } from "../providers/providers.module.js";
 import { SuiClientModule } from "../sui/sui-client.module.js";
 import { AgentsController } from "./agents.controller.js";
 import { AgentsService } from "./agents.service.js";
+import { SessionService } from "./session.service.js";
+import { SESSION_ARCHIVE_QUEUE } from "./session-archive-queue.constants.js";
 import { ShareTokensService } from "./share-tokens.service.js";
 import { ShareTokenUsageService } from "./share-token-usage.js";
 import { AgentToolRegistry } from "./tools/registry.js";
@@ -32,16 +35,23 @@ import { AgentToolRegistry } from "./tools/registry.js";
     ObjectsModule,
     ProvidersModule,
     SuiClientModule,
+    // P9 — producer-only Bull connection to the worker's
+    // `kraterion-session-archive` queue. Used by the
+    // `POST /v1/agents/:agentId/sessions/:sid/end` force-flush endpoint
+    // so users (or SDK middleware) can anchor a session immediately
+    // without waiting for the worker's 60s idle sweep.
+    BullModule.registerQueue({ name: SESSION_ARCHIVE_QUEUE }),
   ],
   providers: [
     AgentsService,
     ProjectsService,
     KeyWrappingService,
     AgentToolRegistry,
+    SessionService,
     ShareTokenUsageService,
     ShareTokensService,
   ],
   controllers: [AgentsController],
-  exports: [AgentsService, AgentToolRegistry, ShareTokenUsageService],
+  exports: [AgentsService, AgentToolRegistry, SessionService, ShareTokenUsageService],
 })
 export class AgentsModule {}

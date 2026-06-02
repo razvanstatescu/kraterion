@@ -6,6 +6,7 @@ import { useState } from "react";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { AgentChatPanel } from "@/components/agents/AgentChatPanel";
 import { AgentConnectPanel } from "@/components/agents/AgentConnectPanel";
+import { AgentRunsPanel } from "@/components/agents/AgentRunsPanel";
 import { AgentSettingsForm } from "@/components/agents/AgentSettingsForm";
 import { AgentSharePanel } from "@/components/agents/AgentSharePanel";
 import { Banner } from "@/components/ui/Banner";
@@ -20,7 +21,7 @@ import { ControlPlaneError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { useAgent, useDeleteAgent, useRevokeAgent } from "@/lib/queries";
 
-type Tab = "chat" | "settings" | "connect" | "share";
+type Tab = "chat" | "runs" | "settings" | "connect" | "share";
 
 export default function AgentDetailPage() {
   const params = useParams<{ agentId: string }>();
@@ -189,6 +190,16 @@ export default function AgentDetailPage() {
           </button>
           <button
             role="tab"
+            aria-selected={tab === "runs"}
+            className={`ks-subtab${tab === "runs" ? " is-active" : ""}`}
+            onClick={() => setTab("runs")}
+            type="button"
+          >
+            <Icon name="clock" size={14} />
+            Runs
+          </button>
+          <button
+            role="tab"
             aria-selected={tab === "settings"}
             className={`ks-subtab${tab === "settings" ? " is-active" : ""}`}
             onClick={() => setTab("settings")}
@@ -246,6 +257,8 @@ export default function AgentDetailPage() {
               <AgentChatPanel agent={agent} />
             </div>
           </div>
+        ) : tab === "runs" ? (
+          <AgentRunsPanel agent={agent} />
         ) : tab === "settings" ? (
           <Card style={{ padding: 24, maxWidth: 760 }}>
             <AgentSettingsForm agent={agent} />

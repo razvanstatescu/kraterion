@@ -19,6 +19,7 @@ import { PrismaModule } from "./prisma/prisma.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { ProvidersModule } from "./providers/providers.module.js";
+import { RunsModule } from "./runs/runs.module.js";
 import { SuiClientModule } from "./sui/sui-client.module.js";
 import { UsageModule } from "./usage/usage.module.js";
 
@@ -35,6 +36,7 @@ import { UsageModule } from "./usage/usage.module.js";
     ApiKeysModule,
     ProvidersModule,
     AgentsModule,
+    RunsModule,
     BucketsModule,
     ObjectsModule,
     FoldersModule,

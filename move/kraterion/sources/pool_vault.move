@@ -405,6 +405,67 @@ public fun resize_grow(
     );
 }
 
+// === Agent session anchoring (gateway-signed, no fee) ===
+
+/// Emit a `KraterionSessionAnchored` event linking a Walrus PooledBlob
+/// (already registered in this vault by the companion `register_blob` call
+/// composed earlier in the same PTB) to an off-chain agent session. Pure
+/// event emission — no Walrus capacity ops, no reserve drain.
+///
+/// Single transaction emits two events the indexer consumes:
+///   1. `KraterionPooledBlobRegistered` from `register_blob` — drives the
+///      `PooledBlob` Postgres row (just like S3 PUT or K5 manifest archive).
+///   2. `KraterionSessionAnchored` from this call — drives the
+///      `AgentSessionTrace` row. Its tx digest is the replay handle.
+///
+/// `blob_id` is the same u256 passed to `register_blob`. We resolve the
+/// PooledBlob's on-chain object ID here via `walrus::storage_pool::blob_object_id`
+/// rather than asking the gateway to pass it through — Walrus already
+/// guarantees deterministic resolution.
+///
+/// `trace_hash` is the 32-byte SHA-256 of the canonical-JSON, plaintext
+/// trace before Seal encryption + gzip. Off-chain replay verifies this
+/// hash after decrypting; mismatch means the platform tampered.
+///
+/// Same trust gates as the blob ops: `platform_authorized` must be true
+/// and caller must be on the reserve whitelist. After user revocation,
+/// new sessions cannot be anchored, but blobs from prior sessions stay
+/// readable (Seal policy gates decrypt independently).
+public fun anchor_session(
+    // `&mut` is intentional even though we don't mutate. PTB1 composes
+    // this call alongside `register_blob` (which takes `&mut`) against the
+    // same vault. The TS SDK's PTB builder allocates one shared-object
+    // input slot per object id; if one call requests `&mut` and the next
+    // requests `&`, the runtime aborts the second with `TypeMismatch` on
+    // borrow mode. Taking `&mut` here keeps both calls consistent.
+    vault: &mut KraterionPoolVault,
+    reserve: &PlatformReserve,
+    blob_id: u256,
+    seal_identity: vector<u8>,
+    trace_hash: vector<u8>,
+    session_id: vector<u8>,
+    agent_id: vector<u8>,
+    invocation_count: u32,
+    ctx: &TxContext,
+) {
+    assert!(vault.platform_authorized, ERevoked);
+    reserve::assert_caller_authorized(reserve, ctx);
+
+    let pooled_blob_object_id = walrus::storage_pool::blob_object_id(&vault.pool, blob_id);
+
+    events::emit_session_anchored(
+        object::id(vault),
+        pooled_blob_object_id,
+        blob_id,
+        seal_identity,
+        trace_hash,
+        session_id,
+        agent_id,
+        invocation_count,
+        ctx.sender(),
+    );
+}
+
 // === User-only operations ===
 
 /// User-side kill switch. After this returns, every platform-side mutation
