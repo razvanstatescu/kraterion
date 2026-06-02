@@ -7,7 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
 import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
-import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
+import { suiscanObjectUrl, walrusAggregatorUrl } from "@/lib/format";
 import {
   useKnowledgeSearch,
   type KnowledgeSearchHit,
@@ -162,10 +162,10 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
         <div className="ks-hit-links">
           <a
             className="ks-hit-link"
-            href={walruscanUrl(hit.source_walrus_blob_id)}
+            href={walrusAggregatorUrl(hit.source_walrus_blob_id)}
             target="_blank"
             rel="noreferrer"
-            title="Open the source object on Walruscan"
+            title="Fetch the source object from Walrus"
           >
             <Icon name="link" size={14} />
             Source blob
@@ -185,10 +185,10 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
           {hit.manifest_walrus_blob_id ? (
             <a
               className="ks-hit-link"
-              href={walruscanUrl(hit.manifest_walrus_blob_id)}
+              href={walrusAggregatorUrl(hit.manifest_walrus_blob_id)}
               target="_blank"
               rel="noreferrer"
-              title="Open the indexing manifest on Walruscan"
+              title="Fetch the indexing manifest from Walrus"
             >
               <Icon name="text" size={14} />
               Manifest
@@ -197,7 +197,11 @@ function SearchHit({ hit }: { hit: KnowledgeSearchHit }) {
         </div>
       </div>
       <div className="ks-hit-verify">
-        <VerifyChunk hit={hit} />
+        <VerifyChunk
+          content_hash={hit.content_hash}
+          ordinal={hit.ordinal}
+          manifest_walrus_blob_id={hit.manifest_walrus_blob_id}
+        />
       </div>
     </li>
   );

@@ -10,9 +10,13 @@ import { type AgentJson } from "@/lib/api";
 import { formatRelative, suiscanTxUrl } from "@/lib/format";
 import {
   useAgentSessions,
+  useRunLineage,
   useRunReplay,
   type AgentSessionJson,
 } from "@/lib/queries";
+import { LineageGraph } from "./LineageGraph";
+import { LineageNodeDetail } from "./LineageNodeDetail";
+import type { LineageNodeData } from "./lineage-nodes";
 
 interface Props {
   agent: AgentJson;
@@ -109,7 +113,7 @@ function SessionRow({
         onClick={canOpen ? onToggle : undefined}
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           justifyContent: "space-between",
           gap: 12,
           cursor: canOpen ? "pointer" : "default",
@@ -154,9 +158,17 @@ function SessionRow({
             target="_blank"
             rel="noreferrer"
             onClick={(e) => e.stopPropagation()}
-            style={{ fontSize: 12 }}
+            style={{
+              fontSize: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
           >
-            <Icon name="link" size={14} /> Suiscan
+            <Icon name="link" size={14} />
+            Suiscan
           </a>
         ) : null}
       </div>
@@ -200,9 +212,14 @@ function StatusPill({ status }: { status: AgentSessionJson["status"] }) {
   }
 }
 
+type ReplayView = "trace" | "lineage";
+
 function ReplayInline({ txDigest }: { txDigest: string }) {
   const [rerun, setRerun] = useState(false);
+  const [view, setView] = useState<ReplayView>("trace");
+  const [selectedNode, setSelectedNode] = useState<LineageNodeData | null>(null);
   const replay = useRunReplay({ txDigest, rerun });
+  const lineage = useRunLineage(view === "lineage" ? txDigest : undefined);
 
   if (replay.isLoading) {
     return (
@@ -257,24 +274,175 @@ function ReplayInline({ txDigest }: { txDigest: string }) {
             {data.trace_hash_hex.slice(0, 16)}…
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setRerun(true)}
-          disabled={rerun}
-        >
-          {rerun ? "Replaying…" : "Re-run against OpenAI"}
-        </Button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <ViewToggle value={view} onChange={setView} />
+          {view === "trace" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRerun(true)}
+              disabled={rerun}
+            >
+              {rerun ? "Replaying…" : "Re-run against OpenAI"}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      {data.replay ? (
-        <ReplayDiff replay={data.replay} />
+      {view === "trace" ? (
+        data.replay ? (
+          <ReplayDiff replay={data.replay} />
+        ) : (
+          <TraceInvocations invocations={invocations} />
+        )
       ) : (
-        <TraceInvocations invocations={invocations} />
+        <LineageView
+          txDigest={txDigest}
+          query={lineage}
+          selectedNode={selectedNode}
+          onSelect={setSelectedNode}
+        />
       )}
     </div>
   );
 }
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: ReplayView;
+  onChange: (v: ReplayView) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      style={{
+        display: "inline-flex",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        overflow: "hidden",
+      }}
+    >
+      <ToggleButton active={value === "trace"} onClick={() => onChange("trace")}>
+        Trace
+      </ToggleButton>
+      <ToggleButton
+        active={value === "lineage"}
+        onClick={() => onChange("lineage")}
+      >
+        Lineage
+      </ToggleButton>
+    </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? "var(--surface-elevated, var(--surface))" : "transparent",
+        color: active ? "var(--text-primary)" : "var(--text-secondary)",
+        border: "none",
+        padding: "4px 10px",
+        fontSize: 12,
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LineageView({
+  query,
+  selectedNode,
+  onSelect,
+}: {
+  txDigest: string;
+  query: ReturnType<typeof useRunLineage>;
+  selectedNode: LineageNodeData | null;
+  onSelect: (node: LineageNodeData | null) => void;
+}) {
+  if (query.isLoading) {
+    return (
+      <div className="muted" style={{ fontSize: 13 }}>
+        Building lineage envelope…
+      </div>
+    );
+  }
+  if (query.error) {
+    return (
+      <Banner
+        tone="error"
+        title="Could not load lineage"
+        body={
+          query.error instanceof Error ? query.error.message : "Try again."
+        }
+      />
+    );
+  }
+  if (!query.data) return null;
+  // Side-by-side layout: graph on the left (flexible), inspector
+  // sticky on the right. The rail uses `position: sticky` so it
+  // stays visible while the user pans/zooms inside the graph card
+  // — no more "click node, scroll down to inspect" trip. Stacks
+  // below the graph on narrower viewports.
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 16,
+        gridTemplateColumns: "minmax(0, 1fr) 320px",
+        alignItems: "start",
+      }}
+      className="ks-lineage-layout"
+    >
+      <style>{LINEAGE_LAYOUT_CSS}</style>
+      <div style={{ minWidth: 0 }}>
+        <LineageGraph envelope={query.data} onNodeClick={onSelect} />
+      </div>
+      <div
+        style={{
+          position: "sticky",
+          top: 16,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
+      >
+        <LineageNodeDetail
+          node={selectedNode}
+          sessionAnchorDigest={query.data.session.anchored_tx_digest}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Stack the inspector below the graph at narrow viewports — the rail
+ *  fixed-width column is fine on a laptop but pinches the canvas on
+ *  smaller screens. Breakpoint matches the dashboard's medium gutter. */
+const LINEAGE_LAYOUT_CSS = `
+@media (max-width: 960px) {
+  .ks-lineage-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .ks-lineage-layout > div:last-child {
+    position: static !important;
+    max-height: none !important;
+  }
+}
+`;
 
 function TraceInvocations({
   invocations,

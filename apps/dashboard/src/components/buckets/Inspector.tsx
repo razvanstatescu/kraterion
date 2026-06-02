@@ -10,7 +10,12 @@ import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
-import { formatBytes, formatRelative, suiscanObjectUrl, walruscanUrl } from "@/lib/format";
+import {
+  formatBytes,
+  formatRelative,
+  suiscanObjectUrl,
+  walrusAggregatorUrl,
+} from "@/lib/format";
 import {
   deleteSigned,
   downloadPrivateInBrowser,
@@ -402,7 +407,7 @@ function OnchainDisclosure({
           <OnchainRef
             label="Walrus blob"
             value={walrusBlobId}
-            href={walruscanUrl(walrusBlobId)}
+            href={walrusAggregatorUrl(walrusBlobId)}
           />
           {pooledBlobObjectId ? (
             <OnchainRef

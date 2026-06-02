@@ -138,6 +138,12 @@ export class AgentsController {
         content_hash: h.content_hash,
         s3_key: h.s3_key,
         source_walrus_blob_id: h.source_walrus_blob_id,
+        // Required for the lineage's chunk-detail Verify button — the
+        // browser fetches this Walrus blob, locates the chunk by
+        // `ordinal`, and compares the manifest's `content_hash`
+        // against the one we record here. Null until the K5 worker
+        // archives the manifest (~30s after first upload).
+        manifest_walrus_blob_id: h.manifest_walrus_blob_id,
         rrf_score: h.rrf_score,
       })),
     };

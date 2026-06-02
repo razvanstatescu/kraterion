@@ -104,14 +104,43 @@ async function main() {
     );
   }
 
-  await prisma.$disconnect();
-  await redis.quit();
-
   if (!result.trace_hash_matches) {
+    await prisma.$disconnect();
+    await redis.quit();
     console.error("trace_hash mismatch — TAMPER SIGNAL");
     process.exit(3);
   }
   logger.log("\n✓ end-to-end replay verified");
+
+  // P9 Feature 2 (D3) — exercise the lineage envelope path. Same
+  // backing trace; pure transformer; cheap.
+  logger.log(`---`);
+  logger.log(`calling RunsService.lineage(...)`);
+  const lineage = await runs.lineage({ txDigest: digest, accountId });
+  const totalInputs = lineage.runs.reduce(
+    (acc, r) => acc + r.inputs.length,
+    0,
+  );
+  const totalOutputs = lineage.runs.reduce(
+    (acc, r) => acc + r.outputs.length,
+    0,
+  );
+  logger.log(`job.namespace     ${lineage.job.namespace}`);
+  logger.log(`job.name          ${lineage.job.name}`);
+  logger.log(`session.anchor    ${lineage.session.anchored_tx_digest}`);
+  logger.log(`runs.length       ${lineage.runs.length}`);
+  logger.log(`inputs (total)    ${totalInputs}`);
+  logger.log(`outputs (total)   ${totalOutputs}`);
+  if (lineage.runs[0]) {
+    const r0 = lineage.runs[0];
+    logger.log(`run[0].runId      ${r0.runId}`);
+    logger.log(`run[0].state      ${r0.state}`);
+    logger.log(`run[0].outputs    ${r0.outputs.map((o) => o.namespace).join(", ")}`);
+  }
+  logger.log(`\n✓ lineage envelope built (kraterion_lineage_version=${lineage.kraterion_lineage_version})`);
+
+  await prisma.$disconnect();
+  await redis.quit();
 }
 
 main().catch((err) => {

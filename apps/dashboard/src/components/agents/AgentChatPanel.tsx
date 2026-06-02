@@ -9,7 +9,7 @@ import { findToolMeta } from "@/lib/agent-tools";
 import { renderMarkdown } from "./markdown";
 import { useCpSession } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { suiscanObjectUrl, walruscanUrl } from "@/lib/format";
+import { suiscanObjectUrl, walrusAggregatorUrl } from "@/lib/format";
 
 interface Props {
   agent: AgentJson;
@@ -709,22 +709,22 @@ function SourceRow({
           <Icon name="folder" size={14} />
         </Link>
         <a
-          href={walruscanUrl(citation.source_walrus_blob_id)}
+          href={walrusAggregatorUrl(citation.source_walrus_blob_id)}
           target="_blank"
           rel="noreferrer"
-          aria-label="Source blob on Walruscan"
-          title="View on Walrus"
+          aria-label="Fetch source blob from Walrus"
+          title="Fetch source blob from Walrus"
           className="ks-source-action"
         >
           <Icon name="database" size={14} />
         </a>
         {citation.manifest_walrus_blob_id ? (
           <a
-            href={walruscanUrl(citation.manifest_walrus_blob_id)}
+            href={walrusAggregatorUrl(citation.manifest_walrus_blob_id)}
             target="_blank"
             rel="noreferrer"
-            aria-label="Indexing manifest on Walruscan"
-            title="On-chain manifest"
+            aria-label="Fetch indexing manifest from Walrus"
+            title="Fetch indexing manifest from Walrus"
             className="ks-source-action"
           >
             <Icon name="check" size={14} />

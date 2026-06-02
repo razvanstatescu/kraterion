@@ -38,4 +38,23 @@ export class RunsController {
       rerun: rerun === "true" || rerun === "1",
     });
   }
+
+  /**
+   * P9 Feature 2 — Lineage envelope. Returns the OpenLineage-shaped
+   * Jobs / Runs / Datasets view of the anchored session. The shape is
+   * the same data the replay endpoint serves, just re-projected for
+   * graph consumers.
+   *
+   * Same auth as `/replay` (session JWT or bearer API key,
+   * account-scoped). No `?rerun=true` here — lineage is read-only over
+   * the captured trace.
+   */
+  @Get(":txDigest/lineage")
+  async lineage(
+    @Req() req: FastifyRequest,
+    @Param("txDigest") txDigest: string,
+  ) {
+    const user = requireAccountPrincipal(req);
+    return this.runs.lineage({ txDigest, accountId: user.accountId });
+  }
 }

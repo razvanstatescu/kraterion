@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { env } from "@/lib/env";
-import type { KnowledgeSearchHit } from "@/lib/queries";
 
 type VerifyState =
   | { kind: "idle" }
@@ -69,7 +68,19 @@ interface ManifestJson {
  *     this surface — reserved for primary CTAs elsewhere.
  *   - Re-click collapses the panel.
  */
-export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
+export interface VerifyChunkProps {
+  /** SHA-256 hex of the chunk plaintext — the value we compare against
+   *  what the on-chain manifest records. */
+  content_hash: string;
+  /** Chunk position within the parent object's manifest. */
+  ordinal: number;
+  /** Walrus blob id of the K5 manifest. Null until archival completes;
+   *  the component surfaces that as a "not on chain yet" state. */
+  manifest_walrus_blob_id: string | null;
+}
+
+export function VerifyChunk(props: VerifyChunkProps) {
+  const { content_hash, ordinal, manifest_walrus_blob_id } = props;
   const [state, setState] = useState<VerifyState>({ kind: "idle" });
 
   const onClick = async () => {
@@ -79,7 +90,7 @@ export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
       return;
     }
 
-    if (!hit.manifest_walrus_blob_id) {
+    if (!manifest_walrus_blob_id) {
       setState({
         kind: "missing",
         detail:
@@ -90,7 +101,7 @@ export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
     }
 
     setState({ kind: "loading" });
-    const manifestUrl = `${env.walrusAggregatorUrl}/v1/blobs/${hit.manifest_walrus_blob_id}`;
+    const manifestUrl = `${env.walrusAggregatorUrl}/v1/blobs/${manifest_walrus_blob_id}`;
 
     try {
       const res = await fetch(manifestUrl);
@@ -109,18 +120,18 @@ export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
         });
         return;
       }
-      const chunk = json.chunks.find((c) => c.ordinal === hit.ordinal);
+      const chunk = json.chunks.find((c) => c.ordinal === ordinal);
       if (!chunk) {
         setState({
           kind: "mismatch",
           manifestUrl,
           onchainHash: "",
-          reason: `Chunk ordinal ${hit.ordinal} not present in the on-chain manifest.`,
+          reason: `Chunk ordinal ${ordinal} not present in the on-chain manifest.`,
         });
         return;
       }
       const onchainHash = String(chunk.content_hash).toLowerCase();
-      const localHash = hit.content_hash.toLowerCase();
+      const localHash = content_hash.toLowerCase();
       if (onchainHash === localHash) {
         setState({
           kind: "success",
@@ -187,7 +198,11 @@ export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
         {buttonLabel}
       </button>
       {state.kind !== "idle" && state.kind !== "loading" ? (
-        <VerifyPanel state={state} hit={hit} />
+        <VerifyPanel
+          state={state}
+          content_hash={content_hash}
+          ordinal={ordinal}
+        />
       ) : null}
     </>
   );
@@ -195,10 +210,12 @@ export function VerifyChunk({ hit }: { hit: KnowledgeSearchHit }) {
 
 function VerifyPanel({
   state,
-  hit,
+  content_hash,
+  ordinal,
 }: {
   state: Exclude<VerifyState, { kind: "idle" } | { kind: "loading" }>;
-  hit: KnowledgeSearchHit;
+  content_hash: string;
+  ordinal: number;
 }) {
   const tone =
     state.kind === "success"
@@ -218,11 +235,11 @@ function VerifyPanel({
         </code>
       </div>
       <div className="ks-verify-row">
-        <span className="ks-verify-label">From search</span>
+        <span className="ks-verify-label">Local</span>
         <code
           className={`ks-verify-hash ${state.kind === "mismatch" ? "is-divergent" : ""}`}
         >
-          {hit.content_hash.toLowerCase()}
+          {content_hash.toLowerCase()}
         </code>
       </div>
 
@@ -233,7 +250,7 @@ function VerifyPanel({
               <Icon name="check" size={14} />
             </span>
             <span>
-              Chunk {hit.ordinal + 1} of {state.manifestChunkCount} matches the
+              Chunk {ordinal + 1} of {state.manifestChunkCount} matches the
               on-chain manifest. The retrieval is reproducible from{" "}
               <a
                 href={state.manifestUrl}

@@ -13,6 +13,11 @@ import { ProviderCredentialService } from "../providers/provider-credential.serv
 import { REDIS } from "../redis/redis.module.js";
 import { OperatorKeypairService } from "../sui/operator-keypair.service.js";
 import { replaySession, type CapturedTurn, type ReplayTurnResult } from "./replay.js";
+import {
+  buildLineage,
+  type OpenLineageEnvelope,
+  type SessionTraceJson,
+} from "./build-lineage.js";
 
 /**
  * P9 — Replayable Agent Runs (read side).
@@ -235,6 +240,32 @@ export class RunsService {
       trace: parsed,
       ...(replay ? { replay } : {}),
     };
+  }
+
+  /**
+   * P9 Feature 2 — Lineage view. Resolves a tx digest to the
+   * OpenLineage envelope (Jobs / Runs / Datasets) derived from the
+   * same canonical trace `verify()` already decrypts. Cheap second
+   * hop over verify (no rerun) — the decrypt + hash check is what
+   * dominates latency; the transformer is pure.
+   */
+  async lineage(args: {
+    txDigest: string;
+    accountId: string;
+  }): Promise<OpenLineageEnvelope> {
+    const verified = await this.verify({
+      txDigest: args.txDigest,
+      accountId: args.accountId,
+    });
+    // The trace.session.agent.project.account_id check already happened
+    // inside verify(); we don't need to re-authorize here. The trace
+    // field shape matches `SessionTraceJson` because build-session-trace
+    // and build-lineage agree on the canonical schema.
+    return buildLineage({
+      trace: verified.trace as SessionTraceJson,
+      anchored_tx_digest: verified.tx_digest,
+      trace_hash_hex: verified.trace_hash_hex,
+    });
   }
 
   /** Re-issue each captured turn against the project's OpenAI key. */

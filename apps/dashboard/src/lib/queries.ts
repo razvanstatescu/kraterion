@@ -854,6 +854,66 @@ export interface ReplayResponseJson {
   };
 }
 
+/** P9 Feature 2 — Mirror of the OpenLineage envelope the
+ *  `/v1/runs/:txDigest/lineage` endpoint returns. Kept narrow — only
+ *  the fields the dashboard consumes. The full shape is defined in
+ *  `apps/control-plane/src/runs/build-lineage.ts`. */
+export interface LineageEnvelopeJson {
+  kraterion_lineage_version: number;
+  session: {
+    id: string;
+    agent_id: string;
+    anchored_tx_digest: string;
+    opened_at: string;
+    closed_at: string | null;
+    trace_hash_hex: string;
+  };
+  job: {
+    namespace: string;
+    name: string;
+    facets: Record<string, unknown>;
+  };
+  runs: Array<{
+    runId: string;
+    ordinal: number;
+    eventTime: string;
+    state: string;
+    facets: {
+      "kraterion.run"?: {
+        model?: {
+          resolved: string | null;
+          requested: string | null;
+          system_fingerprint: string | null;
+          seed: number | null;
+        };
+      };
+    };
+    inputs: Array<{
+      namespace: string;
+      name: string;
+      facets: Record<string, unknown>;
+    }>;
+    outputs: Array<{
+      namespace: string;
+      name: string;
+      facets: Record<string, unknown>;
+    }>;
+  }>;
+}
+
+/** Fetch the OpenLineage envelope for an anchored session. Same auth
+ *  + decrypt path as `useRunReplay`; separate React Query key. */
+export function useRunLineage(txDigest: string | undefined) {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "runs", txDigest ?? "none", "lineage"],
+    queryFn: () =>
+      cpFetch<LineageEnvelopeJson>(`/v1/runs/${txDigest}/lineage`),
+    enabled: Boolean(session?.token && txDigest),
+    staleTime: 60_000,
+  });
+}
+
 /** Fetch a run by tx digest. Loaded on-demand when the user clicks a
  *  session row in the Runs tab. */
 export function useRunReplay(args: {

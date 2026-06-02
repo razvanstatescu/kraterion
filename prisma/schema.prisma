@@ -47,9 +47,11 @@ model Project {
 
   /// Replayable-runs setting. An AgentSession is auto-flushed (Walrus
   /// blob + Sui anchor) after this many seconds without activity.
-  /// Default 10 min. The demo override is ~60s set per-project for fast
-  /// iteration. Hard caps (1 MB / 24h) apply regardless.
-  session_idle_seconds Int @default(600)
+  /// Default 5 min — short enough that anchoring keeps up with normal
+  /// conversation pacing, long enough to roll a multi-turn exchange
+  /// into one on-chain anchor. The demo override is ~60s set per-
+  /// project for fast iteration. Hard caps (1 MB / 24h) apply regardless.
+  session_idle_seconds Int @default(300)
 
   account              Account              @relation(fields: [account_id], references: [id])
   buckets              Bucket[]

@@ -117,3 +117,13 @@ export function suiscanAddressUrl(address: string, network: "testnet" | "mainnet
 export function walruscanUrl(blobId: string): string {
   return `https://walruscan.com/testnet/blob/${blobId}`;
 }
+
+/** Direct Walrus aggregator URL for a blob id. Returns the raw bytes
+ *  (the actual blob content) rather than an explorer page. Useful
+ *  while Walruscan doesn't index PooledBlobs — the aggregator is the
+ *  only public surface where you can prove the blob exists by
+ *  fetching it. JSON blobs (e.g. K5 manifests) render inline in the
+ *  browser; binary blobs download or get guessed from bytes. */
+export function walrusAggregatorUrl(blobId: string): string {
+  return `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`;
+}
