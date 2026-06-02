@@ -13,6 +13,7 @@ import { FoldersModule } from "./folders/folders.module.js";
 import { HealthController } from "./health.controller.js";
 import { KnowledgeModule } from "./knowledge/knowledge.module.js";
 import { McpModule } from "./mcp/mcp.module.js";
+import { MemwalModule } from "./memwal/memwal.module.js";
 import { OAuthModule } from "./oauth/oauth.module.js";
 import { ObjectsModule } from "./objects/presign.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
@@ -44,6 +45,7 @@ import { UsageModule } from "./usage/usage.module.js";
     KnowledgeModule,
     OAuthModule,
     McpModule,
+    MemwalModule,
     AdminModule,
     BillingModule,
     UsageModule,

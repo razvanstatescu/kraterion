@@ -4493,3 +4493,57 @@ becomes inconsistent.
   forward from `/docs/upload-flow-analysis.md` Tier-A items
   (range GETs, conditional GETs, tunable Cache-Control). Not
   committed scope.
+
+### 2026-06-02 — P9 Feature 3: MemWal-as-tool shipped
+
+- `[agents]` Two new built-in agent tools: `memory_remember` and
+  `memory_recall`, both backed by the hosted MemWal relayer
+  (`@mysten-incubation/memwal@^0.0.7`). One MemWal account per
+  deployment, per-agent isolation enforced via namespace
+  `agent:<agent_id>`. Tool descriptions tuned so the LLM uses
+  remember sparingly (preferences, stable context) and recall at
+  task start.
+- `[control-plane]` New `MemwalService` (global Nest module): reads
+  `MEMWAL_ACCOUNT_ID` / `MEMWAL_DELEGATE_KEY` / `MEMWAL_SERVER_URL`
+  at boot, validates presence with a one-line warn-only fallback,
+  lazily constructs one `MemWal` client per agent in a
+  process-local `Map<agent_id, MemWal>`, and wipes key material via
+  `client.destroy()` on `OnModuleDestroy`. 9 unit tests cover
+  config gating, cache reuse, namespace isolation, env-override
+  serverUrl, and shutdown.
+- `[control-plane]` `ToolContext` gains `memwal: MemwalService` and
+  `agentId: string`; both tool handlers refuse to run when
+  `agentId` is empty (MCP shim leaves it empty for v1). Tool
+  results carry the Walrus blob_id for `memory_remember` so the
+  lineage graph renders a fetch-blob link without any further
+  work.
+- `[dashboard]` Tool picker (both `AgentSettingsForm` and
+  `CreateAgentDialog`) now renders tools grouped under section
+  headers: Storage / Knowledge / Persistent memory. New `Brain`
+  icon in the registry for the memory cluster. Existing tools
+  re-bucketed (search/get-manifest → Knowledge; list/read/write
+  → Storage).
+- `[smoke]` Non-LLM probe at
+  `apps/control-plane/scripts/probe-memwal.ts` drives both tool
+  handlers directly against the live relayer. Verified:
+  agent A wrote a fact (returned `id`, `blob_id`, namespace),
+  agent A recalled it (1 hit, distance 0.43), agent B with the
+  same query returned 0 hits — namespace isolation holds.
+- Trace + lineage propagation is free: `AgentToolCall.tool_name`
+  already flows through `build-session-trace.ts` (Feature 1) and
+  `build-lineage.ts` (Feature 2), so `memory_*` calls render as
+  `kraterion-tool` Datasets in the existing lineage view. Replay
+  short-circuit (Feature 1 D10) prevents re-issuing memory writes
+  on replay — captured output is fed back to the model.
+- Files added: `apps/control-plane/src/memwal/{memwal.service,
+  memwal.module,memwal.service.spec}.ts`,
+  `apps/control-plane/src/agents/tools/{memory-remember,
+  memory-recall}.ts`, `apps/control-plane/scripts/probe-memwal.ts`,
+  one new `Brain` icon row in
+  `apps/dashboard/src/components/ui/Icon.tsx`, and `AGENT_TOOL_GROUPS`
+  in `apps/dashboard/src/lib/agent-tools.ts`.
+- Not in scope (deferred): MCP exposure of the two tools,
+  `MemWal.analyze` fact-extraction primitive, client-side `manual`
+  entry point, cross-agent memory sharing, per-agent MemWal
+  account isolation, Vercel AI SDK / LangGraph middleware
+  wrappers.

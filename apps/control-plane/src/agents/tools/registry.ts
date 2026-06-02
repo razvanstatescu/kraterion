@@ -4,6 +4,8 @@ import { ControlPlaneError } from "../../errors/control-plane-error.js";
 import { getManifestTool } from "./get-manifest.js";
 import { listBucketsTool } from "./list-buckets.js";
 import { listObjectsTool } from "./list-objects.js";
+import { memoryRecallTool } from "./memory-recall.js";
+import { memoryRememberTool } from "./memory-remember.js";
 import { readObjectTool } from "./read-object.js";
 import { searchTool } from "./search.js";
 import { writeObjectTool } from "./write-object.js";
@@ -31,6 +33,8 @@ const CATALOG: ToolDef<any>[] = [
   readObjectTool,
   writeObjectTool,
   getManifestTool,
+  memoryRememberTool,
+  memoryRecallTool,
 ];
 
 const BY_NAME = new Map(CATALOG.map((t) => [t.name, t]));

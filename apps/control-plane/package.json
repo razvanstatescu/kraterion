@@ -24,6 +24,7 @@
     "@kraterion/shared": "workspace:*",
     "@kraterion/walrus-client": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mysten-incubation/memwal": "^0.0.7",
     "@mysten/enoki": "^1.0.7",
     "@mysten/sui": "^2.16.2",
     "@nestjs/bullmq": "^10.2.0",

@@ -11,6 +11,7 @@
 
 import {
   ArrowUpRight,
+  Brain,
   Container as BucketIcon,
   ChartLine,
   Check,
@@ -49,6 +50,7 @@ import {
 } from "lucide-react";
 
 const REGISTRY = {
+  brain: Brain,
   bucket: BucketIcon,
   chart: ChartLine,
   check: Check,

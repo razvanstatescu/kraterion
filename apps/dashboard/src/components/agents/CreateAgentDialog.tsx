@@ -14,7 +14,7 @@ import { Pill } from "@/components/ui/Pill";
 import { Portal } from "@/components/ui/Portal";
 import { useToast } from "@/components/ui/Toast";
 import { ControlPlaneError } from "@/lib/api";
-import { AGENT_TOOL_CATALOG } from "@/lib/agent-tools";
+import { AGENT_TOOL_CATALOG, AGENT_TOOL_GROUPS } from "@/lib/agent-tools";
 import { useBuckets, useCreateAgent } from "@/lib/queries";
 import { useSponsoredTx } from "@/lib/sponsor";
 
@@ -621,62 +621,106 @@ function ToolsStep({
           padding: 8,
         }}
       >
-        {AGENT_TOOL_CATALOG.map((tool) => {
-          const checked = selectedTools.has(tool.name);
-          const isWrite = tool.kind === "write";
+        {AGENT_TOOL_GROUPS.map((group, groupIdx) => {
+          const tools = AGENT_TOOL_CATALOG.filter(
+            (t) => t.group === group.key,
+          );
+          if (tools.length === 0) return null;
           return (
-            <label
-              key={tool.name}
+            <div
+              key={group.key}
               style={{
                 display: "flex",
-                alignItems: "flex-start",
-                gap: 10,
-                padding: "10px 12px",
-                borderRadius: "var(--radius-sm)",
-                cursor: disabled ? "not-allowed" : "pointer",
-                background: checked ? "var(--bg-elevated)" : "transparent",
+                flexDirection: "column",
+                gap: 4,
+                marginTop: groupIdx === 0 ? 0 : 8,
               }}
             >
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => onToggle(tool.name)}
-                disabled={disabled}
-                style={{ marginTop: 3, flexShrink: 0 }}
-              />
-              <Icon
-                name={tool.icon}
-                size={16}
-                style={{ color: "var(--text-secondary)", flexShrink: 0, marginTop: 2 }}
-              />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>
-                    {tool.label}
-                  </span>
-                  <span
-                    className="mono"
-                    style={{ fontSize: 11, color: "var(--text-tertiary)" }}
-                  >
-                    {tool.name}
-                  </span>
-                  {isWrite ? (
-                    <Pill tone="warning">Write · on-chain receipt</Pill>
-                  ) : (
-                    <Pill tone="neutral">Read</Pill>
-                  )}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "var(--text-secondary)",
-                    marginTop: 4,
-                  }}
-                >
-                  {tool.description}
-                </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "var(--text-tertiary)",
+                  padding: "2px 12px",
+                }}
+              >
+                {group.label}
               </div>
-            </label>
+              {tools.map((tool) => {
+                const checked = selectedTools.has(tool.name);
+                const isWrite = tool.kind === "write";
+                return (
+                  <label
+                    key={tool.name}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
+                      padding: "10px 12px",
+                      borderRadius: "var(--radius-sm)",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      background: checked
+                        ? "var(--bg-elevated)"
+                        : "transparent",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => onToggle(tool.name)}
+                      disabled={disabled}
+                      style={{ marginTop: 3, flexShrink: 0 }}
+                    />
+                    <Icon
+                      name={tool.icon}
+                      size={16}
+                      style={{
+                        color: "var(--text-secondary)",
+                        flexShrink: 0,
+                        marginTop: 2,
+                      }}
+                    />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 14, fontWeight: 500 }}>
+                          {tool.label}
+                        </span>
+                        <span
+                          className="mono"
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-tertiary)",
+                          }}
+                        >
+                          {tool.name}
+                        </span>
+                        {isWrite ? (
+                          <Pill tone="warning">Write · on-chain receipt</Pill>
+                        ) : (
+                          <Pill tone="neutral">Read</Pill>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-secondary)",
+                          marginTop: 4,
+                        }}
+                      >
+                        {tool.description}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
           );
         })}
       </div>

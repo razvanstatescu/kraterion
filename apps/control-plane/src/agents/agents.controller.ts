@@ -26,6 +26,7 @@ import {
 import { BucketsService } from "../buckets/buckets.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { KnowledgeService } from "../knowledge/knowledge.service.js";
+import { MemwalService } from "../memwal/memwal.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProviderCredentialService } from "../providers/provider-credential.service.js";
 import { parseBody } from "../validation/zod-pipe.js";
@@ -97,6 +98,7 @@ export class AgentsController {
     private readonly shareTokenUsage: ShareTokenUsageService,
     private readonly shareTokens: ShareTokensService,
     private readonly sessions: SessionService,
+    private readonly memwal: MemwalService,
     @InjectQueue(SESSION_ARCHIVE_QUEUE)
     private readonly archiveQueue: Queue<SessionArchiveJobData>,
   ) {}
@@ -155,6 +157,7 @@ export class AgentsController {
   // module-scoped helper that derives the OpenAI `seed` from an
   // AgentInvocation UUID.)
   private toolContext(args: {
+    agentId: string;
     accountId: string;
     projectId: string;
     apiKeyId?: string | null;
@@ -165,6 +168,8 @@ export class AgentsController {
       buckets: this.buckets,
       knowledge: this.knowledge,
       presign: this.presign,
+      memwal: this.memwal,
+      agentId: args.agentId,
       accountId: args.accountId,
       projectId: args.projectId,
       apiKeyId: args.apiKeyId ?? null,
@@ -673,6 +678,7 @@ export class AgentsController {
       const toolNames = agent.tools.map((t) => t.tool_name);
       const tools = this.toolRegistry.openAiToolsParam(toolNames);
       const toolCtx = this.toolContext({
+        agentId,
         accountId,
         projectId: agent.project_id,
         apiKeyId: user.kind === "api_key" ? user.apiKeyId : null,

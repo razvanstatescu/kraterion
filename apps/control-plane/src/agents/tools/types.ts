@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { BucketsService } from "../../buckets/buckets.service.js";
 import type { KnowledgeService } from "../../knowledge/knowledge.service.js";
+import type { MemwalService } from "../../memwal/memwal.service.js";
 import type { PresignService } from "../../objects/presign.service.js";
 import type { PrismaService } from "../../prisma/prisma.service.js";
 
@@ -26,6 +27,11 @@ export interface ToolContext {
   buckets: BucketsService;
   knowledge: KnowledgeService;
   presign: PresignService;
+  memwal: MemwalService;
+  /** Agent id behind the chat invocation — required by the memory tools
+   *  (each agent has its own MemWal namespace). MCP callers pass the
+   *  empty string; memory tools refuse to run without an agent id. */
+  agentId: string;
   /** Account id behind the request (project owner). */
   accountId: string;
   /** Project scope. Bearer tokens are project-scoped at the principal
