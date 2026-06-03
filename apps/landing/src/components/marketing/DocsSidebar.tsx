@@ -13,6 +13,13 @@ const GROUPS = [
     ],
   },
   {
+    title: "SDKs",
+    items: [
+      { label: "LangGraph", href: "/docs/langgraph" },
+      { label: "Vercel AI SDK", href: "/docs/vercel-ai-sdk" },
+    ],
+  },
+  {
     title: "S3 API",
     items: [
       { label: "Endpoints", href: "/docs#s3-endpoints" },

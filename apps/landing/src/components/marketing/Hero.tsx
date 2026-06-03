@@ -5,10 +5,10 @@ import { ButtonLink } from "@/components/ui/Button";
 import { HeroVisual } from "./HeroVisual";
 
 const HEADLINE_CYCLE = [
-  "humans and agents.",
-  "the tools you use.",
-  "data you actually own.",
-  "what comes next.",
+  "debug.",
+  "reproduce.",
+  "audit.",
+  "trust.",
 ];
 
 export function Hero() {
@@ -24,10 +24,10 @@ export function Hero() {
           </FadeUp>
 
           <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
-            <Reveal text="Smart object storage." />
+            <Reveal text="A runtime for agents" />
             <br />
             <FadeUp as="span" delay={0.55} className="text-stone-500">
-              Built for{" "}
+              you can{" "}
               <WordCycle
                 words={HEADLINE_CYCLE}
                 startDelayMs={1400}
@@ -38,7 +38,7 @@ export function Hero() {
           </h1>
           <FadeUp delay={0.45}>
             <p className="mt-6 max-w-[520px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-              S3-compatible buckets that index themselves, answer with citations, and stay yours when you walk away.
+              Built on object storage you own. Every run is recorded as a replayable, tamper-evident trail — so you can reproduce it, audit it, and prove what happened.
             </p>
           </FadeUp>
           <FadeUp delay={0.55}>
@@ -60,11 +60,11 @@ export function Hero() {
           </FadeUp>
           <FadeUp delay={0.65}>
             <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">S3 API</span>
+              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">Replay & audit</span>
               <span aria-hidden className="h-px w-6 bg-stone-300" />
-              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">Knowledge layer</span>
+              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">Verifiable runs</span>
               <span aria-hidden className="h-px w-6 bg-stone-300" />
-              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">Agents</span>
+              <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">S3 storage</span>
             </div>
           </FadeUp>
         </div>

@@ -6,9 +6,12 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "Object storage", href: "/s3" },
+      { label: "Agents", href: "/agents" },
+      { label: "Replay & audit", href: "/runs" },
+      { label: "Audit trail", href: "/runs#lineage" },
+      { label: "Memory", href: "/memory" },
       { label: "Knowledge layer", href: "/knowledge" },
-      { label: "Embed widget", href: "/embed" },
+      { label: "Object storage", href: "/s3" },
       { label: "Pricing", href: "/pricing" },
     ],
   },
@@ -17,8 +20,8 @@ const COLUMNS = [
     links: [
       { label: "Docs", href: "/docs" },
       { label: "Quickstart", href: "/docs/quickstart" },
-      { label: "S3 compatibility", href: "/s3" },
-      { label: "Agents", href: "/knowledge#agents" },
+      { label: "LangGraph", href: "/docs/langgraph" },
+      { label: "Vercel AI SDK", href: "/docs/vercel-ai-sdk" },
     ],
   },
   {

@@ -1,8 +1,8 @@
 # Kraterion — Design System
 
-> **Object storage you actually own.**
+> **A runtime for agents you can audit.**
 
-Kraterion is S3‑compatible object storage built on top of [Walrus](https://walrus.site), Sui, and Seal. It feels like Supabase Storage or DigitalOcean Spaces (Google sign‑in, credit‑card billing, a familiar bucket UI, an AWS‑SDK‑compatible HTTP API), but the underlying bytes are owned by the user — not by us. The product surfaces are:
+Kraterion is a runtime for AI agents: run any agent and every run records itself as a tamper‑evident, replayable trail you can debug, reproduce, and verify. It is built on object storage you own (Walrus, Sui, and Seal), and that storage stays the foundation — your files, knowledge bases, run records, and memory all live in a project you own, not in a vendor's database. It feels like a modern dev tool (Google sign‑in, credit‑card billing, drop‑in SDKs for LangGraph and the Vercel AI SDK, an S3‑compatible API for getting data in), for any developer or startup — no crypto knowledge required. The product surfaces are:
 
 1. **Storage console** — a web app for browsing buckets, uploading files, managing access keys, watching usage, and configuring billing. Closest references: Supabase Storage, DigitalOcean Spaces, Cloudflare R2 dashboard.
 2. **Marketing website** — a calm, premium landing surface that explains the value of true ownership without leaning on crypto language.
@@ -71,7 +71,15 @@ revolutionary · next‑gen · game‑changer · powered by · cutting‑edge ·
 
 ### Approved flagship line
 
-**"Object storage you actually own."**
+**"A runtime for agents you can audit."** — leads with the runtime; storage is the
+foundation underneath, never the headline. The earlier line, *"Object storage you
+actually own,"* still describes the foundation and may appear in storage‑specific
+contexts, but it is no longer the primary positioning.
+
+Sell verifiability in web2 terms — debug, reproduce, audit, trust, own. Keep the
+on‑chain mechanism (Walrus / Sui / Seal, receipts, independent verification) as a
+"how it works" detail on deep pages, not in headlines. Audience is any developer
+or startup building with AI.
 
 ### Error and empty‑state copy
 

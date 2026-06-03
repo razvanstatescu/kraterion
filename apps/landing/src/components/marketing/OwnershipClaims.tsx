@@ -2,20 +2,20 @@ import { FadeUp } from "@/components/motion/FadeUp";
 
 const CLAIMS = [
   {
-    title: "You actually own your data.",
-    lede: "Pull your raw bytes over plain HTTPS from any region. No proprietary export.",
+    title: "You own your data and your logs.",
+    lede: "Pull raw bytes and full run records over plain HTTPS, from any region. No proprietary export, no vendor-held traces.",
   },
   {
     title: "Sealed before it leaves you.",
-    lede: "Encryption is the default, not a setting. The platform stores only ciphertext.",
+    lede: "Encryption is the default, not a setting. The platform stores only ciphertext — files, run records, and memory alike.",
+  },
+  {
+    title: "Tamper-evident by structure.",
+    lede: "Every run is recorded so it can't be altered after the fact. You don't take our word for it — you verify it independently.",
   },
   {
     title: "Revocable access — enforced, not promised.",
-    lede: "When you remove access, decryption stops. Not a policy. A property.",
-  },
-  {
-    title: "Predictable pricing.",
-    lede: "Cheap egress with a 50 GB monthly free band. Flat rate above it — no tier cliffs, no retrieval fees, no surprise bill on a busy weekend.",
+    lede: "Remove access and reads stop — files and memory together. Not a policy. A property.",
   },
 ];
 

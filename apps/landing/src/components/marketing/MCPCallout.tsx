@@ -32,7 +32,7 @@ export function MCPCallout() {
             <span className="text-stone-500">from your AI assistant.</span>
           </h3>
           <p className="mt-5 max-w-[600px] text-[16px] leading-[1.55] text-stone-700">
-            Plug Kraterion into Claude Desktop, Cursor, or any MCP-compatible client. Same agents. Same five tools. Same scoped credentials — over a different protocol.
+            Plug Kraterion into Claude Desktop, Cursor, or any MCP-compatible client. Your knowledge, your tools, and persistent memory — over a different protocol, with the same scoped credentials.
           </p>
         </div>
       </FadeUp>

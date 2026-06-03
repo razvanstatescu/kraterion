@@ -20,9 +20,9 @@ const jetbrainsMono = JetBrains_Mono({
 
 const SITE_URL = "https://kraterion.com";
 const SITE_NAME = "Kraterion";
-const TITLE = "Kraterion · Object storage you actually own";
+const TITLE = "Kraterion · A runtime for agents you can audit";
 const DESCRIPTION =
-  "S3-compatible object storage on Walrus, encrypted with Seal, owned on Sui. Same SDK, same commands — your bucket lives somewhere new. Coming soon.";
+  "Run any agent and record every run as a tamper-evident, replayable trail. Debug, reproduce, and audit your agents — built on object storage you own.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -35,15 +35,16 @@ export const metadata: Metadata = {
   authors: [{ name: "Kraterion" }],
   generator: "Next.js",
   keywords: [
+    "AI agent runtime",
+    "agent observability",
+    "agent audit trail",
+    "replayable agent runs",
+    "agent lineage",
+    "LangGraph",
+    "Vercel AI SDK",
     "object storage",
     "S3-compatible",
-    "Walrus",
-    "Seal",
-    "Sui",
-    "decentralized storage",
-    "encrypted storage",
-    "self-custodial storage",
-    "SaaS",
+    "verifiable AI",
   ],
   referrer: "strict-origin-when-cross-origin",
   formatDetection: {

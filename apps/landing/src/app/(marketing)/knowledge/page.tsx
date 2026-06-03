@@ -17,7 +17,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Knowledge & Agents — Kraterion",
   description:
-    "Your bucket, now answerable. Hybrid search via Reciprocal Rank Fusion, OpenAI-compatible agents, verifiable citations.",
+    "Retrieval you can check. Hybrid search via Reciprocal Rank Fusion, citations you can verify against the source, and every retrieval recorded in the run.",
 };
 
 const AGENT_TABS = [
@@ -129,12 +129,12 @@ export default function Page() {
             <FadeUp>
               <NumberedEyebrow n="KL" label="Knowledge & agents" />
               <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
-                Your bucket,
+                Retrieval
                 <br />
-                <span className="text-stone-500">now answerable.</span>
+                <span className="text-stone-500">you can check.</span>
               </h1>
               <p className="mt-6 max-w-[520px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-                Flip a switch on a bucket. Every file becomes searchable, citable, and ready to power agents that speak the OpenAI Chat Completions wire format.
+                Flip a switch on a bucket and every file becomes searchable and citable. Each answer carries a citation you can verify against the exact source — and when an agent uses it, the retrieval lands in the run record.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
                 <ButtonLink

@@ -116,7 +116,7 @@ export default function Page() {
                 <span className="text-stone-500">actually own.</span>
               </h1>
               <p className="mt-6 max-w-[540px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-                Same SDKs you already use. The bucket lives somewhere new — sealed before upload, recorded against your account, every action stamped to a log you can verify independently. Not a customer promise. A property of the system.
+                Same SDKs you already use — boto3, aws-cli, rclone. This is the foundation the runtime sits on: your files, knowledge bases, run records, and memory all live here, sealed before upload and recorded against your account. Not a customer promise. A property of the system.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
                 <ButtonLink

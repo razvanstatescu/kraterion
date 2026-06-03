@@ -149,7 +149,7 @@ function AgentCallCard() {
 
   return (
     <Card
-      eyebrow="03 · Agents"
+      eyebrow="03 · Run"
       meta={
         <span className="flex items-center gap-2">
           <span>agent · support</span>
@@ -203,6 +203,12 @@ function AgentCallCard() {
               className="h-1 w-1 rounded-full bg-[color:var(--color-success)]"
             />
             verified
+          </span>
+        </div>
+        <div className="flex items-center justify-between border-t border-stone-200/60 pl-[22px] pr-1 pt-2.5 font-mono text-[11px] text-stone-500">
+          <span>run · 3f4d…ae</span>
+          <span className="inline-flex items-center gap-1.5 text-krater">
+            recorded · replayable
           </span>
         </div>
       </div>

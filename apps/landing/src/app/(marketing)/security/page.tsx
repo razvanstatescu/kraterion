@@ -25,7 +25,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Security & ownership — Kraterion",
   description:
-    "Your data. Your keys. Your exit. Most storage products promise ownership in a marketing line. We make it a property of the system.",
+    "Your data and your logs. Files, run records, and memory are encrypted by default, stored in a project you own, and revocable in one step.",
 };
 
 const CLAIMS = [
@@ -84,12 +84,12 @@ export default function Page() {
             <h1 className="mt-6 text-[40px] leading-[1.04] tracking-[-0.02em] text-ink md:text-[60px] md:leading-[1.02]">
               Your data.
               <br />
-              Your keys.
+              Your logs.
               <br />
               <span className="text-stone-500">Your exit.</span>
             </h1>
             <p className="mt-6 max-w-[560px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
-              Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — sealed before upload, owned by you, stored as ciphertext-only on Walrus.
+              Files, run records, and memory are encrypted before they leave you and stored in a project you own. We can&apos;t read them, we can&apos;t alter them, and you can revoke our access in one step.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">

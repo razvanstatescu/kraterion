@@ -64,33 +64,34 @@ export function WordCycle({
   }
 
   return (
-    <span
-      className={cn(
-        "relative inline-block overflow-hidden align-baseline",
-        className
-      )}
-    >
-      {/* Reserves width AND height matched to font metrics so the
-          absolutely-positioned animated layer has a stable box. */}
+    <span className={cn("relative inline-block align-baseline", className)}>
+      {/* Reserves width AND height matched to font metrics. This stays in
+          normal flow so the box keeps a correct text baseline — the clip
+          layer below is absolutely positioned and never shifts it. */}
       <span aria-hidden className="invisible whitespace-pre">
         {longest}
       </span>
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={words[index]}
-          initial={{ y: "-110%", opacity: 0 }}
-          animate={{ y: "0%", opacity: 1 }}
-          exit={{ y: "110%", opacity: 0 }}
-          transition={{
-            duration: durationMs / 1000,
-            ease: [0.16, 1, 0.3, 1],
-          }}
-          className="absolute inset-0 whitespace-pre"
-          aria-live="polite"
-        >
-          {words[index]}
-        </motion.span>
-      </AnimatePresence>
+      {/* Clip layer — overflow-hidden lives here, not on the baseline box,
+          so the odometer slide is clipped without dropping the word below
+          the surrounding text. */}
+      <span className="absolute inset-0 overflow-hidden">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={words[index]}
+            initial={{ y: "-110%", opacity: 0 }}
+            animate={{ y: "0%", opacity: 1 }}
+            exit={{ y: "110%", opacity: 0 }}
+            transition={{
+              duration: durationMs / 1000,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            className="absolute inset-0 whitespace-pre"
+            aria-live="polite"
+          >
+            {words[index]}
+          </motion.span>
+        </AnimatePresence>
+      </span>
     </span>
   );
 }

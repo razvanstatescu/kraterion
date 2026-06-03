@@ -7,6 +7,8 @@ import {
   Sparkles,
   Quote,
   ShieldCheck,
+  Receipt,
+  Repeat,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -34,41 +36,48 @@ type Run = {
   cite: string;
   score: string;
   totalMs: string;
+  receipt: string;
 };
 
 const RUNS: Run[] = [
   {
     q: "What is our refund policy?",
     tools: [
+      { tool: "recall", args: 'query: "user prefs"', result: "2 notes", ms: "29 ms" },
       { tool: "search", args: 'query: "refund policy"', result: "4 hits", ms: "62 ms" },
       { tool: "read", args: 'key: "pricing-faq.md"', result: "12 KB", ms: "38 ms" },
     ],
     a: "Refunds are processed within 7 business days from the original payment method.",
     cite: "pricing-faq.md · §3",
     score: "0.92",
-    totalMs: "184 ms",
+    totalMs: "213 ms",
+    receipt: "3f4d…ae",
   },
   {
     q: "How does annual plan proration work?",
     tools: [
+      { tool: "recall", args: 'query: "plan history"', result: "1 note", ms: "26 ms" },
       { tool: "search", args: 'query: "annual proration"', result: "6 hits", ms: "71 ms" },
       { tool: "read", args: 'key: "billing-policy.md"', result: "18 KB", ms: "44 ms" },
     ],
     a: "Annual plans are pro-rated to the day. Unused time is credited automatically.",
     cite: "billing-policy.md · §1.4",
     score: "0.88",
-    totalMs: "212 ms",
+    totalMs: "238 ms",
+    receipt: "9b2c…71",
   },
   {
     q: "Can I cancel mid-cycle?",
     tools: [
+      { tool: "recall", args: 'query: "open tickets"', result: "0 notes", ms: "24 ms" },
       { tool: "search", args: 'query: "cancel mid-cycle"', result: "3 hits", ms: "55 ms" },
       { tool: "read", args: 'key: "support-runbook.md"', result: "24 KB", ms: "31 ms" },
     ],
     a: "Cancellation takes effect at the end of the current billing period, no further charges.",
     cite: "support-runbook.md · §8",
     score: "0.81",
-    totalMs: "171 ms",
+    totalMs: "195 ms",
+    receipt: "c7a1…0f",
   },
 ];
 
@@ -179,6 +188,19 @@ export function AgentRunPanel({ className }: { className?: string }) {
         </TraceBlock>
       </div>
 
+      {/* Receipt strip — the run is recorded and replayable */}
+      <div className="flex items-center justify-between border-t border-stone-200/60 bg-stone-50/60 px-4 py-2.5 font-mono text-[11px]">
+        <span className="inline-flex items-center gap-1.5 text-stone-600">
+          <Receipt size={11} strokeWidth={1.5} className="text-stone-500" />
+          run ·{" "}
+          <ScrambleText text={run.receipt} durationMs={420} startDelayMs={640} />
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-krater/30 bg-krater/[0.06] px-2 py-1 text-krater">
+          <Repeat size={10} strokeWidth={1.5} />
+          replayable
+        </span>
+      </div>
+
       {/* Footer — total latency + counts */}
       <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
         <Stat label="Total latency">
@@ -191,7 +213,7 @@ export function AgentRunPanel({ className }: { className?: string }) {
         <Stat label="Tools called" accent>
           {run.tools.length} of 6
         </Stat>
-        <Stat label="Citation">verified</Stat>
+        <Stat label="Record">recorded</Stat>
       </div>
     </div>
   );

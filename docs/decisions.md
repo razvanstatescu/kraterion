@@ -3933,3 +3933,33 @@ spirit of the rule more than the letter.
   produces visible color transitions.
 - If we add similar watermark fades elsewhere (empty states, hero
   visuals), they inherit this allowance.
+
+---
+
+## 2026-06-03 — Website repositioning: verifiable agent runtime (web2 framing)
+
+**Status:** Accepted
+
+**Context:** `docs/kraterion-strategy-v3.md` shifts the product emphasis from
+storage-first ("object storage you actually own") to the AI runtime we shipped:
+replayable runs, artifact lineage, drop-in SDKs, MemWal-as-tool. The marketing
+site still led storage-first. A first plan over-rotated into a full crypto-coded
+pivot; the founder corrected it: Kraterion is web2 products/UX on web3 infra, for
+**any** dev or startup — verifiability must be sold in web2 terms.
+
+**Decision:** Evolve (not rebuild) the landing site. Home page leads runtime-led
+("a runtime for agents you can audit"), storage named as the foundation
+underneath. Verifiability is framed as debug / reproduce / audit / trust / own —
+the wedge is *auditability vs. observability* (Langfuse/LangSmith traces are
+mutable and vendor-held; ours are tamper-evident and owned). Crypto jargon
+(Walruscan, Sui Explorer, sub-wallets, tx digests) is translated to web2 terms
+and kept to deep "how it works" pages. New deep-dive pages added: `/runs`,
+`/lineage`, `/memory`, plus `/docs/langgraph` and `/docs/vercel-ai-sdk`. Existing
+pages (`/s3`, `/knowledge`, `/security`) reframed; `/embed` kept as a secondary
+surface. Design-system flagship line updated to match (voice rules unchanged).
+
+**Consequences:** Nav/footer reorganized around the runtime IA. Research backing
+(EU AI Act Article 12 full enforcement 2026-08-02 with 6-month log retention;
+observability-vs-auditability gap; non-deterministic-agent replay) lives in the
+plan and justifies the copy. The S3 surface stays valuable as ingest
+compatibility, not the hero. `/embed` is now reachable only by direct URL.

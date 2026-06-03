@@ -9,18 +9,19 @@ import { ButtonLink } from "@/components/ui/Button";
 import { MobileNav } from "./MobileNav";
 
 const NAV = [
-  { label: "S3", href: "/s3" },
-  { label: "Knowledge", href: "/knowledge" },
-  { label: "Embed", href: "/embed" },
+  { label: "Replay", href: "/runs" },
+  { label: "Memory", href: "/memory" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
 
 const PRODUCT_ITEMS = [
-  { label: "Object storage", href: "/s3", lede: "S3-compatible buckets." },
-  { label: "Knowledge layer", href: "/knowledge", lede: "Searchable, indexed files." },
-  { label: "Agents", href: "/knowledge#agents", lede: "OpenAI-compatible endpoints." },
-  { label: "Embed widget", href: "/embed", lede: "One-line chat on any site." },
+  { label: "Agents", href: "/agents", lede: "OpenAI-compatible, scoped by default." },
+  { label: "Replay & audit", href: "/runs", lede: "Reproduce and verify any run." },
+  { label: "Audit trail", href: "/runs#lineage", lede: "Trace every output to its inputs." },
+  { label: "Memory", href: "/memory", lede: "Persistent memory agents choose to use." },
+  { label: "Knowledge", href: "/knowledge", lede: "Searchable files with citations." },
+  { label: "Object storage", href: "/s3", lede: "S3-compatible, owned by you." },
   { label: "Security", href: "/security", lede: "Sealed, revocable, verifiable." },
 ];
 

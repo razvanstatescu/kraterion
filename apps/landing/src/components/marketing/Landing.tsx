@@ -4,6 +4,7 @@ import { BucketFlowRibbon } from "./BucketFlowRibbon";
 import { S3ScrubBeatServer } from "./S3ScrubBeatServer";
 import { AgentRunPanel } from "./AgentRunPanel";
 import { MCPCallout } from "./MCPCallout";
+import { RuntimeCapabilities } from "./RuntimeCapabilities";
 import { OwnershipClaims } from "./OwnershipClaims";
 import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "./visuals/PremiumCTA";
@@ -64,12 +65,43 @@ await s3.send(
   },
 ];
 
-const AGENT_TABS = [
+const RUNTIME_TABS = [
+  {
+    lang: "python",
+    filename: "langgraph.py",
+    code: `from langgraph.graph import StateGraph
+from kraterion.langgraph import WalrusCheckpointSaver
+
+# Point your existing graph's checkpointer at Kraterion.
+# Every run records itself — replayable, auditable, yours.
+graph = builder.compile(
+    checkpointer=WalrusCheckpointSaver(project="support"),
+)
+
+result = graph.invoke({"question": "What is our refund policy?"})
+# run recorded · receipt 3f4d…ae · replay with: kraterion replay 3f4d…ae`,
+  },
+  {
+    lang: "typescript",
+    filename: "vercel-ai-sdk.ts",
+    code: `import { generateText } from "ai";
+import { withKraterion } from "@kraterion/ai-sdk";
+
+// Wrap any model. No other change to your agent.
+const model = withKraterion(openai("gpt-4o"), { project: "support" });
+
+const { text } = await generateText({
+  model,
+  prompt: "What is our refund policy?",
+});
+// run recorded · receipt 3f4d…ae · replay any past run from its receipt`,
+  },
   {
     lang: "typescript",
     filename: "openai.ts",
     code: `import OpenAI from "openai";
 
+// Already OpenAI-compatible — just swap the base URL.
 const client = new OpenAI({
   baseURL: "https://api.kraterion.com/v1/agents/support",
   apiKey: process.env.KRATERION_KEY,
@@ -77,69 +109,20 @@ const client = new OpenAI({
 
 const reply = await client.chat.completions.create({
   model: "support",
-  messages: [
-    { role: "user", content: "What is our refund policy?" },
-  ],
+  messages: [{ role: "user", content: "What is our refund policy?" }],
 });
-
-console.log(reply.choices[0].message.content);
-// → Refunds are processed within 7 business days
-//   from the original payment method.
-//
-// citations: [pricing-faq.md · §3 · 0.92]`,
-  },
-  {
-    lang: "python",
-    filename: "openai.py",
-    code: `import os
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="https://api.kraterion.com/v1/agents/support",
-    api_key=os.environ["KRATERION_KEY"],
-)
-
-reply = client.chat.completions.create(
-    model="support",
-    messages=[
-        {"role": "user", "content": "What is our refund policy?"},
-    ],
-)
-
-print(reply.choices[0].message.content)
-# → Refunds are processed within 7 business days
-#   from the original payment method.
-#
-# citations: [pricing-faq.md · §3 · 0.92]`,
-  },
-  {
-    lang: "bash",
-    filename: "curl",
-    code: `curl https://api.kraterion.com/v1/agents/support/chat/completions \\
-  -H "Authorization: Bearer $KRATERION_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "support",
-    "messages": [
-      {"role": "user", "content": "What is our refund policy?"}
-    ]
-  }'`,
+// → Refunds are processed within 7 business days.
+// citations: [pricing-faq.md · §3 · 0.92] · run recorded`,
   },
 ];
 
 const TERMINAL_LINES: TerminalLine[] = [
-  { kind: "prompt", text: "pip install boto3" },
-  { kind: "prompt", text: "export AWS_ENDPOINT_URL=https://s3.kraterion.com" },
-  { kind: "prompt", text: "aws s3 mb s3://my-bucket" },
-  { kind: "prompt", text: "aws s3 cp ./photo.jpg s3://my-bucket/" },
-  { kind: "output", text: "upload: ./photo.jpg to s3://my-bucket/photo.jpg" },
-  {
-    kind: "prompt",
-    text:
-      "curl -X POST https://api.kraterion.com/v1/buckets/my-bucket/knowledge \\\n" +
-      '  -H "Authorization: Bearer $KRATERION_KEY"',
-  },
-  { kind: "success", text: "✓ knowledge layer enabled · indexing 1 file" },
+  { kind: "prompt", text: "pip install kraterion" },
+  { kind: "prompt", text: "export KRATERION_KEY=kr_live_..." },
+  { kind: "prompt", text: "python support_agent.py   # one import added" },
+  { kind: "output", text: "✓ run recorded · receipt 3f4d…ae" },
+  { kind: "prompt", text: "kraterion replay 3f4d…ae" },
+  { kind: "success", text: "✓ replay matches original · verified" },
 ];
 
 export function Landing() {
@@ -154,10 +137,10 @@ export function Landing() {
             <div className="max-w-[760px]">
               <NumberedEyebrow n="00" label="The problem" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-                The way storage works today.
+                What breaks when you ship an agent.
               </h2>
               <p className="mt-6 max-w-[640px] text-[18px] leading-[1.55] text-stone-700">
-                Cloud storage is a great deal — until cancellation, lock-out, or a quiet policy change reminds you whose files those actually are.
+                Agents are non-deterministic. When one goes wrong in production, you need to see what it did, reproduce the run, and prove it — and most tools can&apos;t give you that.
               </p>
             </div>
           </FadeUp>
@@ -169,24 +152,24 @@ export function Landing() {
 
       {/* Bridge — pivot from problem to solution */}
       <BridgeHeadline align="left">
-        Same surface.
+        Run your agent.
         <br />
-        <span className="text-stone-500">Different spine.</span>
+        <span className="text-stone-500">Keep the receipts.</span>
       </BridgeHeadline>
 
-      {/* 02 — Storage */}
+      {/* 02 — Storage (the foundation the runtime sits on) */}
       <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="01" label="Storage" />
+              <NumberedEyebrow n="01" label="The foundation" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
-                Speaks S3.
+                Storage you own.
                 <br />
-                <span className="text-stone-500">Stays yours.</span>
+                <span className="text-stone-500">The runtime sits on top.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-700">
-                Point any S3 client at us — boto3, aws-cli, rclone, the SDKs. The bytes are stored as plain objects you can pull from any region. Leaving means walking out with your files at ~9× lower egress than AWS — not paying a tax to do it.
+                Every file, knowledge base, run record, and memory lives in storage you own — S3-compatible, so boto3, aws-cli, and rclone work unchanged. Bring your data in, and the runtime records itself right beside it.
               </p>
             </div>
           </FadeUp>
@@ -208,39 +191,50 @@ export function Landing() {
           eyebrowLabel="Knowledge"
           headline={
             <>
-              Bucket → indexed → answered.
+              Retrieval you can check.
             </>
           }
-          lede="Flip one toggle. Hybrid retrieval — BM25 plus dense vectors, top-k 8. Every answer carries a citation you can verify against the source file."
+          lede="Flip one toggle and your files become a knowledge base. Hybrid retrieval — BM25 plus dense vectors, top-k 8. Every answer carries a citation you can verify against the exact source it came from."
         />
       </section>
 
-      {/* 04 — Agents */}
+      {/* 04 — The runtime */}
       <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="03" label="Agents" />
+              <NumberedEyebrow n="03" label="The runtime" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
-                OpenAI-compatible.
+                Wrap your agent.
                 <br />
-                <span className="text-stone-500">Scoped by default.</span>
+                <span className="text-stone-500">Replay any run.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-700">
-                Replace the base URL — your existing OpenAI client now runs against your bucket. Each agent gets its own credential you can grant, audit, and revoke per agent. Not one master key for everything.
+                Wrap a LangGraph or Vercel AI SDK agent with one import — or just point your OpenAI client at us. Every run records itself: each retrieval, tool call, and memory write, captured as a tamper-evident trail you can replay, audit, and verify.
               </p>
             </div>
           </FadeUp>
           <div className="mt-12 grid items-stretch gap-4 md:grid-cols-2">
             <FadeUp className="flex">
               <div className="flex w-full">
-                <CodeBlock tabs={AGENT_TABS} className="w-full min-h-[440px]" />
+                <CodeBlock tabs={RUNTIME_TABS} className="w-full min-h-[440px]" />
               </div>
             </FadeUp>
             <FadeUp delay={0.1} className="flex">
               <AgentRunPanel className="w-full" />
             </FadeUp>
           </div>
+
+          {/* Runtime capabilities — links into the deep-dive pages */}
+          <FadeUp delay={0.1}>
+            <div className="mt-16">
+              <p className="mb-6 max-w-[600px] text-[16px] leading-[1.55] text-stone-700">
+                Tracing tools show you what a run did. Kraterion lets you reproduce it and prove it — because the record lives in storage you own and can&apos;t be altered after the fact.
+              </p>
+              <RuntimeCapabilities />
+            </div>
+          </FadeUp>
+
           <div className="mt-20">
             <MCPCallout />
           </div>
@@ -256,12 +250,12 @@ export function Landing() {
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
                 Your data.
                 <br />
-                Your keys.
+                Your logs.
                 <br />
                 <span className="text-stone-500">Your exit.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-300">
-                Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — sealed before upload, revocable by structure, portable by construction.
+                Observability tools hold your traces in their database — mutable, sampled, on their retention clock. Kraterion keeps every file and every run record in storage you own. Encrypted by default, verifiable by anyone, and yours to take with you.
               </p>
             </div>
           </FadeUp>
@@ -281,10 +275,10 @@ export function Landing() {
             <div className="max-w-[640px]">
               <NumberedEyebrow n="05" label="Quickstart" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
-                Five lines to a queryable bucket.
+                Five lines to a replayable agent.
               </h2>
               <p className="mt-6 text-[16px] leading-[1.55] text-stone-700">
-                The tools you already have, pointed at us. Then one extra line to turn the bucket into a knowledge base.
+                Wrap an agent you already have. Run it, and Kraterion records the run. Replay it from its receipt — same inputs, same retrieval.
               </p>
             </div>
           </FadeUp>
@@ -306,7 +300,7 @@ export function Landing() {
                 Pay for what you use.
               </h2>
               <p className="mt-6 max-w-[620px] text-[18px] leading-[1.55] text-stone-700">
-                Pick a project shape and we'll estimate from there — generous free band on every meter, flat per-unit rate above it, no minimums or tier cliffs.
+                Storage, retrieval, and run records on the same meter — generous free band on each, flat per-unit rate above it, no minimums or tier cliffs. Bring your own model keys; we don&apos;t mark up tokens.
               </p>
             </div>
           </FadeUp>
@@ -323,31 +317,31 @@ export function Landing() {
         eyebrow="Get early access"
         headline={
           <>
-            Start a bucket.
+            Ship agents you can
             <br />
-            <span className="text-stone-500">Join the beta.</span>
+            <span className="text-stone-500">debug, reproduce, and trust.</span>
           </>
         }
         primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
         primaryLabel="Request beta access →"
-        sub="No card. 500 MB free forever. Bring the S3 client you already use."
+        sub="No card. Free band on every meter. Wrap an agent you already have."
         satellites={[
           {
             icon: BookOpen,
             label: "Read the docs",
-            detail: "Quickstart, SDKs, full S3 compatibility map.",
+            detail: "Quickstart, the SDKs, and the replay API.",
             href: "/docs",
           },
           {
             icon: ScrollText,
             label: "See pricing",
-            detail: "Predictable storage. No egress traps.",
+            detail: "Storage, retrieval, and runs on one meter.",
             href: "/pricing",
           },
           {
             icon: MessageCircle,
             label: "Talk to us",
-            detail: "Volume pricing, custom regions, beta access.",
+            detail: "Volume pricing, self-hosting, beta access.",
             href: "mailto:hello@kraterion.com",
           },
         ]}

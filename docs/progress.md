@@ -4661,3 +4661,17 @@ becomes inconsistent.
   switch component). CSS rules rewritten under `.onb-bar`,
   `.onb-step-num`, `.onb-focus`, `.onb-focus-bg`, `.onb-vis-*` in
   `apps/dashboard/src/app/globals.css`.
+
+- `[landing]` Repositioned the marketing site toward the verifiable agent
+  runtime (per `docs/kraterion-strategy-v3.md`), web2 framing for any
+  dev/startup — see decisions.md (2026-06-03). Home page re-angled runtime-led
+  with storage as the foundation: rewrote `Hero.tsx`, `ProblemBeat.tsx`,
+  `OwnershipClaims.tsx`, `MCPCallout.tsx`, and `Landing.tsx` (Agents section
+  expanded into the runtime story with replay/audit/SDK/memory). Extended
+  `AgentRunPanel.tsx` with a memory tool call + receipt/replayable footer; added
+  `RuntimeCapabilities.tsx` and `visuals/LineageGraph.tsx`. New pages: `/runs`,
+  `/lineage`, `/memory`, `/docs/langgraph`, `/docs/vercel-ai-sdk`. Reframed
+  `/s3`, `/knowledge`, `/security` copy + metadata; updated Header/MobileNav,
+  Footer, DocsSidebar, home metadata, and root JSON-LD/keywords. `/embed` left
+  as a secondary surface (no longer in primary nav). Verifiability sold in web2
+  terms (debug/reproduce/audit); crypto jargon kept to deep "how it works" copy.
