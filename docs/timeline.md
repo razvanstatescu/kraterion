@@ -35,8 +35,18 @@ Working back from Jun 21 with a 1-week buffer for polish, demo video, and submis
   across the (app) shell. Read paths, dashboard, AI platform, K5 manifest
   archive, P3 agents, P4 tools, P6 embed widget all in. Running well
   ahead of the original calendar phasing.
-- **Days to submission:** 33
-- **Last reviewed:** 2026-05-19
+- **Days to submission:** 18
+- **Last reviewed:** 2026-06-03
+- **Recently shipped (since last review):** P9 Feature 1 (replayable
+  agent sessions — canonical trace, session anchor on Sui, replay
+  endpoint), Feature 2 (OpenLineage-shaped artifact lineage graph in
+  the dashboard), Feature 3 (`memory_remember` / `memory_recall`
+  agent tools backed by hosted MemWal — per-agent namespace,
+  per-deployment delegate key, six unit tests + a live-relayer
+  smoke), and a first-run onboarding card on `/buckets` (focused-
+  stepper layout with a background-watermark visual per step;
+  redesigned from a 4-card grid after the first pass crowded the
+  page). Running well ahead of the original W4–W5 phasing.
 - **Status (complete):**
   - **On-chain:** Move package `0x73b1…fa14`, init-spawned reserve, TS
     bindings auto-synced.

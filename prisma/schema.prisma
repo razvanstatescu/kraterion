@@ -32,6 +32,15 @@ model Account {
   status      String   @default("active") // active | cancelled | suspended
   created_at  DateTime @default(now())
 
+  /// First-run onboarding card on the dashboard home. Null = the card
+  /// is still eligible to show (gated by per-step completion which is
+  /// computed dynamically from buckets / agents / api_keys counts).
+  /// Set to `now()` when the user clicks the dismiss ✕; the card stays
+  /// hidden until the sidebar "Get started" entry resets this back to
+  /// null. We don't store per-step completion — it's derived so a
+  /// deleted bucket correctly un-completes step 1.
+  onboarding_dismissed_at DateTime?
+
   projects                 Project[]
   api_decryption_subwallet SubWallet? @relation("api_decryption_for_account")
 

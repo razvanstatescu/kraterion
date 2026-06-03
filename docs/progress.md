@@ -4547,3 +4547,117 @@ becomes inconsistent.
   entry point, cross-agent memory sharing, per-agent MemWal
   account isolation, Vercel AI SDK / LangGraph middleware
   wrappers.
+
+### 2026-06-03 — Dashboard first-run onboarding card
+
+- `[dashboard]` New "Get started" card on the buckets page (the de-
+  facto signed-in home). Walks new users through the four core
+  primitives in plain language: store your stuff (buckets), make
+  files searchable (knowledge), build an agent, plug into your stack
+  (integrations — `openai · vercel ai · langgraph · mcp` as a
+  cluster, no MCP jargon up front). Pattern: Resend / Linear /
+  PlanetScale top-of-dashboard checklist with auto-detected
+  completion.
+- `[dashboard]` Each step renders in one of three states — pending,
+  active (lowest-index incomplete, krater accent), done (filled
+  green badge, body muted, CTA swaps to "Open ↗"). Step 2 is locked
+  with a "finish step 01 first" hint until the user has at least
+  one bucket, so the CTA never lands the user in a dead end. Step 4
+  visual is four monospaced labels in a 2×2 grid around a centered
+  krater dot — license-safe, on-brand, no external logo art.
+- `[control-plane]` New `OnboardingModule` with three endpoints —
+  `GET /v1/onboarding`, `POST /v1/onboarding/dismiss`, `POST
+  /v1/onboarding/reset`. Completion is **derived** (no per-step
+  `completed_at` rows) by counting buckets / indexed knowledge
+  manifests / agents / API keys per account. Deleting your only
+  bucket correctly un-completes step 1; the card itself only hides
+  when the user explicitly dismisses *and* the indicator stays in
+  sync. Six unit tests cover the four completion predicates plus
+  dismiss/reset. The only persisted state is a single
+  `Account.onboarding_dismissed_at DateTime?` column (migration
+  `20260603092350_onboarding_dismissed_at`).
+- `[dashboard]` Sidebar shortcut: a "Get started" entry appears in
+  `Sidebar.tsx` *only* when the inline card is hidden (dismissed or
+  all four complete). Clicking it calls reset and routes back to
+  `/buckets`, which re-shows the card — useful for demos and for
+  users who dismissed by mistake.
+- `[dashboard]` `useCreateAgent` and `useMintApiKey` now also
+  invalidate the onboarding query on success, so the card ticks the
+  matching step within a few hundred ms of the action — no reload.
+  Bucket / knowledge creation rely on the 30s `staleTime` +
+  `refetchOnWindowFocus`; acceptable for v1.
+- `[dashboard]` `/buckets?new=1` and `/agents?new=1` deep-link
+  shortcuts auto-open the respective Create dialog and strip the
+  query param via `router.replace` so a refresh doesn't re-trigger.
+- Design system constraints honoured: weights 400 / 500 only, no
+  shadows / blur / gradients, warm-stone palette + krater accent on
+  the active step, sentence-case copy, 200ms transitions. Banned-
+  phrase grep over `apps/dashboard/src/components/onboarding/`
+  returns nothing.
+- Files added: `apps/control-plane/src/onboarding/{onboarding.module,
+  onboarding.controller,onboarding.service,onboarding.service.spec}.ts`,
+  `apps/dashboard/src/components/onboarding/{OnboardingCard,
+  OnboardingStep}.tsx`,
+  `apps/dashboard/src/components/onboarding/visuals/{Buckets,Knowledge,
+  Agents,Integrations}Visual.tsx`. Migration:
+  `prisma/migrations/20260603092350_onboarding_dismissed_at/`. CSS:
+  `~270 lines` of `.onb-*` rules at the end of
+  `apps/dashboard/src/app/globals.css`.
+- Not in scope: empty-state integration on `BucketsList` /
+  `AgentsListTab` (showing "Step X of 4" pills), per-project
+  onboarding (currently account-global), confetti / celebration
+  toast on completion, persona-branching first step, marketing-site
+  `/get-started` mirror, onboarding analytics.
+
+### 2026-06-03 (later) — Onboarding card redesigned: focused stepper + watermark visuals
+
+- `[dashboard]` First pass was a 4-card horizontal grid (~700px tall
+  with visuals + bodies + CTAs per card). On a graduated account
+  (4 of 4 done) it crowded the page and pushed the actual bucket
+  list below the fold. Replaced with a **focused-stepper** layout
+  (pattern reference: Stripe / Vercel onboarding bars). Single
+  inline bar, ~140px tall in progress, ~48px when done.
+- `[dashboard]` New shape: header strip with `Get started · X of 4`
+  on the left, four numbered step-chips on the right that double as
+  progress indicator + quick-jump tabs (click any chip to focus
+  that step). Below: a single focused-step body — eyebrow ("NEXT
+  01"), title, body, and one primary CTA. Only one decision visible
+  at a time. "Done" state collapses to a single row with a
+  `Review steps ▾` expander that lists the four ticked steps.
+- `[dashboard]` Per-step visuals come back as a **background
+  watermark** in the focus body — absolutely-positioned right-half
+  fill at ~38% opacity, mask-fades toward the left so the text
+  reads cleanly. Scale-1.7× transform pushes the chip compositions
+  up to fill the half-bar (Step 4's grid layout keeps a 1.1×
+  scale + fixed width since it already fills its container).
+  Hidden below 920px viewports — text gets full width on narrow
+  screens. `pointer-events: none` so text selection isn't blocked.
+  Files: `apps/dashboard/src/components/onboarding/visuals/StepVisual.tsx`
+  (one component switching on step key — replaces the four separate
+  files from the first pass).
+- `[dashboard]` `?fresh=1` preview mode: any URL with this param
+  renders the card as if all four steps are pending and the user
+  has not dismissed — for demos and design QA without touching DB
+  state. No server change; pure client-side override in
+  `OnboardingCard.tsx`.
+- `[dashboard]` `BillingBanner` ([BillingBanner.tsx:48-50](apps/dashboard/src/components/billing/BillingBanner.tsx#L48))
+  now also reads `useOnboarding()` and suppresses the soft "Add a
+  payment method" banner whenever the onboarding card is visible.
+  Hard-state banners (`past_due`, `cancelled`, `cap-exceeded`)
+  unaffected — those are urgent and unmasked.
+- `[dashboard]` `Sidebar` shows the "Get started" shortcut only
+  when `dismissed_at !== null` (previously also showed it when all
+  four were complete; that path is gone since the card now stays
+  visible in the "All set" state until explicitly dismissed).
+- Mask technique: `mask-image: linear-gradient(to right, transparent
+  0%, rgba(0,0,0,0.25) 18%, rgba(0,0,0,0.85) 55%, rgba(0,0,0,1)
+  100%)` — 4-stop feather. See decisions.md for why this is an
+  allowed exception to the design system's blanket "no gradients"
+  rule (used as alpha mask, not as visible color).
+- Files deleted: `OnboardingStep.tsx` and the four per-step
+  visual files from the first pass (`{Buckets,Knowledge,Agents,
+  Integrations}Visual.tsx`). Replaced with `OnboardingCard.tsx`
+  (rewritten end-to-end) and `visuals/StepVisual.tsx` (single
+  switch component). CSS rules rewritten under `.onb-bar`,
+  `.onb-step-num`, `.onb-focus`, `.onb-focus-bg`, `.onb-vis-*` in
+  `apps/dashboard/src/app/globals.css`.

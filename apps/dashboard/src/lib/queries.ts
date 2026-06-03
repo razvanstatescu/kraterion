@@ -317,6 +317,9 @@ export function useMintApiKey(projectId: string | undefined) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["v1", "api-keys", projectId ?? "none"] });
+      // First-run onboarding card unlocks step 4 ("Plug into your stack")
+      // once an API key exists.
+      void queryClient.invalidateQueries({ queryKey: ["v1", "onboarding"] });
     },
   });
 }
@@ -958,6 +961,8 @@ export function useCreateAgent(projectId: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: ["v1", "agents", projectId ?? "none"],
       });
+      // First-run onboarding card ticks step 3 once an agent exists.
+      void queryClient.invalidateQueries({ queryKey: ["v1", "onboarding"] });
     },
   });
 }
@@ -1272,6 +1277,55 @@ export function useCancelBillingSubscription(projectId: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: ["v1", "billing", "account", projectId],
       });
+    },
+  });
+}
+
+// === Onboarding ==============================================================
+
+export type OnboardingStepKey =
+  | "buckets"
+  | "knowledge"
+  | "agents"
+  | "integrations";
+
+export interface OnboardingState {
+  dismissed_at: string | null;
+  steps: { key: OnboardingStepKey; completed: boolean }[];
+}
+
+/** First-run "Get started" card state. Re-queried on focus + every 30s
+ *  so the card auto-updates as the user creates buckets / agents in
+ *  another tab. */
+export function useOnboarding() {
+  const { session } = useCpSession();
+  return useQuery({
+    queryKey: ["v1", "onboarding", session?.accountId ?? "anon"],
+    queryFn: () => cpFetch<OnboardingState>("/v1/onboarding"),
+    enabled: Boolean(session?.token),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useDismissOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<{ ok: true }>("/v1/onboarding/dismiss", { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "onboarding"] });
+    },
+  });
+}
+
+export function useResetOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      cpFetch<{ ok: true }>("/v1/onboarding/reset", { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["v1", "onboarding"] });
     },
   });
 }

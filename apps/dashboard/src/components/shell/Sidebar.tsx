@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Mark } from "@/components/ui/Mark";
+import { useResetOnboarding } from "@/lib/queries";
 
 interface NavItem {
   href: string;
@@ -45,11 +46,28 @@ interface Props {
   projectName?: string;
   accountEmail?: string | undefined;
   accountInitial?: string | undefined;
+  /** Show the "Get started" sidebar shortcut. True when the user has
+   *  dismissed (or graduated from) the onboarding card and might want
+   *  to bring it back. */
+  showGetStarted?: boolean;
 }
 
-export function Sidebar({ projectName = "default", accountEmail, accountInitial = "?" }: Props) {
+export function Sidebar({
+  projectName = "default",
+  accountEmail,
+  accountInitial = "?",
+  showGetStarted = false,
+}: Props) {
   const pathname = usePathname();
+  const router = useRouter();
+  const reset = useResetOnboarding();
   const isActive = (href: string) => pathname === href || pathname?.startsWith(`${href}/`);
+
+  const onGetStarted = () => {
+    reset.mutate(undefined, {
+      onSuccess: () => router.push("/buckets"),
+    });
+  };
 
   return (
     <aside className="ks-sidebar">
@@ -57,6 +75,27 @@ export function Sidebar({ projectName = "default", accountEmail, accountInitial 
         <Mark size={28} variant="light" />
         <span className="ks-wordmark">Kraterion</span>
       </Link>
+
+      {showGetStarted ? (
+        <nav className="ks-nav" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={onGetStarted}
+            className="ks-navitem"
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: "1px solid var(--border)",
+              cursor: "pointer",
+              font: "inherit",
+              textAlign: "left",
+            }}
+          >
+            <Icon name="info" size={16} />
+            <span>Get started</span>
+          </button>
+        </nav>
+      ) : null}
 
       {GROUPS.map((group, idx) => (
         <div key={idx}>

@@ -31,6 +31,58 @@ greppable — paste the actual error string.
 
 ---
 
+## Symptom: `prisma migrate dev` fails with `ERROR: column "content_tsv" of relation "KnowledgeChunk" is a generated column` / `HINT: Use ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION instead.`
+
+**Cause:** Prisma's migration generator emits spurious operations
+against generated columns it doesn't fully understand. Every time
+the schema diffs against the live DB, the generated SQL includes
+`DROP INDEX KnowledgeChunk_content_tsv_gin`,
+`DROP INDEX KnowledgeChunk_embedding_hnsw`, and
+`ALTER TABLE "KnowledgeChunk" ALTER COLUMN "content_tsv" DROP
+DEFAULT` — none of which are valid for the `GENERATED ALWAYS AS
+... STORED` column that K1 introduced. The migration aborts with
+SQLSTATE 42601 (`syntax error / column is a generated column`)
+even when the actual change you wanted has nothing to do with
+`KnowledgeChunk`.
+
+**Fix:** edit the generated migration SQL by hand before applying.
+
+```bash
+# 1. Run prisma migrate dev — it'll write the migration directory
+#    and then fail to apply it.
+pnpm db:migrate --name <your_migration_name>
+
+# 2. Edit the SQL to keep ONLY the AlterTable / CreateTable lines
+#    that match the schema change you actually intended. Strip every
+#    `DROP INDEX KnowledgeChunk_*` and the `ALTER COLUMN
+#    "content_tsv" DROP DEFAULT` line.
+$EDITOR prisma/migrations/<TIMESTAMP>_<your_name>/migration.sql
+
+# 3. Tell Prisma the failed attempt was rolled back, then redeploy.
+pnpm exec prisma migrate resolve --schema prisma/schema.prisma \
+  --rolled-back <TIMESTAMP>_<your_name>
+pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+
+# 4. Regenerate the client.
+pnpm db:generate
+```
+
+**Observed:** 2026-06-03, while adding
+`Account.onboarding_dismissed_at` (migration
+`20260603092350_onboarding_dismissed_at`). Also surfaced earlier
+during P9 Feature 1 (`p9_replayable_agent_sessions` migration). The
+same hand-edit fix applies every time — it's a Prisma 5.x quirk
+with pg generated columns, not a one-off bug.
+
+**Notes:** the underlying decision to use a generated
+`content_tsv tsvector` column is documented in
+[decisions.md](decisions.md#) under the K1 hybrid-retrieval entry —
+the column is load-bearing for BM25 and we don't want to drop it.
+This runbook entry is purely about the recurring migration friction
+the design causes.
+
+---
+
 ## Symptom: `EADDRINUSE: address already in use :::3001` when starting the dashboard
 
 **Cause:** A stale `next-server` process from a previous (Next.js 15-era)

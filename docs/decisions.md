@@ -3826,3 +3826,110 @@ crypto/web3 vocabulary. Stack picks below.
   `@theme` declarations in landing's `globals.css`. If a token value
   changes in the design system, mirror it manually. (Future improvement:
   generate `@theme` from `colors_and_type.css`.)
+
+## 2026-06-03 — Dashboard onboarding: focused-stepper over checklist grid; derived completion
+
+**Status:** decided + shipped.
+
+**Context:** the dashboard had no first-run guidance — only empty
+states ("No buckets yet") with no narrative. New users couldn't tell
+that buckets → knowledge → agents → integrations was a coherent
+workflow. First pass shipped a 4-card horizontal grid at the top of
+`/buckets` (visuals + bodies + CTAs per card, ~700 px tall). On a
+graduated account it crowded the page and pushed the bucket list
+below the fold; the user's actual primary work surface was
+overshadowed by an "all done" celebration.
+
+**Decision:**
+
+- **Focused-stepper layout, not a grid.** Single inline bar with a
+  numbered chip-strip on the right (also acts as quick-jump tabs) and
+  a single focused-step body below — eyebrow, title, one paragraph,
+  one primary CTA. Only one decision is visible at a time. Pattern
+  references: Stripe Onboarding, Vercel project setup, Resend's
+  top-of-dashboard checklist.
+- **Completion is derived, not stored.** No `completed_at` columns
+  per step. The `OnboardingService.getState()` counts buckets /
+  indexed `KnowledgeManifest`s / `KraterionAgent`s / `ApiKey`s for the
+  account at request time and returns a `{ key, completed }[]`. The
+  only persisted state is `Account.onboarding_dismissed_at`.
+- **Show until dismissed, not until graduated.** The card stays
+  visible after all four are complete (rendering a single-row "All
+  set · 4 of 4" collapsed state with a `Review steps ▾` expander).
+  Only the explicit ✕ hides it permanently; the sidebar "Get started"
+  shortcut brings it back via `POST /v1/onboarding/reset`.
+- **Per-step visuals as a background watermark, not a tile.** Lucide
+  icon clusters rendered absolutely-positioned in the right half of
+  the focus body at ~38 % opacity, with a `mask-image` linear-gradient
+  feathering toward the text on the left. `pointer-events: none`.
+  Hidden below 920 px. Step 4 (integrations) uses a 2×2 mono-label
+  grid around a krater dot — no external logos.
+
+**Why these picks (not the alternatives):**
+
+- *Per-step completion timestamps in the DB.* Would tick step 1 done
+  permanently even after the user deletes their only bucket. Derived
+  completion stays correct under any later mutation; the predicates
+  are four `COUNT(*)`s and run in parallel — ~ms.
+- *4-card grid (the first pass).* Visually rich, but it weighted the
+  display equally between four steps no matter how many were done.
+  The user immediately flagged it as too crowded once graduated.
+- *Auto-hide on completion.* Confuses graduated users — they have
+  nothing to dismiss, no proof of their progress. Keeping the card
+  visible until dismissed gives the user agency and lets a graduated
+  user click "Review steps" to revisit the destinations.
+- *External SDK logos in Step 4.* License-uncertain and would force
+  the design-system rule "no external brand colors" to bend.
+  Monospaced labels (`openai · vercel ai · langgraph · mcp`) around a
+  krater dot is honest and on-brand.
+
+**Consequences:**
+
+- A new `OnboardingModule` in the control plane (3 endpoints, ~80
+  LOC). Migration `20260603092350_onboarding_dismissed_at` adds one
+  nullable column to `Account`.
+- `useCreateAgent` and `useMintApiKey` now also invalidate
+  `["v1", "onboarding"]` so the card ticks the matching step within
+  ~ms. Bucket / knowledge creation rely on a 30 s staleTime +
+  `refetchOnWindowFocus`.
+- `BillingBanner` suppresses the soft "Add a payment method" banner
+  whenever the onboarding card is visible — avoiding two stacked
+  prompts. Hard banners (`past_due`, `cancelled`, `cap-exceeded`)
+  unaffected.
+- `?fresh=1` query param is a permanent demo affordance: any URL
+  with it renders the card as if 0/4 done, no DB change.
+
+## 2026-06-03 — Design rule clarification: `mask-image` gradients are allowed for decorative feathering
+
+**Status:** clarification.
+
+**Context:** the design system bans gradients
+(`design-system/README.md` line 135: "No shadows, blur, or
+gradients"). The intent is to prevent ad-spammy color gradients and
+to force elevation through hairline + bg contrast. The onboarding
+card's background watermark needs a horizontal fade from
+transparent → opaque so the visual doesn't overlap text.
+
+**Decision:** treat `mask-image: linear-gradient(...)` as a
+*feathering* technique distinct from a visible *color* gradient. It
+is allowed for decorative watermark fades. It is **not** allowed for
+backgrounds, borders, fills, or anywhere it would appear as a
+visible color transition.
+
+**Why:** a mask gradient is functionally an alpha-only stencil; the
+visual it masks still uses the warm-stone palette and hairline
+borders. The user perceives "the icon fades out" rather than "this
+element has a gradient." Banning it would force ugly workarounds (a
+hard cutoff, or an opaque container overlap) that violate the
+spirit of the rule more than the letter.
+
+**Consequences:**
+
+- The onboarding card's `.onb-focus-bg` uses a 4-stop
+  linear-gradient as a `mask-image` (and `-webkit-mask-image` for
+  pre-Safari-15.4 fallback).
+- Reviewers should still reject `background: linear-gradient(...)`,
+  `border-image: linear-gradient(...)`, and any other use that
+  produces visible color transitions.
+- If we add similar watermark fades elsewhere (empty states, hero
+  visuals), they inherit this allowance.

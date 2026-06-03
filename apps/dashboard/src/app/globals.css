@@ -3188,3 +3188,408 @@ code, kbd, samp {
   /* Static dot for users who opted out of motion. */
   [style*="ks-pulse"] { animation: none !important; }
 }
+
+/* ============================================================ */
+/* Onboarding — focused-stepper "Get started" bar                */
+/* ============================================================ */
+
+.onb-bar {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.onb-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.onb-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.onb-bar-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.onb-bar-meta {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.onb-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.onb-chip-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.onb-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--stone-100);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: 0.4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-base, 200ms),
+    color var(--dur-base, 200ms),
+    border-color var(--dur-base, 200ms);
+}
+.onb-step-num:hover { border-color: var(--border); }
+.onb-step-num-pending { /* default */ }
+.onb-step-num-active {
+  background: var(--color-krater, #C45B36);
+  color: var(--color-cream, #F8F4EC);
+}
+.onb-step-num-done {
+  background: var(--color-success, #5C7A3F);
+  color: var(--color-cream, #F8F4EC);
+}
+.onb-step-num-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.onb-check-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-success, #5C7A3F);
+  color: var(--color-cream, #F8F4EC);
+  margin-right: 4px;
+}
+
+.onb-focus {
+  position: relative;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  /* Give the watermark vertical room without forcing a tall block when
+     the body wraps. */
+  min-height: 132px;
+}
+
+/* Watermark: absolutely-positioned visual that fills the right half of
+   the focus block, mask-fades toward the left so the text reads
+   cleanly. Lower opacity + non-interactive. */
+.onb-focus-bg {
+  position: absolute;
+  top: 12px;        /* clear the hairline border at the top */
+  right: 0;
+  bottom: 0;
+  left: 38%;        /* start about a third of the way across */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  opacity: 0.38;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.25) 18%,
+    rgba(0, 0, 0, 0.85) 55%,
+    rgba(0, 0, 0, 1) 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.25) 18%,
+    rgba(0, 0, 0, 0.85) 55%,
+    rgba(0, 0, 0, 1) 100%
+  );
+}
+.onb-focus-bg > * {
+  /* The chip-based visuals are sized for a compact 240px container.
+     In the watermark slot they have ~500px of room — scale up so they
+     anchor the right half rather than getting lost. */
+  transform: scale(1.7);
+  transform-origin: center right;
+}
+/* Step 4 is grid-laid-out and fills its container — don't translate
+   it on the x-axis, just scale up modestly. */
+.onb-focus-bg-integrations > * {
+  transform: scale(1.1);
+  transform-origin: center;
+  width: 320px;
+}
+
+.onb-focus-content {
+  position: relative;
+  z-index: 1;
+  /* Cap text width so it never collides with the watermark. */
+  max-width: 64%;
+}
+
+@media (max-width: 920px) {
+  .onb-focus-bg { display: none; }
+  .onb-focus-content { max-width: 100%; }
+  .onb-focus { min-height: 0; }
+}
+.onb-focus-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-krater, #C45B36);
+  margin-bottom: 4px;
+}
+.onb-focus-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.onb-focus-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0 0 12px;
+  max-width: 70ch;
+}
+.onb-focus-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.onb-step-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--dur-base, 200ms),
+    color var(--dur-base, 200ms),
+    border-color var(--dur-base, 200ms);
+}
+.onb-step-cta:hover {
+  border-color: var(--stone-300, var(--border));
+  background: var(--bg-surface, transparent);
+}
+.onb-step-cta-primary {
+  background: var(--color-krater, #C45B36);
+  border-color: var(--color-krater, #C45B36);
+  color: var(--color-cream, #F8F4EC);
+}
+.onb-step-cta-primary:hover {
+  opacity: 0.92;
+  background: var(--color-krater, #C45B36);
+}
+
+.onb-link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: none;
+}
+.onb-link-btn:hover { color: var(--text-primary); }
+
+.onb-step-hint {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.onb-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--dur-base, 200ms), border-color var(--dur-base, 200ms);
+}
+.onb-dismiss:hover {
+  color: var(--text-primary);
+  border-color: var(--stone-300, var(--border));
+}
+
+.onb-done-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.onb-done-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.onb-done-title {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .onb-bar-right { gap: 6px; }
+  .onb-chip-strip { gap: 3px; }
+  .onb-step-num { width: 22px; height: 22px; font-size: 10.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-bar, .onb-step-num, .onb-dismiss, .onb-step-cta {
+    transition: none !important;
+  }
+}
+
+/* ============================================================ */
+/* Per-step visuals (right column of the focused step)           */
+/* ============================================================ */
+
+.onb-vis-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.onb-vis-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.7;
+}
+.onb-vis-plus {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: 14px;
+  line-height: 1;
+}
+
+.onb-vis-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: background var(--dur-base, 200ms), color var(--dur-base, 200ms),
+    border-color var(--dur-base, 200ms);
+}
+.onb-vis-chip-sm { width: 22px; height: 22px; }
+.onb-vis-chip-md { width: 28px; height: 28px; }
+.onb-vis-chip-lg { width: 36px; height: 36px; }
+.onb-vis-chip-accent {
+  border-color: var(--color-krater, #C45B36);
+  color: var(--color-krater, #C45B36);
+  background: var(--bg-elevated);
+}
+.onb-vis-chip-muted-1 { opacity: 0.65; }
+.onb-vis-chip-muted-2 { opacity: 0.35; }
+
+.onb-vis-stack {
+  position: relative;
+  display: inline-flex;
+  width: 38px;
+  height: 28px;
+}
+.onb-vis-stack .onb-vis-chip {
+  position: absolute;
+  top: 0;
+}
+.onb-vis-stack .onb-vis-chip:nth-child(1) { left: 0; z-index: 1; }
+.onb-vis-stack .onb-vis-chip:nth-child(2) { left: 6px; z-index: 2; }
+.onb-vis-stack .onb-vis-chip:nth-child(3) { left: 12px; z-index: 3; }
+
+.onb-vis-cluster {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.onb-vis-dotgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 3px;
+}
+.onb-vis-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.55;
+}
+
+/* Step 4 — integrations chip cluster around a krater dot ----- */
+
+.onb-vis-int {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 28px;
+  align-items: center;
+  justify-items: center;
+  width: 100%;
+}
+.onb-vis-int-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.onb-vis-int-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-krater, #C45B36);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-vis-chip { transition: none !important; }
+}

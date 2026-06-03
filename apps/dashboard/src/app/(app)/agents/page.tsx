@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 import { AgentsListTab } from "@/components/agents/AgentsListTab";
 import { CreateAgentDialog } from "@/components/agents/CreateAgentDialog";
@@ -33,12 +33,22 @@ function AgentsPageInner() {
   const { data: me } = useMe();
   const projectId = me?.projects[0]?.id;
   const params = useSearchParams();
+  const router = useRouter();
   const initialTab: Tab =
     params.get("tab") === "connections" ? "connections" : "my-agents";
   const [tab, setTab] = useState<Tab>(initialTab);
   // Lifted from AgentsListTab so the "New agent" action can live in
   // the Topbar — matches the buckets + keys pages.
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Honour ?new=1 from the onboarding card's step-3 CTA. Strip the
+  // param after opening so a reload doesn't re-trigger the dialog.
+  useEffect(() => {
+    if (params.get("new") === "1") {
+      setCreateOpen(true);
+      router.replace("/agents");
+    }
+  }, [params, router]);
 
   return (
     <>

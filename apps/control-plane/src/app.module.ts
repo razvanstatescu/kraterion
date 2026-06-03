@@ -16,6 +16,7 @@ import { McpModule } from "./mcp/mcp.module.js";
 import { MemwalModule } from "./memwal/memwal.module.js";
 import { OAuthModule } from "./oauth/oauth.module.js";
 import { ObjectsModule } from "./objects/presign.module.js";
+import { OnboardingModule } from "./onboarding/onboarding.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
 import { RedisModule } from "./redis/redis.module.js";
@@ -44,6 +45,7 @@ import { UsageModule } from "./usage/usage.module.js";
     ActivityModule,
     KnowledgeModule,
     OAuthModule,
+    OnboardingModule,
     McpModule,
     MemwalModule,
     AdminModule,

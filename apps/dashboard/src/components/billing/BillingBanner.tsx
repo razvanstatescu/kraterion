@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { STORAGE_DEFAULT_MB } from "@kraterion/shared";
 import { Banner } from "@/components/ui/Banner";
@@ -8,6 +9,7 @@ import { formatStorageMb } from "@/lib/format";
 import {
   useBillingAccount,
   useMe,
+  useOnboarding,
   useUsageCurrentPeriod,
 } from "@/lib/queries";
 
@@ -36,9 +38,20 @@ export function BillingBanner() {
   const projectId = project?.id;
   const account = useBillingAccount(projectId);
   const usage = useUsageCurrentPeriod(projectId);
+  const onboarding = useOnboarding();
+  const params = useSearchParams();
 
   const billing = account.data?.account ?? null;
   const u = usage.data;
+
+  // The onboarding "Get started" card already nudges users toward
+  // billing as part of step 4 ("Plug into your stack"). When that card
+  // is visible we suppress the soft "Add a payment method" banner to
+  // avoid stacking two prompts. Hard-state banners (past_due,
+  // cancelled, cap-exceeded) are unaffected — those are urgent.
+  const onboardingVisible =
+    params.get("fresh") === "1" ||
+    (onboarding.data ? onboarding.data.dismissed_at === null : false);
 
   // Compute the active banner kind from current data.
   const banner = pickBanner({
@@ -60,6 +73,7 @@ export function BillingBanner() {
   }, []);
 
   if (!banner) return null;
+  if (banner.id === "no-payment-method" && onboardingVisible) return null;
   if (banner.dismissible && dismissed.includes(banner.id)) return null;
 
   return (
