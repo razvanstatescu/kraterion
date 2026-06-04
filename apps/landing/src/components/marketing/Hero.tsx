@@ -3,6 +3,7 @@ import { Reveal } from "@/components/motion/Reveal";
 import { WordCycle } from "@/components/motion/WordCycle";
 import { ButtonLink } from "@/components/ui/Button";
 import { HeroVisual } from "./HeroVisual";
+import { BuiltOn } from "./BuiltOn";
 
 const HEADLINE_CYCLE = [
   "debug.",
@@ -66,6 +67,9 @@ export function Hero() {
               <span aria-hidden className="h-px w-6 bg-stone-300" />
               <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">S3 storage</span>
             </div>
+          </FadeUp>
+          <FadeUp delay={0.7}>
+            <BuiltOn className="mt-8 border-t border-stone-200/60 pt-6" />
           </FadeUp>
         </div>
 
