@@ -109,6 +109,11 @@ export default function Page() {
               </FadeUp>
             ))}
           </div>
+          <FadeUp delay={0.1}>
+            <p className="mt-6 max-w-[640px] text-[14px] leading-[1.6] text-stone-600">
+              The record itself is stored on Walrus and anchored on Sui — so it can&apos;t be altered after the fact, and anyone can verify it.
+            </p>
+          </FadeUp>
         </div>
       </section>
 

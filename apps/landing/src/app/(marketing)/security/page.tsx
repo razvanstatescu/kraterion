@@ -189,6 +189,11 @@ export default function Page() {
               <EnvelopeSealingSchema />
             </div>
           </FadeUp>
+          <FadeUp delay={0.15}>
+            <p className="mt-6 text-[14px] leading-[1.6] text-stone-400">
+              Sealing is handled by Seal; the access policy that releases the keys is enforced on Sui — so revoking access is a property of the system, not a support request.
+            </p>
+          </FadeUp>
         </div>
       </section>
 

@@ -4691,3 +4691,16 @@ becomes inconsistent.
   pricing public-link-egress clarified + repeated litany collapsed, runs lineage
   de-duplicated against the CAPTURED grid. Verified: typecheck + build clean, no
   new lint errors, all marketing routes 200. Docs pages left untouched this pass.
+
+- `[landing]` Surfaced the underlying tech (Walrus / Sui / Seal / Walrus Memory)
+  for the Sui Overflow submission while keeping the web2 voice. Factored a
+  reusable `BrandLogo` (color for light bg, cream-mono mask for dark) out of
+  `BuiltOn`. Added a global **footer "Built on" strip** (Walrus · Sui · Seal +
+  "agent memory by Walrus Memory") on every page; a home **"How it's built"**
+  section (`HowItsBuilt.tsx`, capability→primitive map) after the ownership
+  beat (renumbered eyebrows to 05/06/07); and plain-language attribution
+  captions under the existing diagrams on `/s3` (StorageSchema), `/security`
+  (sealing → Seal, access policy → Sui), and `/runs` (record stored on Walrus,
+  anchored on Sui). Also fixed a pre-existing banned phrase ("powered by
+  Kraterion" → "by Kraterion") in the chat widget. Verified: typecheck + build
+  clean, no new lint errors, all routes 200, no "powered by" left in copy.

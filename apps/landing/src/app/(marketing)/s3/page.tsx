@@ -249,6 +249,11 @@ export default function Page() {
               <StorageSchema />
             </div>
           </FadeUp>
+          <FadeUp delay={0.15}>
+            <p className="mt-6 text-[14px] leading-[1.6] text-stone-600">
+              Encrypted with Seal · stored on Walrus · owned on Sui — the three open primitives behind the single endpoint.
+            </p>
+          </FadeUp>
         </div>
       </section>
 

@@ -129,7 +129,7 @@ export function KraterionChatWidget({
                 <span className="text-[13px] font-medium">Support</span>
               </div>
               <span className={cn("text-[11px]", isDark ? "text-stone-400" : "text-stone-500")}>
-                powered by Kraterion
+                by Kraterion
               </span>
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">

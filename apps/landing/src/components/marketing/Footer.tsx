@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { KraterionMark } from "@/components/ui/KraterionMark";
+import { BrandLogo, BRAND_URL } from "./BrandLogo";
 import { cn } from "@/lib/cn";
 
 const COLUMNS = [
@@ -77,7 +78,38 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-24 flex flex-col items-start gap-4 border-t border-stone-800 pt-8 md:flex-row md:items-center md:justify-between">
+        {/* Built on — tech attribution (every page) */}
+        <div className="mt-16 flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-stone-800 pt-8">
+          <span className="text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+            Built on
+          </span>
+          <span className="flex flex-wrap items-center gap-x-5 gap-y-3 text-stone-300">
+            <a href={BRAND_URL.walrus} target="_blank" rel="noopener noreferrer" className="inline-flex transition-colors hover:text-cream">
+              <BrandLogo brand="walrus" tone="mono" h={14} />
+            </a>
+            <span aria-hidden className="h-3 w-px bg-stone-700" />
+            <a href={BRAND_URL.seal} target="_blank" rel="noopener noreferrer" className="inline-flex transition-colors hover:text-cream">
+              <BrandLogo brand="seal" tone="mono" h={13} />
+            </a>
+            <span aria-hidden className="h-3 w-px bg-stone-700" />
+            <a href={BRAND_URL.sui} target="_blank" rel="noopener noreferrer" className="inline-flex transition-colors hover:text-cream">
+              <BrandLogo brand="sui" tone="mono" h={18} />
+            </a>
+          </span>
+          <span className="text-[13px] text-stone-500">
+            Agent memory by{" "}
+            <a
+              href="https://memwal.ai/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-stone-300 underline underline-offset-4 decoration-stone-600 hover:text-cream"
+            >
+              Walrus Memory
+            </a>
+          </span>
+        </div>
+
+        <div className="mt-12 flex flex-col items-start gap-4 border-t border-stone-800 pt-8 md:flex-row md:items-center md:justify-between">
           <span
             className={cn(
               "inline-flex items-center gap-[10px] text-[15px] font-medium text-cream"

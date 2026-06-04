@@ -1,41 +1,19 @@
 import { cn } from "@/lib/cn";
+import { BrandLogo, BRAND_URL, type Brand } from "./BrandLogo";
 
 /**
  * BuiltOn — a quiet one-line trust strip for the hero: what Kraterion runs on.
  *   stored on [Walrus] · secured by [Seal] · owned on [Sui]
  *
- * The brand SVGs in /public/brands render in their own colors. Each carries an
- * alt for screen readers.
+ * Logos render in their own colors (light background). For dark surfaces, use
+ * BrandLogo with tone="mono" directly (see the footer).
  */
 
-const ITEMS: { label: string; brand: string; aspect: number; h: number }[] = [
-  { label: "Stored on", brand: "walrus", aspect: 1417 / 931, h: 14 },
-  { label: "Secured by", brand: "seal", aspect: 284 / 162, h: 13 },
-  { label: "Owned on", brand: "sui", aspect: 300 / 384, h: 18 },
+const ITEMS: { label: string; brand: Brand; h: number }[] = [
+  { label: "Stored on", brand: "walrus", h: 14 },
+  { label: "Secured by", brand: "seal", h: 13 },
+  { label: "Owned on", brand: "sui", h: 18 },
 ];
-
-function BrandMark({
-  brand,
-  aspect,
-  h,
-}: {
-  brand: string;
-  aspect: number;
-  h: number;
-}) {
-  const name = brand.charAt(0).toUpperCase() + brand.slice(1);
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={`/brands/${brand}.svg`}
-      alt={name}
-      width={Math.round(h * aspect)}
-      height={h}
-      className="inline-block shrink-0 align-middle"
-      style={{ height: h, width: h * aspect }}
-    />
-  );
-}
 
 export function BuiltOn({ className }: { className?: string }) {
   return (
@@ -50,7 +28,14 @@ export function BuiltOn({ className }: { className?: string }) {
           {i > 0 && <span aria-hidden className="h-3 w-px bg-stone-300" />}
           <span className="flex items-center gap-2">
             {item.label}
-            <BrandMark brand={item.brand} aspect={item.aspect} h={item.h} />
+            <a
+              href={BRAND_URL[item.brand]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex transition-opacity hover:opacity-70"
+            >
+              <BrandLogo brand={item.brand} h={item.h} className="text-stone-600" />
+            </a>
           </span>
         </div>
       ))}

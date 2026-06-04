@@ -5,6 +5,7 @@ import { S3ScrubBeatServer } from "./S3ScrubBeatServer";
 import { AgentRunPanel } from "./AgentRunPanel";
 import { MCPCallout } from "./MCPCallout";
 import { RuntimeCapabilities } from "./RuntimeCapabilities";
+import { HowItsBuilt } from "./HowItsBuilt";
 import { OwnershipClaims } from "./OwnershipClaims";
 import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "./visuals/PremiumCTA";
@@ -273,12 +274,34 @@ export function Landing() {
         </div>
       </section>
 
+      {/* 05 — How it's built */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="05" label="How it's built" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Built on infrastructure you own.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[18px] leading-[1.55] text-stone-700">
+                Ownership isn&apos;t a policy here — it&apos;s the stack. Each part runs on open infrastructure you can verify and walk away with.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <HowItsBuilt />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
       {/* 06 — Quickstart */}
       <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[640px]">
-              <NumberedEyebrow n="05" label="Quickstart" />
+              <NumberedEyebrow n="06" label="Quickstart" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Five lines to a replayable agent.
               </h2>
@@ -300,7 +323,7 @@ export function Landing() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="06" label="Pricing" />
+              <NumberedEyebrow n="07" label="Pricing" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Pay for what you use.
               </h2>
