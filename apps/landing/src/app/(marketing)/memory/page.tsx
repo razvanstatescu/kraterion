@@ -6,14 +6,25 @@ import { StatStrip } from "@/components/marketing/rich/StatStrip";
 import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
-import { Brain, Check, BookOpen, GitBranch, MessageCircle } from "lucide-react";
+import {
+  Brain,
+  Check,
+  BookOpen,
+  GitBranch,
+  MessageCircle,
+  Infinity as InfinityIcon,
+  ArrowLeftRight,
+  Lock,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
 
 export const dynamic = "force-static";
 
 export const metadata: Metadata = {
   title: "Agent memory — Kraterion",
   description:
-    "Turn on persistent memory and your agent decides when to remember and recall. Scoped to credentials you can revoke, recorded in storage you own, and reachable from your AI assistant over MCP.",
+    "Turn on persistent memory and your agent decides when to remember and recall. Built on Walrus Memory — an open, decentralized memory layer — so memory is persistent, portable, private, and owned by you.",
 };
 
 const STATS = [
@@ -21,6 +32,29 @@ const STATS = [
   { value: "1", label: "credential scopes it", sub: "Revoke it, revoke memory" },
   { value: "MCP", label: "in your assistant", sub: "Claude Desktop, Cursor" },
   { value: "yours", label: "stored in your project", sub: "Recorded with the run" },
+];
+
+const WHY_WALRUS: { icon: LucideIcon; title: string; body: string }[] = [
+  {
+    icon: InfinityIcon,
+    title: "Persistent",
+    body: "Memory outlives sessions, restarts, and deploys. Your agent picks up where it left off instead of starting from scratch every time.",
+  },
+  {
+    icon: ArrowLeftRight,
+    title: "Portable",
+    body: "It isn't locked to Kraterion. The same memory can move with your agent across apps and models — no vendor lock-in.",
+  },
+  {
+    icon: Lock,
+    title: "Private",
+    body: "Every note is encrypted before it's stored. The network keeps your memory available but can't read what's inside it.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Verifiable",
+    body: "Each memory is tamper-evident. You can confirm a note is exactly what was written — handy when a decision needs an audit trail.",
+  },
 ];
 
 const HOW = [
@@ -140,6 +174,48 @@ export default function Page() {
         </div>
       </section>
 
+      {/* Behind the scenes — Walrus Memory */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="02" label="Behind the scenes" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Built on Walrus Memory.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
+                Persistent memory runs on Walrus Memory — an open memory layer built for AI agents. Instead of sitting in our database, every note your agent saves is encrypted and kept on an independent, decentralized network that you own. It is the same principle as the rest of Kraterion: your data lives somewhere you control, not somewhere you rent.
+              </p>
+            </div>
+          </FadeUp>
+
+          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-2">
+            {WHY_WALRUS.map((c) => (
+              <FadeUp key={c.title} className="bg-cream p-8 md:p-10">
+                <c.icon size={20} strokeWidth={1.5} className="text-stone-500" />
+                <h3 className="mt-4 text-[22px] leading-[1.25] text-ink md:text-[24px]">{c.title}</h3>
+                <p className="mt-3 text-[15px] leading-[1.65] text-stone-700">{c.body}</p>
+              </FadeUp>
+            ))}
+          </div>
+
+          <FadeUp delay={0.1}>
+            <p className="mt-8 max-w-[640px] text-[15px] leading-[1.6] text-stone-600">
+              When the agent calls remember, the note is encrypted and stored; recall searches it back by meaning, not just keywords.{" "}
+              <a
+                href="https://memwal.ai/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink"
+              >
+                Learn about Walrus Memory
+              </a>
+              .
+            </p>
+          </FadeUp>
+        </div>
+      </section>
+
       <BridgeHeadline align="left">
         Same memory.
         <br />
@@ -151,7 +227,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="02" label="In your assistant" />
+              <NumberedEyebrow n="03" label="In your assistant" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Reachable over MCP.
               </h2>
@@ -173,12 +249,12 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="03" label="Worth knowing" tone="ink" />
+              <NumberedEyebrow n="04" label="Worth knowing" tone="ink" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 One honest dependency.
               </h2>
               <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-300">
-                Memory runs through a hosted relayer. If you need strict availability guarantees, you can self-host it. Either way, the records stay in storage you own.
+                Memory runs through Walrus Memory&apos;s hosted service — the part that encrypts and stores each note. If you need strict availability guarantees, you can self-host it. Either way, the memory stays encrypted and owned by you.
               </p>
             </div>
           </FadeUp>
