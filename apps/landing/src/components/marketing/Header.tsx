@@ -1,35 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { KraterionWordmark } from "@/components/ui/KraterionWordmark";
 import { ButtonLink } from "@/components/ui/Button";
 import { MobileNav } from "./MobileNav";
+import { NavMenu, type NavMenuDef } from "./NavMenu";
+import { StorageGlyph, KnowledgeGlyph, AgentsGlyph } from "./NavGlyphs";
 
-const NAV = [
-  { label: "Replay", href: "/runs" },
-  { label: "Memory", href: "/memory" },
+// Product menus, ordered as the product story flows: storage is the
+// foundation, knowledge makes it answerable, agents are the runtime on top.
+export const MENUS: NavMenuDef[] = [
+  {
+    label: "Storage",
+    caption: "Sealed, owned objects.",
+    visual: <StorageGlyph />,
+    items: [
+      { label: "Object storage", href: "/s3", lede: "S3-compatible buckets you own." },
+      { label: "Security & ownership", href: "/security", lede: "Sealed, revocable, verifiable." },
+    ],
+  },
+  {
+    label: "Knowledge",
+    caption: "Hybrid retrieval with citations.",
+    visual: <KnowledgeGlyph />,
+    items: [
+      { label: "Knowledge bases", href: "/knowledge", lede: "Make your files answerable." },
+      { label: "Embed widget", href: "/embed", lede: "A chat over your knowledge, anywhere." },
+    ],
+  },
+  {
+    label: "Agents",
+    caption: "Every run recorded.",
+    visual: <AgentsGlyph />,
+    items: [
+      { label: "Agents", href: "/agents", lede: "OpenAI-compatible, scoped by default." },
+      { label: "Replay & audit", href: "/runs", lede: "Reproduce and verify any run." },
+      { label: "Lineage", href: "/runs#lineage", lede: "Trace every output to its inputs." },
+      { label: "Memory", href: "/memory", lede: "Memory agents choose to use." },
+    ],
+  },
+];
+
+export const FLAT_NAV = [
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
 
-const PRODUCT_ITEMS = [
-  { label: "Agents", href: "/agents", lede: "OpenAI-compatible, scoped by default." },
-  { label: "Replay & audit", href: "/runs", lede: "Reproduce and verify any run." },
-  { label: "Audit trail", href: "/runs#lineage", lede: "Trace every output to its inputs." },
-  { label: "Memory", href: "/memory", lede: "Persistent memory agents choose to use." },
-  { label: "Knowledge", href: "/knowledge", lede: "Searchable files with citations." },
-  { label: "Object storage", href: "/s3", lede: "S3-compatible, owned by you." },
-  { label: "Security", href: "/security", lede: "Sealed, revocable, verifiable." },
-];
-
 export function Header() {
   const [scrolled, setScrolled] = useState(false);
-  const [productOpen, setProductOpen] = useState(false);
-  const openTimer = useRef<number | null>(null);
-  const closeTimer = useRef<number | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -39,22 +60,13 @@ export function Header() {
   }, []);
 
   useEffect(() => {
-    if (!productOpen) return;
+    if (!openMenu) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setProductOpen(false);
+      if (e.key === "Escape") setOpenMenu(null);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [productOpen]);
-
-  const openMenu = () => {
-    if (closeTimer.current) window.clearTimeout(closeTimer.current);
-    openTimer.current = window.setTimeout(() => setProductOpen(true), 160);
-  };
-  const closeMenu = () => {
-    if (openTimer.current) window.clearTimeout(openTimer.current);
-    closeTimer.current = window.setTimeout(() => setProductOpen(false), 120);
-  };
+  }, [openMenu]);
 
   return (
     <header
@@ -72,46 +84,17 @@ export function Header() {
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
-          <div
-            className="relative"
-            onMouseEnter={openMenu}
-            onMouseLeave={closeMenu}
-          >
-            <button
-              type="button"
-              className="flex items-center gap-1 px-3 py-2 text-[14px] text-stone-700 hover:text-ink"
-              aria-haspopup="true"
-              aria-expanded={productOpen}
-              onClick={() => setProductOpen((v) => !v)}
-            >
-              Product
-              <ChevronDown size={14} strokeWidth={1.5} />
-            </button>
-            {productOpen && (
-              <div
-                className={cn(
-                  "absolute left-0 top-full mt-1 w-[320px] origin-top-left",
-                  "rounded-lg border border-stone-200/60 bg-cream p-2"
-                )}
-                role="menu"
-                style={{ animation: "iris-open 200ms cubic-bezier(0.16, 1, 0.3, 1)" }}
-              >
-                {PRODUCT_ITEMS.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    role="menuitem"
-                    className="block rounded-md px-3 py-2 hover:bg-stone-100"
-                    onClick={() => setProductOpen(false)}
-                  >
-                    <div className="text-[15px] font-medium text-ink">{item.label}</div>
-                    <div className="text-[13px] text-stone-600">{item.lede}</div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-          {NAV.map((item) => (
+          {MENUS.map((menu, i) => (
+            <NavMenu
+              key={menu.label}
+              menu={menu}
+              align={i === MENUS.length - 1 ? "right" : "left"}
+              isOpen={openMenu === menu.label}
+              onOpen={setOpenMenu}
+              onClose={() => setOpenMenu(null)}
+            />
+          ))}
+          {FLAT_NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -135,7 +118,7 @@ export function Header() {
           </ButtonLink>
         </div>
 
-        <MobileNav navItems={NAV} productItems={PRODUCT_ITEMS} />
+        <MobileNav menus={MENUS} flatItems={FLAT_NAV} />
       </div>
     </header>
   );
