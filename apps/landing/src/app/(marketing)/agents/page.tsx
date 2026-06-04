@@ -92,7 +92,7 @@ const CLAIMS = [
   {
     n: "02",
     title: "Scoped by default.",
-    body: "Each agent gets its own credential, scoped to the buckets and tools it needs. Grant it, audit it, revoke it — per agent, not one master key.",
+    body: "Each agent gets its own credential, limited to the buckets and tools it needs. Revoke the agent and its access stops at once — no master key, no keys to rotate.",
   },
   {
     n: "03",
@@ -102,7 +102,7 @@ const CLAIMS = [
   {
     n: "04",
     title: "On the record.",
-    body: "Every run an agent makes is recorded as a replayable, tamper-evident trail — retrievals, tool calls, memory, and outputs.",
+    body: "Pull the full trace of any run, replay it, or audit a single step — retrievals, tool calls, memory, and outputs, all captured.",
   },
 ];
 
@@ -112,7 +112,7 @@ const TOOLS: { name: string; sig: string; description: string }[] = [
   { name: "list-objects", sig: "list_objects(bucket, prefix?)", description: "List object keys in a bucket, optionally filtered by prefix." },
   { name: "read", sig: "read_object(bucket, key)", description: "Fetch full object bytes, decrypted under the agent's own credential." },
   { name: "write", sig: "write_object(bucket, key, body)", description: "Write a new object back to the bucket — only for read-write agents." },
-  { name: "memory", sig: "memory.remember / recall", description: "Save and fetch long-term notes when persistent memory is enabled." },
+  { name: "memory", sig: "memory.remember / recall", description: "Save and fetch long-term notes — optional, added when you enable agent memory." },
 ];
 
 const EMBED_PROPS: { icon: LucideIcon; title: string; detail: string }[] = [

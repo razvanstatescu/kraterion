@@ -4,7 +4,6 @@ import { FadeUp } from "@/components/motion/FadeUp";
 import { NumberedEyebrow } from "@/components/marketing/rich/NumberedEyebrow";
 import { StatStrip } from "@/components/marketing/rich/StatStrip";
 import { BridgeHeadline } from "@/components/marketing/rich/BridgeHeadline";
-import { SealingFlow } from "@/components/marketing/SealingFlow";
 import { EnvelopeSealingSchema } from "@/components/marketing/visuals/EnvelopeSealingSchema";
 import { BeforeAfterOwnership } from "@/components/marketing/visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "@/components/marketing/visuals/PremiumCTA";
@@ -59,17 +58,17 @@ const REVOCATION = [
 ];
 
 const AUDIT_ROWS = [
-  { id: "upload_a4f2c8…", version: "v12", digest: "0x9c4a8b21f0e7c2…", actor: "you@acme-co.com", action: "Put object", time: "2026-05-20 14:02:11" },
-  { id: "index_run_91…", version: "v7", digest: "0x4d2f0e9c7b81a…", actor: "system", action: "Index bucket", time: "2026-05-20 14:02:14" },
-  { id: "agent_answer_22…", version: "v3", digest: "0x4f1ab3a0e7c2f…", actor: "support-agent", action: "Cite chunk", time: "2026-05-20 14:02:18" },
-  { id: "citation_07…", version: "v2", digest: "0xfa0012a4e7c2f…", actor: "support-agent", action: "Bind source", time: "2026-05-20 14:02:18" },
-  { id: "access_grant_3…", version: "v1", digest: "0xa1b2c3d4e5f6a…", actor: "you@acme-co.com", action: "Grant team-read", time: "2026-05-20 13:58:42" },
+  { id: "upload_a4f2c8…", version: "v12", digest: "9c4a8b21f0e7c2…", actor: "you@acme-co.com", action: "Put object", time: "2026-05-20 14:02:11" },
+  { id: "index_run_91…", version: "v7", digest: "4d2f0e9c7b81a…", actor: "system", action: "Index bucket", time: "2026-05-20 14:02:14" },
+  { id: "agent_answer_22…", version: "v3", digest: "4f1ab3a0e7c2f…", actor: "support-agent", action: "Cite chunk", time: "2026-05-20 14:02:18" },
+  { id: "citation_07…", version: "v2", digest: "fa0012a4e7c2f…", actor: "support-agent", action: "Bind source", time: "2026-05-20 14:02:18" },
+  { id: "access_grant_3…", version: "v1", digest: "a1b2c3d4e5f6a…", actor: "you@acme-co.com", action: "Grant team-read", time: "2026-05-20 13:58:42" },
 ];
 
 const SECURITY_STATS = [
   { value: "0", label: "plaintext bytes leave your device", sub: "Encryption is the default" },
   { value: "TLS 1.3", label: "in transit", sub: "Modern ciphers only" },
-  { value: "t-of-n", label: "threshold encryption", sub: "Multiple key servers" },
+  { value: "2-of-3", label: "key servers must agree", sub: "No single point of trust" },
   { value: "90 days", label: "access log retention", sub: "Audit-ready" },
 ];
 
@@ -126,7 +125,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="00a" label="The shift" />
+              <NumberedEyebrow n="01" label="The shift" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Same files. Different perimeter.
               </h2>
@@ -145,7 +144,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="01" label="Four claims" />
+              <NumberedEyebrow n="02" label="Four claims" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
                 What ownership
                 <br />
@@ -176,7 +175,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="02" label="How sealing works" tone="ink" />
+              <NumberedEyebrow n="03" label="How sealing works" tone="ink" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Encrypted before it leaves you.
               </h2>
@@ -190,11 +189,6 @@ export default function Page() {
               <EnvelopeSealingSchema />
             </div>
           </FadeUp>
-          <FadeUp delay={0.15}>
-            <div className="mt-8">
-              <SealingFlow />
-            </div>
-          </FadeUp>
         </div>
       </section>
 
@@ -203,7 +197,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="03" label="How revocable access works" />
+              <NumberedEyebrow n="04" label="How revocable access works" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Policy is the gate. Not a promise.
               </h2>
@@ -229,7 +223,7 @@ export default function Page() {
                 Policy · bucket.support-docs
               </div>
               <div className="p-6 font-mono text-[12px] leading-[1.7] text-stone-700">
-                <div className="text-stone-500">// stored as a public, verifiable record</div>
+                <div className="text-stone-500">{"// stored as a public, verifiable record"}</div>
                 <div>
                   <span className="text-krater">policy</span> bucket.support-docs &#123;
                 </div>
@@ -249,7 +243,7 @@ export default function Page() {
                   <span className="text-stone-500">→</span> read
                 </div>
                 <div className="pl-4 text-[color:var(--color-error)]">
-                  <span className="text-stone-500">// </span>
+                  <span className="text-stone-500">{"// "}</span>
                   revoked 2026-05-12 · ciphertext now unreadable to this party
                 </div>
                 <div>&#125;</div>
@@ -264,7 +258,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="04" label="Verifiable audit log" />
+              <NumberedEyebrow n="05" label="Verifiable audit log" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 A tamper-evident history.
               </h2>
@@ -308,7 +302,7 @@ export default function Page() {
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="05" label="Compliance" />
+              <NumberedEyebrow n="06" label="Compliance" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Plain English.
               </h2>
@@ -333,7 +327,7 @@ export default function Page() {
             <ComplianceItem
               tone="stone"
               title="HIPAA / PHI"
-              detail="Not suitable for regulated personal data. See limits below."
+              detail="Not currently suitable for regulated personal data (HIPAA / PHI)."
             />
           </div>
         </div>
@@ -387,15 +381,15 @@ function KeyCustodyPanel() {
           </div>
           <div className="mt-3 space-y-2.5">
             <CustodyRow
-              label="DEK"
+              label="Data key"
               detail="generated on device · per file"
-              hash="0x9c4a8b21f0e7c2"
+              hash="9c4a8b21f0e7c2"
               accent
             />
             <CustodyRow
-              label="KEK"
+              label="Key wrap"
               detail="threshold split · 2-of-3 key servers"
-              hash="t-of-n shares"
+              hash="2-of-3 shares"
               accent
             />
           </div>

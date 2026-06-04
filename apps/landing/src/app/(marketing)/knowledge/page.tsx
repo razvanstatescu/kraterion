@@ -105,7 +105,7 @@ const TOOLS: { name: string; sig: string; description: string }[] = [
   {
     name: "read",
     sig: "read_object(bucket, key)",
-    description: "Fetch full object bytes — decrypted via the agent's sub-credential.",
+    description: "Fetch full object bytes — decrypted under the agent's scoped credential.",
   },
   {
     name: "write",
@@ -206,18 +206,18 @@ export default function Page() {
           <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-3">
             <Card
               eyebrow="01 · Lexical leg"
-              title="BM25"
-              detail="Exact terms, exact matches. Postgres tsvector + GIN index."
+              title="Keyword search"
+              detail="Exact terms and phrases — the precise matching you expect from full-text search."
             />
             <Card
               eyebrow="02 · Semantic leg"
-              title="Dense vectors"
-              detail="text-embedding-3-small at 1024 dims, stored as pgvector halfvec for fast cosine search."
+              title="Vector search"
+              detail="Meaning, not just words. Finds passages that paraphrase the question, even with no shared terms."
             />
             <Card
               eyebrow="03 · Fusion"
               title="Reciprocal Rank Fusion"
-              detail="Each leg contributes 1 / (k + rank). No training, no cross-encoder, no per-query model call."
+              detail="Both result lists merged into one ranking — no reranker to train, no extra model call per query."
             />
           </div>
         </div>
@@ -237,7 +237,7 @@ export default function Page() {
                 Show your work.
               </h2>
               <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
-                Every agent answer is paired with a structured receipt — the sources it pulled from, the relevance scores, the chunk hashes, and a verification digest you can check against the index manifest independently. The agent doesn't ask you to trust the answer. It shows you why to.
+                Every agent answer is paired with a structured receipt — the sources it pulled from, the relevance scores, the chunk hashes, and a verification digest you can check against the index manifest independently. The agent doesn&apos;t ask you to trust the answer. It shows you why to.
               </p>
             </div>
           </FadeUp>
@@ -247,28 +247,14 @@ export default function Page() {
               <CitationReceipt />
             </div>
           </FadeUp>
-
-          <FadeUp delay={0.15}>
-            <div className="mt-12 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60 md:grid-cols-3">
-              <ReceiptClaim
-                n="01"
-                title="Where the answer came from."
-                body="Every cited file, section, and relevance score is in the receipt. No phantom sources. No synthesized references."
-              />
-              <ReceiptClaim
-                n="02"
-                title="What the content was, then."
-                body="Each chunk's hash is recorded at retrieval time. If a source file is mutated later, the mismatch flags it on the next read."
-              />
-              <ReceiptClaim
-                n="03"
-                title="You don't have to trust us."
-                body="The index manifest digest is committed independently. Anyone can verify a citation came from a real chunk of a real file at a real moment."
-              />
-            </div>
-          </FadeUp>
         </div>
       </section>
+
+      <BridgeHeadline align="left">
+        Your agent retrieves
+        <br />
+        <span className="text-stone-500">with receipts attached.</span>
+      </BridgeHeadline>
 
       {/* Agents — code + live trace, matching homepage */}
       <section id="agents" className="bg-stone-50 py-24 md:py-32">
@@ -282,7 +268,7 @@ export default function Page() {
                 <span className="text-stone-500">Scoped by default.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-700">
-                Replace the base URL — your existing OpenAI client now runs against your bucket. Each agent gets its own credential you can grant, audit, and revoke per agent. Bring your own model key (OpenAI, Anthropic, etc.) — Kraterion bills you $0 for the chat call itself.
+                Replace the base URL and your existing OpenAI client runs against your bucket. Each agent gets its own scoped credential. Bring your own model key — Kraterion bills $0 for the chat call itself.
               </p>
             </div>
           </FadeUp>
@@ -400,14 +386,14 @@ const RECEIPT_CITATIONS: Citation[] = [
     section: "§3 · refunds & cancellations",
     score: "0.92",
     meta: "bucket support-docs · 12 KB · indexed 13:51:30",
-    chunkHash: "0x4d2f0e9c7b81a2c9d4e5f6a7…",
+    chunkHash: "4d2f0e9c7b81a2c9d4e5f6a7…",
   },
   {
     file: "billing-policy.md",
     section: "§1.4 · payment terms",
     score: "0.74",
     meta: "bucket support-docs · 18 KB · indexed 13:51:30",
-    chunkHash: "0x4f1ab3a0e7c2f9b8c1d2e3f4…",
+    chunkHash: "4f1ab3a0e7c2f9b8c1d2e3f4…",
   },
 ];
 
@@ -489,7 +475,7 @@ function CitationReceipt() {
             />
             <div className="flex flex-col gap-0.5">
               <span className="font-mono text-[12px] text-ink">
-                manifest digest 0xfa0012a4e7c2f1b8c1d2e3f4a5b6c7d8
+                manifest digest fa0012a4e7c2f1b8c1d2e3f4a5b6c7d8
               </span>
               <span className="font-mono text-[11px] text-stone-500">
                 bound to bucket support-docs · committed 13:51:30
@@ -527,22 +513,3 @@ function ReceiptSection({
   );
 }
 
-function ReceiptClaim({
-  n,
-  title,
-  body,
-}: {
-  n: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <FadeUp className="bg-cream p-8">
-      <div className="font-mono text-[12px] tabular-nums text-krater">{n}</div>
-      <h3 className="mt-3 text-[18px] leading-[1.25] text-ink md:text-[20px]">
-        {title}
-      </h3>
-      <p className="mt-3 text-[14px] leading-[1.6] text-stone-700">{body}</p>
-    </FadeUp>
-  );
-}

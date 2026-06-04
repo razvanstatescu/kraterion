@@ -3,9 +3,7 @@ import {
   FileText,
   Terminal as TerminalIcon,
   Key,
-  ShieldCheck,
-  XCircle,
-  Sparkles,
+  ArrowLeftRight,
 } from "lucide-react";
 import { ButtonLink } from "@/components/ui/Button";
 import { FadeUp } from "@/components/motion/FadeUp";
@@ -171,12 +169,12 @@ export default function Page() {
             <div className="max-w-[760px]">
               <NumberedEyebrow n="01" label="What's different" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[56px]">
-                Four properties
+                Storage that&apos;s yours,
                 <br />
-                <span className="text-stone-500">no provider promises in writing.</span>
+                <span className="text-stone-500">in and out.</span>
               </h2>
               <p className="mt-6 max-w-[640px] text-[16px] leading-[1.55] text-stone-700">
-                Most storage products promise these in a marketing line. Kraterion makes them properties of the system — enforced by structure, not by trust.
+                Most storage products promise ownership in a marketing line. Kraterion makes it a property of the system — enforced by structure, not by trust.
               </p>
             </div>
           </FadeUp>
@@ -186,27 +184,24 @@ export default function Page() {
                 n="01"
                 icon={Key}
                 title="You own the bytes."
-                body="Every object is recorded against your account, not ours. Cancel the service tomorrow — the files don't disappear. You can keep them funded directly, or pull them out via any S3 client. We're a service, not a custodian."
+                body="Every object is recorded against your account, not ours. Cancel the service tomorrow — the files don't disappear. Keep them funded directly, or pull them out via any S3 client. We're a service, not a custodian."
               />
               <Claim
                 n="02"
-                icon={ShieldCheck}
-                title="Sealed before upload."
-                body="Bytes are encrypted on your device, then sent. The platform stores ciphertext only — we hold the data, we can't read it. Encryption isn't a setting you remember to turn on. It's the default and the only mode."
-              />
-              <Claim
-                n="03"
-                icon={XCircle}
-                title="Revocable by structure."
-                body="When you remove access, the keys stop being issued. Independent key servers verify the policy on every request and refuse to release shares for revoked parties — the ciphertext stays on disk, but it's unreadable to them. Enforced, not promised."
-              />
-              <Claim
-                n="04"
-                icon={Sparkles}
-                title="Tamper-evident audit trail."
-                body="Every upload, read, share-link issuance, revocation, indexing run, and agent answer writes a uniquely-IDed, version-tracked record. Anyone can independently verify the history of any object — including parties you no longer trust."
+                icon={ArrowLeftRight}
+                title="Portable, both ways."
+                body="No proprietary import, no proprietary export. Point any S3 client in; pull every byte out at ~9× lower egress than AWS. Leaving costs nothing beyond standard egress — no exit tax, no migration window."
               />
             </div>
+          </FadeUp>
+          <FadeUp delay={0.15}>
+            <p className="mt-6 max-w-[640px] text-[15px] leading-[1.6] text-stone-600">
+              Every object is also encrypted before upload, with access you can revoke and a tamper-evident record of every action.{" "}
+              <a href="/security" className="text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
+                See the security model
+              </a>
+              .
+            </p>
           </FadeUp>
         </div>
       </section>
@@ -449,14 +444,14 @@ function LiveBucketVisual() {
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-stone-500">
               <span aria-hidden className="h-1 w-1 rounded-full bg-krater" />
-              audit record · 0x9c4a8b21f0e7…
+              audit record · 9c4a8b21f0e7…
             </div>
           </div>
         </div>
 
         {/* Footer — provenance summary */}
         <div className="grid grid-cols-3 divide-x divide-stone-200/60 border-t border-stone-200/60 bg-stone-50/60">
-          <FootStat label="Owner" value="0x7c…3f4d" />
+          <FootStat label="Owner" value="you@acme-co" />
           <FootStat label="At rest" value="Sealed" accent />
           <FootStat label="Trail" value="6 events" />
         </div>
@@ -506,16 +501,8 @@ const AUDIT_EVENTS: AuditEvent[] = [
     time: "14:02:11",
     action: "UPLOAD",
     subject: "photo-final-v3.jpg",
-    detail: "by 0x7c…3f4d · 2.1 MB · sealed AES256",
-    digest: "0x9c4a8b21f0e7c2…",
-    variant: "default",
-  },
-  {
-    time: "14:01:48",
-    action: "READ",
-    subject: "pricing-faq.md",
-    detail: "via kr_live_3f4d…1c · 184 ms",
-    digest: "0x4d2f0e9c7b81a2…",
+    detail: "by you@acme-co.com · 2.1 MB · sealed",
+    digest: "9c4a8b21f0e7c2…",
     variant: "default",
   },
   {
@@ -523,7 +510,7 @@ const AUDIT_EVENTS: AuditEvent[] = [
     action: "ISSUE",
     subject: "share token · kr_share_test_92ac…",
     detail: "scope support-docs · origin docs.acme-co.com",
-    digest: "0x4f1ab3a0e7c2f9…",
+    digest: "4f1ab3a0e7c2f9…",
     variant: "issue",
   },
   {
@@ -531,24 +518,8 @@ const AUDIT_EVENTS: AuditEvent[] = [
     action: "REVOKE",
     subject: "share token · kr_share_test_1a8b…",
     detail: "access policy updated · enforced at t+0",
-    digest: "0xfa0012a4e7c2f1…",
+    digest: "fa0012a4e7c2f1…",
     variant: "revoke",
-  },
-  {
-    time: "13:51:30",
-    action: "INDEX",
-    subject: "bucket · support-docs",
-    detail: "5 files → 24 chunks · manifest committed",
-    digest: "0xa1b2c3d4e5f6a7…",
-    variant: "default",
-  },
-  {
-    time: "13:48:15",
-    action: "AGENT",
-    subject: "support · “What is our refund policy?”",
-    detail: "cited pricing-faq.md §3 · score 0.92 · 184 ms",
-    digest: "0xb2c3d4e5f6a7b8…",
-    variant: "default",
   },
 ];
 
@@ -561,7 +532,7 @@ function AuditTrailVisual() {
           Audit · bucket assets-prod
         </span>
         <span className="font-mono text-[11px] text-stone-600">
-          last 24 hours · 6 events
+          last 24 hours
         </span>
       </div>
 

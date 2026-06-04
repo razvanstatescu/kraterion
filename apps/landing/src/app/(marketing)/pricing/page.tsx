@@ -74,9 +74,9 @@ const METERS = [
   },
   {
     name: "Public-link egress",
-    description: "Bytes served through embed-widget share tokens",
+    description: "Bytes served through embed-widget share tokens — billed from the first byte, separate from your 50 GB egress free band",
     free: "—",
-    freeUnit: "no separate free band",
+    freeUnit: "billed from byte 1",
     rate: "$0.01",
     rateUnit: "/ GB",
   },
@@ -93,7 +93,7 @@ const FAQ = [
   },
   {
     q: "Why not zero egress, like Cloudflare R2?",
-    a: "R2 cross-subsidizes egress from Cloudflare's existing CDN business. We don't have that lever — our reads pull through Walrus and require a Seal threshold call per sealed object, both of which cost real money. Charging $0 would mean burning cash on heavy readers, which isn't sustainable. $0.01/GB lets us absorb the infra cost honestly and stay roughly an order of magnitude under AWS.",
+    a: "R2 cross-subsidizes egress from Cloudflare's existing CDN business. We don't have that lever — every read pulls from a distributed storage network and runs a cryptographic check to unseal the object, both of which cost real money. Charging $0 would mean burning cash on heavy readers, which isn't sustainable. $0.01/GB lets us cover the infra cost honestly and stay roughly an order of magnitude under AWS.",
   },
   {
     q: "What does BYOK mean for agents?",
@@ -101,7 +101,7 @@ const FAQ = [
   },
   {
     q: "What happens if I leave?",
-    a: "Run rclone, aws-cli, or any S3 client against your bucket and pull every byte. No proprietary export, no exit fee on top of standard egress. Walrus is content-addressed, so you can also pull straight from the network if you want to skip Kraterion entirely.",
+    a: "Run rclone, aws-cli, or any S3 client against your bucket and pull every byte. No proprietary export, no exit fee on top of standard egress. Your objects are content-addressed in the underlying network, so you can even pull them directly without going through Kraterion at all.",
   },
   {
     q: "How is storage measured?",
@@ -169,7 +169,7 @@ export default function Page() {
                 Every meter, every rate.
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                Seven metered resources. Same rate at every scale. Edit your subscription anytime — there's no commitment, no minimum spend, no migration cost between &quot;plans.&quot;
+                Seven metered resources, one rate at every scale. Change meters or cancel anytime — no &quot;plans&quot; to migrate between, no penalty for leaving.
               </p>
             </div>
           </FadeUp>
@@ -240,7 +240,7 @@ export default function Page() {
                 The honest math.
               </h2>
               <p className="mt-6 max-w-[620px] text-[16px] leading-[1.55] text-stone-700">
-                Three providers, same workload, published rates. We sit between AWS S3 (the punishing egress curve) and Cloudflare R2 (cheapest pure $/GB, no client-side encryption or ownership) — about 83% under S3, with sealed objects and revocable access included.
+                Three providers, same workload, published rates. We sit between AWS S3 (the punishing egress curve) and Cloudflare R2 (cheapest per GB, but no built-in encryption or ownership) — about 83% under S3, with sealed objects and revocable access included.
               </p>
             </div>
           </FadeUp>
@@ -251,7 +251,7 @@ export default function Page() {
             <EgressCostBars />
           </div>
           <p className="mt-4 text-[12px] text-stone-500">
-            S3 per aws.amazon.com/s3/pricing · R2 per developers.cloudflare.com/r2/pricing (May 2026). Independently verifiable.
+            S3 per aws.amazon.com/s3/pricing · R2 per developers.cloudflare.com/r2/pricing (verified June 2026). Independently verifiable.
           </p>
         </div>
       </section>

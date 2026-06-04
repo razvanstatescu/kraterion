@@ -210,7 +210,7 @@ export function Landing() {
                 <span className="text-stone-500">Replay any run.</span>
               </h2>
               <p className="mt-6 max-w-[600px] text-[18px] leading-[1.55] text-stone-700">
-                Wrap a LangGraph or Vercel AI SDK agent with one import — or just point your OpenAI client at us. Every run records itself: each retrieval, tool call, and memory write, captured as a tamper-evident trail you can replay, audit, and verify.
+                Wrap a LangGraph or Vercel AI SDK agent with one import — or point your OpenAI client at us. From then on, every retrieval, tool call, and memory write is recorded automatically, with nothing else to wire up.
               </p>
             </div>
           </FadeUp>
@@ -229,7 +229,7 @@ export function Landing() {
           <FadeUp delay={0.1}>
             <div className="mt-16">
               <p className="mb-6 max-w-[600px] text-[16px] leading-[1.55] text-stone-700">
-                Tracing tools show you what a run did. Kraterion lets you reproduce it and prove it — because the record lives in storage you own and can&apos;t be altered after the fact.
+                That recorded run is the foundation for everything else — replay it, trace any output back to its sources, or give the agent memory it can reach for.
               </p>
               <RuntimeCapabilities />
             </div>
@@ -262,7 +262,12 @@ export function Landing() {
           <div className="mt-16">
             <BeforeAfterOwnership />
           </div>
-          <div className="mt-12">
+          <FadeUp>
+            <p className="mt-16 text-[11px] uppercase tracking-[0.16em] font-medium text-stone-500">
+              What that gets you
+            </p>
+          </FadeUp>
+          <div className="mt-6">
             <OwnershipClaims />
           </div>
         </div>

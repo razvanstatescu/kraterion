@@ -40,13 +40,6 @@ const REPLAY_STEPS = [
   { n: "04", step: "Compare", detail: "See the original and the replay side by side." },
 ];
 
-const NODES = [
-  { n: "01", title: "Retrievals", body: "Each chunk the agent read, with the fingerprint of the exact source. Verify it matches the file you stored." },
-  { n: "02", title: "Tool calls", body: "Each tool the agent called, with its arguments and result — the same span captured in the run record." },
-  { n: "03", title: "Memory", body: "Each remember and recall, tied to the agent that made it and the note it touched." },
-  { n: "04", title: "Outputs", body: "Files the agent wrote back. Click one, and the graph blooms backward through everything that built it." },
-];
-
 export default function Page() {
   return (
     <>
@@ -169,20 +162,11 @@ export default function Page() {
             </div>
           </FadeUp>
 
-          <div className="mt-12 grid items-start gap-8 md:grid-cols-[0.9fr_1.1fr]">
-            <div className="grid gap-px overflow-hidden rounded-lg border border-stone-200/60 bg-stone-200/60">
-              {NODES.map((c) => (
-                <FadeUp key={c.n} className="bg-cream p-6 md:p-7">
-                  <div className="font-mono text-[12px] tabular-nums text-krater">{c.n}</div>
-                  <h3 className="mt-3 text-[18px] leading-[1.25] text-ink">{c.title}</h3>
-                  <p className="mt-2 text-[14px] leading-[1.6] text-stone-700">{c.body}</p>
-                </FadeUp>
-              ))}
-            </div>
-            <FadeUp delay={0.1}>
+          <FadeUp delay={0.1}>
+            <div className="mx-auto mt-12 max-w-[680px]">
               <LineageGraph />
-            </FadeUp>
-          </div>
+            </div>
+          </FadeUp>
         </div>
       </section>
 

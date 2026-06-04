@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 const STEPS = [
-  { label: "DEK", detail: "Data Encryption Key — generated on your device" },
-  { label: "KEK", detail: "Key Encryption Key — wraps the DEK" },
-  { label: "Policy", detail: "Move-defined access policy gates the KEK" },
+  { label: "Data key", detail: "Generated on your device — encrypts the file" },
+  { label: "Key wrap", detail: "Wraps the data key so only policy can release it" },
+  { label: "Policy", detail: "Your access policy gates the key" },
 ];
 
 export function EnvelopeSealingSchema({ className }: { className?: string }) {

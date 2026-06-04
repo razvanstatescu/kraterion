@@ -4675,3 +4675,19 @@ becomes inconsistent.
   Footer, DocsSidebar, home metadata, and root JSON-LD/keywords. `/embed` left
   as a secondary surface (no longer in primary nav). Verifiability sold in web2
   terms (debug/reproduce/audit); crypto jargon kept to deep "how it works" copy.
+
+- `[landing]` Content audit + cleanup pass across all marketing pages
+  (correctness, flow, density). Fixed bugs: embed token prefix
+  (`pk_share_` → `kr_share_test_`), agent pricing reconciled to BYOK $0
+  (cleaned `PricingCalculator`, deleted dead `PricingMeters.tsx`), removed
+  crypto-jargon leaks from primary copy (`0x…` owner/wallet chips, `t-of-n`,
+  `DEK`/`KEK`, `sub-credential`, Walrus/Seal in pricing FAQ → web2 wording),
+  fixed `/security` dangling "See limits below" + renumbered eyebrows, and the
+  stale pricing benchmark date. De-duplicated `/s3` ↔ `/security` (s3 owns
+  storage-distinct claims + hands sealing/revocation/audit to security; trimmed
+  s3 audit table 6→3). Reduced density: home runtime/ownership de-dup + sub-head,
+  knowledge hybrid-search jargon simplified + redundant receipt cards cut + 03→04
+  bridge, security merged the two encryption visuals (removed `SealingFlow`),
+  pricing public-link-egress clarified + repeated litany collapsed, runs lineage
+  de-duplicated against the CAPTURED grid. Verified: typecheck + build clean, no
+  new lint errors, all marketing routes 200. Docs pages left untouched this pass.

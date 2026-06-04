@@ -35,7 +35,6 @@ const FREE = {
   writes: 1_000,
   egressGb: 50,
   knowledgeGbDay: 1,
-  agentMessages: 100,
 };
 
 const RATES = {
@@ -49,8 +48,6 @@ const RATES = {
   egressPerGb: 0.01,
   /** $0.10 / GB-day */
   knowledgePerGbDay: 0.1,
-  /** $0.01 / message */
-  agentPerMessage: 0.01,
 };
 
 const RATE_LABELS = {
@@ -59,7 +56,6 @@ const RATE_LABELS = {
   writes: "$5.00 / M ops",
   egress: "$0.01 / GB",
   knowledge: "$0.10 / GB-day",
-  agent: "$0.01 / message",
 };
 
 /* ─── Presets ───────────────────────────────────────────────────── */

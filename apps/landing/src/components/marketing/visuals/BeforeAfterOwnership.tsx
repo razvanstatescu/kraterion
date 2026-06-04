@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Key, Lock, ShieldCheck, Wallet, MailWarning, Ban } from "lucide-react";
+import { Key, Lock, ShieldCheck, MailWarning, Ban } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /**
@@ -238,8 +238,8 @@ function KraterionPanel() {
           Your keys · scoped per agent
         </span>
         <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-krater">
-          <Wallet size={10} strokeWidth={1.5} />
-          0x7c…3f4d
+          <ShieldCheck size={10} strokeWidth={1.5} />
+          you hold
         </span>
       </div>
 

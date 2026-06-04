@@ -1,7 +1,7 @@
 import { CodeBlock } from "@/components/ui/CodeBlock";
 
 const SNIPPET = `<script src="https://embed.kraterion.com/v1.js"
-        data-token="pk_share_..."
+        data-token="kr_share_test_..."
         defer></script>`;
 
 export function EmbedSnippet() {
