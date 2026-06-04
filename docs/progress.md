@@ -4704,3 +4704,25 @@ becomes inconsistent.
   anchored on Sui). Also fixed a pre-existing banned phrase ("powered by
   Kraterion" → "by Kraterion") in the chat widget. Verified: typecheck + build
   clean, no new lint errors, all routes 200, no "powered by" left in copy.
+
+- `[landing]` Rebuilt the `/docs` section into comprehensive, accurate product
+  documentation, agents-first per the Walrus-track framing. Rewrote the docs
+  index (agents-on-storage-you-own narrative, real link cards), the `DocsSidebar`
+  GROUPS (every prior href was a dead `#anchor`), and the quickstart (real flow:
+  zkLogin → dashboard bucket → S3 key → boto3 upload → enable knowledge → create
+  agent → OpenAI-compatible invoke; dropped the fake `create_bucket`/`kraterion`
+  CLI steps). Added 11 new pages: `concepts` (web3 in plain terms), `agents`
+  overview + `tools`/`chat-api`/`memory`/`embed`, `knowledge` + `knowledge/search`,
+  `s3-api`, `api-keys`, `mcp`, `architecture` (Move-level deep dive: KraterionBucket
+  ownership, `seal_approve`, Walrus/pool renewal, the revocation guarantee,
+  cancellation persistence), and `roadmap`. Relabeled the unbuilt `langgraph` and
+  `vercel-ai-sdk` SDK pages under "Roadmap" with a "Coming soon — not yet
+  available" banner. All examples use production domains
+  (s3/api/mcp/app.kraterion.com). Corrected against source: CreateBucket and
+  ListObjectsV1 → 501, 2 GiB caps, knowledge `/ask` removed (use an agent), MCP
+  is 7 tools rejecting S3 keys, two credential types (AKIA SigV4 vs `kr_live_`
+  bearer); also fixed the marketing `MCPCallout` tool count 6→7. Verified:
+  typecheck clean, all 17 docs routes prerender static, OnThisPage rails match
+  every page's `h2` ids, no dead `/docs` links, design-rule scan clean (no
+  weight ≥600 / shadows / gradients / pure black-white). Pre-existing lint errors
+  in unrelated motion components left untouched.

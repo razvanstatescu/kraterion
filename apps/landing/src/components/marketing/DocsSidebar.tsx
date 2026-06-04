@@ -8,42 +8,46 @@ const GROUPS = [
   {
     title: "Getting started",
     items: [
+      { label: "Introduction", href: "/docs" },
+      { label: "Concepts", href: "/docs/concepts" },
       { label: "Quickstart", href: "/docs/quickstart" },
-      { label: "Concepts", href: "/docs#concepts" },
-    ],
-  },
-  {
-    title: "SDKs",
-    items: [
-      { label: "LangGraph", href: "/docs/langgraph" },
-      { label: "Vercel AI SDK", href: "/docs/vercel-ai-sdk" },
-    ],
-  },
-  {
-    title: "S3 API",
-    items: [
-      { label: "Endpoints", href: "/docs#s3-endpoints" },
-      { label: "Authentication", href: "/docs#s3-auth" },
-      { label: "Operations", href: "/docs#s3-ops" },
-    ],
-  },
-  {
-    title: "Knowledge",
-    items: [
-      { label: "Indexing", href: "/docs#knowledge-indexing" },
-      { label: "Retrieval", href: "/docs#knowledge-retrieval" },
     ],
   },
   {
     title: "Agents",
     items: [
-      { label: "Endpoints", href: "/docs#agents-endpoints" },
-      { label: "Tools", href: "/docs#agents-tools" },
+      { label: "Overview", href: "/docs/agents" },
+      { label: "Tools", href: "/docs/agents/tools" },
+      { label: "Chat API", href: "/docs/agents/chat-api" },
+      { label: "Memory & sessions", href: "/docs/agents/memory" },
+      { label: "Embed & share", href: "/docs/agents/embed" },
     ],
   },
   {
-    title: "Embed",
-    items: [{ label: "Script tag", href: "/docs#embed-script" }],
+    title: "Knowledge",
+    items: [
+      { label: "Overview", href: "/docs/knowledge" },
+      { label: "Search & citations", href: "/docs/knowledge/search" },
+    ],
+  },
+  {
+    title: "Storage",
+    items: [
+      { label: "Buckets & S3 API", href: "/docs/s3-api" },
+      { label: "API keys", href: "/docs/api-keys" },
+    ],
+  },
+  {
+    title: "MCP",
+    items: [{ label: "Connect a client", href: "/docs/mcp" }],
+  },
+  {
+    title: "How it works",
+    items: [{ label: "Architecture", href: "/docs/architecture" }],
+  },
+  {
+    title: "Roadmap",
+    items: [{ label: "Coming soon", href: "/docs/roadmap" }],
   },
 ];
 

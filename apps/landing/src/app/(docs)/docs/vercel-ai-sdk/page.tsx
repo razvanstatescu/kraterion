@@ -21,8 +21,17 @@ export default function Page() {
   return (
     <div className="grid grid-cols-1 gap-8 px-6 py-12 md:grid-cols-[1fr_180px]">
       <article className="max-w-[720px]">
-        <p className="micro text-stone-500">SDKs</p>
+        <p className="micro text-stone-500">Roadmap</p>
         <h1 className="mt-4 text-[40px] leading-[1.1] tracking-[-0.01em]">Vercel AI SDK</h1>
+        <div className="mt-6 border-l-2 border-krater bg-stone-50 px-5 py-4 text-[14px] leading-[1.65] text-stone-700">
+          <span className="text-ink">Coming soon — not yet available.</span> This
+          page previews the intended design. The package below doesn&apos;t exist
+          yet; treat the snippets as a preview, not working code. See the{" "}
+          <a href="/docs/roadmap" className="text-krater underline-offset-2 hover:underline">
+            roadmap
+          </a>
+          .
+        </div>
         <p className="mt-6 text-[18px] leading-[1.65] text-stone-700">
           Wrap any Vercel AI SDK model with one import. Every generation and tool
           call records itself — replayable, auditable, and stored in a project
