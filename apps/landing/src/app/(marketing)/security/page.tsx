@@ -335,6 +335,15 @@ export default function Page() {
               detail="Not currently suitable for regulated personal data (HIPAA / PHI)."
             />
           </div>
+          <FadeUp delay={0.1}>
+            <p className="mt-6 text-[15px] leading-[1.6] text-stone-700">
+              Building toward EU AI Act, GDPR, or ISO 42001?{" "}
+              <a href="/compliance" className="text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
+                See how Kraterion fits AI governance
+              </a>
+              .
+            </p>
+          </FadeUp>
         </div>
       </section>
 

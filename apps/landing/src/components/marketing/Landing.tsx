@@ -6,6 +6,7 @@ import { AgentRunPanel } from "./AgentRunPanel";
 import { MCPCallout } from "./MCPCallout";
 import { RuntimeCapabilities } from "./RuntimeCapabilities";
 import { HowItsBuilt } from "./HowItsBuilt";
+import { ComplianceTeaser } from "./ComplianceTeaser";
 import { OwnershipClaims } from "./OwnershipClaims";
 import { BeforeAfterOwnership } from "./visuals/BeforeAfterOwnership";
 import { PremiumCTA } from "./visuals/PremiumCTA";
@@ -296,12 +297,34 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 06 — Quickstart */}
+      {/* 06 — Built for the rules */}
       <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
+            <div className="max-w-[760px]">
+              <NumberedEyebrow n="06" label="Compliance" />
+              <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
+                Built for the rules AI is facing.
+              </h2>
+              <p className="mt-6 max-w-[640px] text-[18px] leading-[1.55] text-stone-700">
+                AI regulation keeps asking the same things — show what your AI did, keep the record, control the data. The way Kraterion is built answers all three.
+              </p>
+            </div>
+          </FadeUp>
+          <FadeUp delay={0.1}>
+            <div className="mt-12">
+              <ComplianceTeaser />
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* 07 — Quickstart */}
+      <section className="bg-stone-50 py-24 md:py-32">
+        <div className="mx-auto max-w-[1280px] px-6">
+          <FadeUp>
             <div className="max-w-[640px]">
-              <NumberedEyebrow n="06" label="Quickstart" />
+              <NumberedEyebrow n="07" label="Quickstart" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Five lines to a replayable agent.
               </h2>
@@ -318,12 +341,12 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 07 — Pricing */}
-      <section className="bg-stone-50 py-24 md:py-32">
+      {/* 08 — Pricing */}
+      <section className="bg-cream py-24 md:py-32">
         <div className="mx-auto max-w-[1280px] px-6">
           <FadeUp>
             <div className="max-w-[760px]">
-              <NumberedEyebrow n="07" label="Pricing" />
+              <NumberedEyebrow n="08" label="Pricing" />
               <h2 className="mt-4 text-[32px] leading-[1.1] tracking-[-0.01em] md:text-[48px]">
                 Pay for what you use.
               </h2>

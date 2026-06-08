@@ -4726,3 +4726,18 @@ becomes inconsistent.
   every page's `h2` ids, no dead `/docs` links, design-rule scan clean (no
   weight ≥600 / shadows / gradients / pure black-white). Pre-existing lint errors
   in unrelated motion components left untouched.
+
+- `[landing]` Added a compliance/governance angle to support the mission.
+  Research-backed mapping (EU AI Act Art. 12 record-keeping + Aug 2 2026
+  enforcement; GDPR Art. 17 right-to-erasure + cryptographic erasure; ISO 42001
+  / NIST AI RMF traceability) → Kraterion controls (durable run records,
+  encryption + revocable access, replay, lineage). New combined **/compliance**
+  page (hero with a requirements-mapped panel, "three demands" pillars,
+  regulation-by-regulation rows, regulated-industry use cases, honest
+  "controls, not a checkbox / not legal advice" disclaimer, CTA). Short home
+  teaser "Built for the rules AI is facing" (eyebrow 06; Quickstart→07,
+  Pricing→08) linking to /compliance. Custom on-brand visual `EuStars` (12-dot
+  EU motif, non-trademarked) instead of importing official logos; Lucide icons
+  for capabilities. Footer Resources + /security cross-link to /compliance.
+  Claims deliberately hedged (helps/supports, never "makes you compliant").
+  Verified: typecheck + build clean (36 routes), no new lint errors, routes 200.

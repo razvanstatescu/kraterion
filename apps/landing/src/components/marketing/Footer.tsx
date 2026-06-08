@@ -8,11 +8,11 @@ const COLUMNS = [
     title: "Product",
     links: [
       { label: "Agents", href: "/agents" },
-      { label: "Replay & audit", href: "/runs" },
-      { label: "Audit trail", href: "/runs#lineage" },
-      { label: "Memory", href: "/memory" },
-      { label: "Knowledge layer", href: "/knowledge" },
+      { label: "Knowledge", href: "/knowledge" },
       { label: "Object storage", href: "/s3" },
+      { label: "Embed widget", href: "/embed" },
+      { label: "Replay & audit", href: "/runs" },
+      { label: "Memory", href: "/memory" },
       { label: "Pricing", href: "/pricing" },
     ],
   },
@@ -21,33 +21,27 @@ const COLUMNS = [
     links: [
       { label: "Docs", href: "/docs" },
       { label: "Quickstart", href: "/docs/quickstart" },
+      { label: "Architecture", href: "/docs/architecture" },
+      { label: "MCP", href: "/docs/mcp" },
       { label: "LangGraph", href: "/docs/langgraph" },
       { label: "Vercel AI SDK", href: "/docs/vercel-ai-sdk" },
     ],
   },
   {
-    title: "Resources",
+    title: "Trust",
     links: [
       { label: "Security", href: "/security" },
-      { label: "Status", href: "https://status.kraterion.com" },
-      { label: "Changelog", href: "#" },
-      { label: "Blog", href: "#" },
+      { label: "Compliance", href: "/compliance" },
+      { label: "Roadmap", href: "/docs/roadmap" },
     ],
   },
   {
     title: "Company",
     links: [
-      { label: "About", href: "#" },
       { label: "Contact", href: "mailto:hello@kraterion.com" },
-      { label: "Customers", href: "#" },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
       { label: "Privacy", href: "/legal/privacy" },
       { label: "Terms", href: "/legal/terms" },
-      { label: "DPA", href: "/legal/dpa" },
+      { label: "DPA", href: "mailto:security@kraterion.com?subject=DPA%20request" },
     ],
   },
 ];
@@ -56,7 +50,7 @@ export function Footer() {
   return (
     <footer className="bg-ink text-cream">
       <div className="mx-auto max-w-[1280px] px-6 pt-24 pb-16">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-12 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-12 md:grid-cols-4">
           {COLUMNS.map((col) => (
             <div key={col.title}>
               <h4 className="text-[11px] uppercase tracking-[0.16em] text-stone-400">
