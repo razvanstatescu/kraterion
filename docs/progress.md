@@ -4759,3 +4759,21 @@ becomes inconsistent.
   gateway must run on a Droplet/DOKS. Not yet built/tested in CI (Docker build
   runs `pnpm install`, which needs an explicit go-ahead per the supply-chain
   rules).
+
+- `[infra]` Deployed the backend to DigitalOcean App Platform (app id
+  `48707638-82d6-4a07-bd9c-c22b89a036bb`, default ingress
+  `https://kraterion-5glmp.ondigitalocean.app`). Three services live and
+  healthy: control-plane (4001), gateway (4002), worker/indexer (4003);
+  PRE_DEPLOY `prisma migrate deploy` applied all migrations incl. pgvector.
+  Dedicated managed clusters `kraterion-db` (PG 16) + `kraterion-redis`
+  (Valkey 8) in nyc3. Hostname ingress: api/mcp.kraterion.com → control-plane,
+  s3.kraterion.com → gateway (DNS CNAMEs pending). Gotchas hit + recorded in
+  runbook: GitHub-OAuth-only source → used a public `git` source; Redis can't
+  be dev-tier + production DBs must be pre-created; gateway needs a one-time
+  on-chain bootstrap (ran locally vs the prod DB with the prod wrapping key,
+  topped up WAL via `walrus get-wal`, funded reserve); worker indexer needed
+  `INDEXER_INITIAL_CHECKPOINT` (347115000) to avoid looping on pruned
+  checkpoint 0. Verified end-to-end: indexer caught the bootstrap `test-bucket`
+  (`0x1f420a…`) and wrote its DB row + api-access grants. Bumped bootstrap
+  funding to 50 SUI (gateway) / 10 SUI (indexer) / 100 WAL (reserve). Committed
+  `.do/app.yaml` now mirrors the live spec (secrets redacted).

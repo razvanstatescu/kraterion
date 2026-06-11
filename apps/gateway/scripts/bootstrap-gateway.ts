@@ -35,13 +35,13 @@ import { getSuiClient } from "@kraterion/walrus-client";
 import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
-const GATEWAY_FUND_SUI = 5n; // 5 SUI for gas
+const GATEWAY_FUND_SUI = 50n; // 50 SUI for gas (raised from 5 for the hosted deploy)
 // Knowledge-indexer sub-wallet needs SUI for K5 manifest writes
-// (`register_blob_for_bucket` + `wrap_in_shared_blob`). 1.5 SUI is
-// plenty for hackathon-scale embedding work; the K5 worker uses the
-// same gas pattern as the gateway.
-const KNOWLEDGE_INDEXER_FUND_SUI = 1500000000n; // 1.5 SUI in MIST
-const RESERVE_FUND_WAL_MIST = 2_000_000_000n; // 2 WAL
+// (`register_blob_for_bucket` + `wrap_in_shared_blob`). Raised to 10 SUI
+// for the hosted deploy so the indexer has ample gas headroom; the K5
+// worker uses the same gas pattern as the gateway.
+const KNOWLEDGE_INDEXER_FUND_SUI = 10_000_000_000n; // 10 SUI in MIST
+const RESERVE_FUND_WAL_MIST = 100_000_000_000n; // 100 WAL (raised from 2 for storage headroom)
 const TEST_ACCOUNT_EMAIL = "demo@kraterion.dev";
 const TEST_ACCOUNT_ZKLOGIN_SUB = "demo-zklogin-sub-bootstrap";
 const TEST_PROJECT_NAME = "demo-project";

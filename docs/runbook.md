@@ -1603,3 +1603,78 @@ over the remaining ~1 cycle.
    The customer can still read existing blobs through end_epoch.
 
 **Observed:** 2026-05-19 — anticipated, not yet hit in dev.
+
+## Symptom: `doctl apps create` → `400 ... GitHub user not authenticated`
+
+**Cause:** App Platform's `github:` source needs the DO↔GitHub OAuth link,
+which can only be established in the browser (control panel). The CLI/API
+cannot create the link, so `apps create` with a `github:` source fails even
+though another app in the account already uses GitHub.
+
+**Fix:** if the repo is public, use a generic `git` source instead — no OAuth
+needed:
+```yaml
+git:
+  repo_clone_url: https://github.com/<owner>/<repo>.git
+  branch: main
+```
+Trade-off: generic `git` sources don't auto-deploy on push — ship with
+`doctl apps create-deployment <app-id>`. To restore push-to-deploy, link
+GitHub in the UI and switch back to `github:` + `deploy_on_push: true`.
+
+**Observed:** 2026-06-11 deploying to DigitalOcean App Platform (.do/app.yaml).
+
+## Symptom: `doctl apps spec validate` → `databases.engine: REDIS must be a production database`
+
+**Cause:** App Platform dev (free, inline) databases don't exist for Redis —
+only Postgres/MySQL get a dev tier. Also, production DBs are NOT provisioned
+from the app spec: you reference an existing managed cluster by `cluster_name`
+(error `database cluster (X) was not found` if it doesn't exist).
+
+**Fix:** pre-create the clusters, then attach. Redis uses the `valkey` engine
+now (`doctl databases options slugs --engine redis` returns nothing):
+```
+doctl databases create kraterion-db    --engine pg     --version 16 --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
+doctl databases create kraterion-redis --engine valkey --version 8  --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
+```
+In the spec: `production: true` + `cluster_name: kraterion-db` (engine PG) and
+`engine: VALKEY` + `cluster_name: kraterion-redis`. The `${db.*}`/`${redis.*}`
+bindables resolve from the attachment. pgvector works on the managed PG (the
+`CREATE EXTENSION IF NOT EXISTS vector` migration succeeds).
+
+**Observed:** 2026-06-11 deploying to DigitalOcean App Platform.
+
+## Symptom: gateway crash-loops at boot — `fatal Error: No gateway api_decryption SubWallet found. Run \`pnpm -F @kraterion/gateway bootstrap\``
+
+**Cause:** a fresh production DB has no `api_decryption` SubWallet row;
+`GatewayKeypairService.onModuleInit` fails fast. The bootstrap is a one-time
+on-chain provisioning step and needs the local Sui CLI deployer keystore, so
+it can't run inside the container.
+
+**Fix:** run the bootstrap from a machine with the funded testnet deployer,
+pointing at the prod DB **with the production `KEY_WRAPPING_MASTER_KEY`** (the
+wrapped seed must unwrap in the deployed gateway — mismatched key →
+"address mismatch"):
+```
+set -a; source .env.bootstrap; set +a   # DATABASE_URL=<prod>, KEY_WRAPPING_MASTER_KEY=<prod>, SUI_*
+pnpm -F @kraterion/gateway bootstrap
+```
+If it fails on reserve WAL funding with "Deployer has only N MIST of ...wal::WAL;
+need M": top up the *correct* WAL coin type with `walrus get-wal --amount <SUI_MIST>`
+(the big "WAL Token" coins in a wallet may be a different token type). Bootstrap
+is idempotent — re-run to finish. Then `doctl apps create-deployment <id>`.
+
+**Observed:** 2026-06-11 first hosted gateway boot.
+
+## Symptom: worker indexer loops `subscribe loop error code=NOT_FOUND ... Checkpoint 0 not found`, `backfilling 3471xxxxx checkpoints (0..)`
+
+**Cause:** `INDEXER_INITIAL_CHECKPOINT` unset → the indexer starts from
+checkpoint 0, but testnet fullnodes prune old checkpoints, so the subscription
+never finds them.
+
+**Fix:** set `INDEXER_INITIAL_CHECKPOINT` on the worker to a recent checkpoint
+— at/just-before the first event you care about (e.g. the bootstrap bucket's
+creation checkpoint, from `sui client tx-block <digest> --json`). Backfill from
+there is small and the bucket's DB row gets written.
+
+**Observed:** 2026-06-11 hosted worker (apps/worker indexer).

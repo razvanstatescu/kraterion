@@ -5,17 +5,28 @@
 # dashboard Next.js apps are deployed separately on Vercel and are NOT
 # part of this spec.
 #
-# Usage:
-#   1. Replace `github.repo` with your GitHub repo (owner/name) and the
-#      branch you deploy from. (Easiest: create the App in the DO UI by
-#      connecting the repo, then `doctl apps update <id> --spec .do/app.yaml`.)
-#   2. Fill every env var marked `# SET` in the DO dashboard (or via
-#      doctl) — values here are placeholders. SECRET-typed vars are
-#      encrypted at rest by DO once saved.
-#   3. Bindable refs ${db.*} / ${redis.*} are filled automatically from
-#      the managed databases declared at the bottom.
+# This spec mirrors the LIVE deployment (app id 48707638-82d6-4a07-bd9c-c22b89a036bb).
 #
-# Validate:  doctl apps spec validate --spec .do/app.yaml
+# Prerequisites (production databases must exist BEFORE create — App Platform
+# does not provision them from the spec, and Redis cannot be dev-tier):
+#   doctl databases create kraterion-db    --engine pg     --version 16 --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
+#   doctl databases create kraterion-redis --engine valkey --version 8  --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
+#
+# Source is a generic `git` clone URL (public repo) rather than the GitHub
+# integration: `doctl apps create` with a `github:` source fails with
+# "GitHub user not authenticated" unless the DO↔GitHub OAuth link is
+# established in the browser first. Trade-off: no auto-deploy on push — to
+# ship, run `doctl apps create-deployment <id>` (or re-link GitHub in the UI
+# and switch these back to `github:` + `deploy_on_push: true`).
+#
+# Usage:
+#   1. Fill every env var marked `# SET` (secrets) via the DO dashboard or a
+#      git-ignored rendered copy. SECRET-typed vars are encrypted at rest.
+#   2. Bindable refs ${db.*} / ${redis.*} resolve from the attached clusters.
+#   3. After first boot, run the gateway bootstrap once (creates on-chain
+#      sub-wallets) — see docs/deployment-digitalocean.md.
+#
+# Validate:  doctl apps spec validate .do/app.yaml
 # Create:    doctl apps create --spec .do/app.yaml
 # Update:    doctl apps update <APP_ID> --spec .do/app.yaml
 
@@ -72,11 +83,13 @@ databases:
   - name: db
     engine: PG
     version: "16"
-    production: false # bump to a paid plan for real workloads
+    production: true
+    cluster_name: kraterion-db
   - name: redis
-    engine: REDIS
-    version: "7"
-    production: false
+    engine: VALKEY
+    version: "8"
+    production: true
+    cluster_name: kraterion-redis
 
 # ---------------------------------------------------------------------------
 # Pre-deploy migration job — runs `prisma migrate deploy` before every
@@ -91,10 +104,9 @@ jobs:
     instance_count: 1
     dockerfile_path: apps/control-plane/Dockerfile
     source_dir: /
-    github:
-      repo: razvanstatescu/kraterion
+    git:
+      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
       branch: main
-      deploy_on_push: true
     run_command: pnpm --dir /app db:deploy
     envs:
       - key: DATABASE_URL
@@ -108,10 +120,9 @@ services:
   - name: control-plane
     dockerfile_path: apps/control-plane/Dockerfile
     source_dir: /
-    github:
-      repo: razvanstatescu/kraterion
+    git:
+      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
       branch: main
-      deploy_on_push: true
     http_port: 4001
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -147,10 +158,9 @@ services:
   - name: gateway
     dockerfile_path: apps/gateway/Dockerfile
     source_dir: /
-    github:
-      repo: razvanstatescu/kraterion
+    git:
+      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
       branch: main
-      deploy_on_push: true
     http_port: 4002
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -178,10 +188,9 @@ workers:
   - name: worker
     dockerfile_path: apps/worker/Dockerfile
     source_dir: /
-    github:
-      repo: razvanstatescu/kraterion
+    git:
+      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
       branch: main
-      deploy_on_push: true
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
     envs:
@@ -194,6 +203,6 @@ workers:
       - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
       - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — SAME value as control-plane
       # Optional indexer tuning.
-      # - { key: INDEXER_INITIAL_CHECKPOINT, scope: RUN_TIME, value: "343814677" }
+      - { key: INDEXER_INITIAL_CHECKPOINT, scope: RUN_TIME, value: "347115000" }
       # - { key: INDEXER_BACKFILL_INTERVAL_MS, scope: RUN_TIME, value: "100" }
       # - { key: INDEXER_GATEWAY_ADDRESS, scope: RUN_TIME, value: "0x..." }
