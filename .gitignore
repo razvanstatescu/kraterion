@@ -20,6 +20,10 @@ coverage
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# DO App Platform spec rendered with real secrets (never commit)
+.do/app.local.yaml
 
 # logs
 *.log
