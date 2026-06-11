@@ -1678,3 +1678,23 @@ creation checkpoint, from `sui client tx-block <digest> --json`). Backfill from
 there is small and the bucket's DB row gets written.
 
 **Observed:** 2026-06-11 hosted worker (apps/worker indexer).
+
+## Symptom: deployed Next.js app calls `http://localhost:4001` (or other dev default) despite NEXT_PUBLIC_* env vars being set in Vercel/prod
+
+**Cause:** the code read the var dynamically — `process.env[name]` with a
+variable key (e.g. a `function optional(name) { return process.env[name] ?? fallback }`
+helper). Next.js only inlines `NEXT_PUBLIC_*` into the **client** bundle for
+**static literal** member accesses (`process.env.NEXT_PUBLIC_FOO`). A dynamic
+`process.env[name]` is left untouched; in the browser `process.env` is empty,
+so it resolves to `undefined` and silently uses the fallback. Works in dev only
+because the fallback happens to be the dev URL.
+
+**Fix:** access each var as a static literal and pass the *value* into helpers:
+```ts
+function optional(value: string | undefined, fallback: string) { return value ?? fallback; }
+controlPlaneUrl: optional(process.env.NEXT_PUBLIC_CONTROL_PLANE_URL, "http://localhost:4001"),
+```
+Verify: build with the prod value and grep `.next/static` for the expected host
+(it should appear; the dev fallback string should be tree-shaken out).
+
+**Observed:** 2026-06-11 in apps/dashboard/src/lib/env.ts (Vercel deploy).
