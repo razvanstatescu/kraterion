@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Banner } from "@/components/ui/Banner";
 import { Mark } from "@/components/ui/Mark";
 import { Pill } from "@/components/ui/Pill";
@@ -21,7 +21,7 @@ import { ProviderButton } from "@/components/auth/ProviderButton";
  * the JWT directly to the SDK. `?reason=stale` indicates the dashboard
  * detected an expired Enoki session (zkLogin ~1 day; CP JWT 7 days).
  */
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const params = useSearchParams();
   const { mounted, session } = useCpSession();
@@ -135,5 +135,16 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+// `useSearchParams()` (read for the `?reason=stale` hint) triggers Next 16's
+// CSR bailout, which requires a Suspense boundary above it for the static
+// prerender. Wrapping here keeps the route statically shippable.
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   );
 }
