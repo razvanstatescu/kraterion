@@ -4741,3 +4741,21 @@ becomes inconsistent.
   for capabilities. Footer Resources + /security cross-link to /compliance.
   Claims deliberately hedged (helps/supports, never "makes you compliant").
   Verified: typecheck + build clean (36 routes), no new lint errors, routes 200.
+
+- `[infra]` Made the backend deployable to DigitalOcean App Platform (landing +
+  dashboard go to Vercel). Added single-stage Dockerfiles for control-plane,
+  gateway, and worker (`apps/<svc>/Dockerfile`) that build from the repo root:
+  `pnpm install` → `prisma generate` → `pnpm --filter "@kraterion/<svc>..." run
+  build` (app + workspace deps in topo order). No Sui toolchain needed — Move
+  SDK bindings are committed. Added `.dockerignore` (keeps all workspace members
+  so `--frozen-lockfile` validates; strips build artifacts/secrets), `.do/app.yaml`
+  (2 services + 1 worker + a PRE_DEPLOY `prisma migrate deploy` job + managed
+  Postgres 16/Redis 7, bindable `${db.*}`/`${redis.*}`, secrets as SECRET-typed
+  placeholders), `.env.production.example` (env checklist), and
+  `docs/deployment-digitalocean.md` (runbook). All three apps already bind
+  `0.0.0.0`/`PORT` and expose `/health` + `/health/ready`. Open decision flagged
+  in the runbook: the gateway's multi-GiB body limit exceeds App Platform's
+  ingress cap — large uploads must go direct-to-Walrus from the browser, or the
+  gateway must run on a Droplet/DOKS. Not yet built/tested in CI (Docker build
+  runs `pnpm install`, which needs an explicit go-ahead per the supply-chain
+  rules).

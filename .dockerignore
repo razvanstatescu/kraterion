@@ -1,0 +1,38 @@
+# Docker build context excludes. Keep ALL workspace members' source and
+# manifests (pnpm --frozen-lockfile validates the whole workspace) — only
+# strip build artifacts, local installs, secrets, and non-workspace dirs.
+
+# Installs / build outputs (rebuilt inside the image)
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/out
+**/coverage
+**/*.tsbuildinfo
+.pnpm-store
+
+# Git / CI
+.git
+.github
+.gitignore
+
+# Secrets — never ship a real .env into an image layer
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Local / editor noise
+**/*.log
+.DS_Store
+**/.vscode
+**/.idea
+.claude
+
+# Not needed to build the backend services (not workspace packages)
+design-system
+docs
+infra/terraform
+infra/docker
+move/kraterion/build

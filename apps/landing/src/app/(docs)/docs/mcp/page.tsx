@@ -48,7 +48,7 @@ export default function Page() {
         <p className="mt-3 text-[15px] leading-[1.7] text-stone-700">
           The server lives at{" "}
           <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px]">
-            https://mcp.kraterion.com
+            https://mcp.kraterion.com/mcp
           </code>{" "}
           and speaks the Streamable HTTP transport. It&apos;s stateless — each
           request stands on its own, so there&apos;s no session to keep alive.
@@ -93,7 +93,7 @@ export default function Page() {
                 code: `{
   "mcpServers": {
     "kraterion": {
-      "url": "https://mcp.kraterion.com",
+      "url": "https://mcp.kraterion.com/mcp",
       "auth": {
         "type": "oauth",
         "dcr": true
@@ -167,7 +167,7 @@ export default function Page() {
               {
                 lang: "bash",
                 filename: "call.sh",
-                code: `curl -X POST https://mcp.kraterion.com \\
+                code: `curl -X POST https://mcp.kraterion.com/mcp \\
   -H "Authorization: Bearer kr_live_..." \\
   -H "Content-Type: application/json" \\
   -d '{

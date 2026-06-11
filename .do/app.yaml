@@ -1,0 +1,199 @@
+# DigitalOcean App Platform spec for the Kraterion backend.
+#
+# Deploys the three NestJS services + a managed Postgres + managed Redis,
+# and runs Prisma migrations as a PRE_DEPLOY job. The landing and
+# dashboard Next.js apps are deployed separately on Vercel and are NOT
+# part of this spec.
+#
+# Usage:
+#   1. Replace `github.repo` with your GitHub repo (owner/name) and the
+#      branch you deploy from. (Easiest: create the App in the DO UI by
+#      connecting the repo, then `doctl apps update <id> --spec .do/app.yaml`.)
+#   2. Fill every env var marked `# SET` in the DO dashboard (or via
+#      doctl) — values here are placeholders. SECRET-typed vars are
+#      encrypted at rest by DO once saved.
+#   3. Bindable refs ${db.*} / ${redis.*} are filled automatically from
+#      the managed databases declared at the bottom.
+#
+# Validate:  doctl apps spec validate --spec .do/app.yaml
+# Create:    doctl apps create --spec .do/app.yaml
+# Update:    doctl apps update <APP_ID> --spec .do/app.yaml
+
+name: kraterion
+region: nyc
+
+# ---------------------------------------------------------------------------
+# Custom domains (DO services only). The apex kraterion.com and
+# app.kraterion.com are served by Vercel (landing + dashboard) and are NOT
+# part of this app. After first deploy, App Platform shows a CNAME target
+# (<app>.ondigitalocean.app) — add these records at your DNS provider:
+#   api.kraterion.com  CNAME  <app>.ondigitalocean.app
+#   mcp.kraterion.com  CNAME  <app>.ondigitalocean.app
+#   s3.kraterion.com   CNAME  <app>.ondigitalocean.app
+# (If your DNS zone is on DigitalOcean, uncomment `zone:` to auto-manage.)
+# ---------------------------------------------------------------------------
+domains:
+  - domain: api.kraterion.com
+    type: PRIMARY
+    # zone: kraterion.com
+  - domain: mcp.kraterion.com
+    type: ALIAS
+    # zone: kraterion.com
+  - domain: s3.kraterion.com
+    type: ALIAS
+    # zone: kraterion.com
+
+# Hostname routing: each subdomain → its component. mcp.kraterion.com and
+# api.kraterion.com both target control-plane (it hosts the MCP endpoint at
+# /mcp plus the OAuth discovery routes); paths are preserved, so the MCP
+# URL is https://mcp.kraterion.com/mcp and discovery resolves on the same host.
+ingress:
+  rules:
+    - match:
+        authority:
+          exact: api.kraterion.com
+      component:
+        name: control-plane
+    - match:
+        authority:
+          exact: mcp.kraterion.com
+      component:
+        name: control-plane
+    - match:
+        authority:
+          exact: s3.kraterion.com
+      component:
+        name: gateway
+
+# ---------------------------------------------------------------------------
+# Managed data stores
+# ---------------------------------------------------------------------------
+databases:
+  - name: db
+    engine: PG
+    version: "16"
+    production: false # bump to a paid plan for real workloads
+  - name: redis
+    engine: REDIS
+    version: "7"
+    production: false
+
+# ---------------------------------------------------------------------------
+# Pre-deploy migration job — runs `prisma migrate deploy` before every
+# rollout, against the managed Postgres. Reuses the control-plane image.
+# The `vector` extension is created by a migration (CREATE EXTENSION IF
+# NOT EXISTS vector) — DO Managed Postgres allows it.
+# ---------------------------------------------------------------------------
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    dockerfile_path: apps/control-plane/Dockerfile
+    source_dir: /
+    github:
+      repo: razvanstatescu/kraterion
+      branch: main
+      deploy_on_push: true
+    run_command: pnpm --dir /app db:deploy
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}
+
+# ---------------------------------------------------------------------------
+# HTTP services (publicly routable)
+# ---------------------------------------------------------------------------
+services:
+  - name: control-plane
+    dockerfile_path: apps/control-plane/Dockerfile
+    source_dir: /
+    github:
+      repo: razvanstatescu/kraterion
+      branch: main
+      deploy_on_push: true
+    http_port: 4001
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 10
+    envs:
+      - { key: NODE_ENV, scope: RUN_TIME, value: production }
+      - { key: PORT, scope: RUN_TIME, value: "4001" }
+      - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
+      - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
+      - { key: SUI_RPC_URL, scope: RUN_TIME, value: "https://fullnode.testnet.sui.io:443" }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
+      - { key: OAUTH_ISSUER, scope: RUN_TIME, value: "https://api.kraterion.com" }
+      - { key: GATEWAY_URL, scope: RUN_TIME, value: "https://s3.kraterion.com" }
+      - { key: DASHBOARD_ORIGIN, scope: RUN_TIME, value: "https://app.kraterion.com" }
+      - { key: CORS_ORIGINS, scope: RUN_TIME, value: "https://app.kraterion.com,https://kraterion.com" }
+      - { key: ADMIN_EMAILS, scope: RUN_TIME, value: "" } # SET — CSV of admin emails
+      # Secrets — SET in the dashboard (type SECRET, encrypted by DO).
+      - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — 32-byte hex, shared by all 3 services
+      - { key: JWT_SECRET, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — 32-byte hex
+      - { key: STRIPE_MODE, scope: RUN_TIME, value: "test" }
+      - { key: STRIPE_PUBLISHABLE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      - { key: STRIPE_SECRET_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      - { key: STRIPE_WEBHOOK_SECRET, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      # Optional integrations — leave unset to disable those paths.
+      - { key: ENOKI_PRIVATE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # optional
+      - { key: MEMWAL_ACCOUNT_ID, scope: RUN_TIME, value: "" } # optional
+      - { key: MEMWAL_DELEGATE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # optional
+
+  - name: gateway
+    dockerfile_path: apps/gateway/Dockerfile
+    source_dir: /
+    github:
+      repo: razvanstatescu/kraterion
+      branch: main
+      deploy_on_push: true
+    http_port: 4002
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 20
+      period_seconds: 10
+    envs:
+      - { key: NODE_ENV, scope: RUN_TIME, value: production }
+      - { key: PORT, scope: RUN_TIME, value: "4002" }
+      - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
+      - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
+      - { key: DASHBOARD_ORIGIN, scope: RUN_TIME, value: "https://app.kraterion.com" }
+      - { key: CORS_ORIGINS, scope: RUN_TIME, value: "https://app.kraterion.com,https://kraterion.com" }
+      - { key: KRATERION_POOL_CAPACITY_ENFORCE, scope: RUN_TIME, value: "true" }
+      - { key: KRATERION_SPEND_CAP_ENFORCE, scope: RUN_TIME, value: "true" }
+      - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — SAME value as control-plane
+
+# ---------------------------------------------------------------------------
+# Background worker (no public ingress)
+# ---------------------------------------------------------------------------
+workers:
+  - name: worker
+    dockerfile_path: apps/worker/Dockerfile
+    source_dir: /
+    github:
+      repo: razvanstatescu/kraterion
+      branch: main
+      deploy_on_push: true
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    envs:
+      - { key: NODE_ENV, scope: RUN_TIME, value: production }
+      - { key: PORT, scope: RUN_TIME, value: "4003" }
+      - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
+      - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
+      - { key: SUI_GRPC_HOST, scope: RUN_TIME, value: "fullnode.testnet.sui.io:443" }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
+      - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — SAME value as control-plane
+      # Optional indexer tuning.
+      # - { key: INDEXER_INITIAL_CHECKPOINT, scope: RUN_TIME, value: "343814677" }
+      # - { key: INDEXER_BACKFILL_INTERVAL_MS, scope: RUN_TIME, value: "100" }
+      # - { key: INDEXER_GATEWAY_ADDRESS, scope: RUN_TIME, value: "0x..." }

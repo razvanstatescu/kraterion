@@ -3963,3 +3963,29 @@ surface. Design-system flagship line updated to match (voice rules unchanged).
 observability-vs-auditability gap; non-deterministic-agent replay) lives in the
 plan and justifies the copy. The S3 surface stays valuable as ingest
 compatibility, not the hero. `/embed` is now reachable only by direct URL.
+
+## 2026-06-11 — DigitalOcean App Platform for backend; single-stage Docker
+
+**Status:** Accepted
+
+**Context:** Need a hosting target for the three NestJS services (control-plane,
+gateway, worker) for the hackathon. Landing + dashboard go to Vercel. The build
+is a pnpm + Turbo monorepo with `workspace:*` deps that compile to `dist/`, ESM
+NodeNext resolution, a root Prisma schema, and committed Move SDK bindings.
+
+**Decision:** Deploy the backend on DO App Platform via per-service Dockerfiles
+(`apps/<svc>/Dockerfile`) built from the repo root. Each is **single-stage**:
+install the whole workspace, `prisma generate`, then `pnpm --filter
+"@kraterion/<svc>..." run build`. We bypass `turbo run build` in the image to
+avoid the `kraterion-move-sdk#generate` task (which would otherwise run on a
+cold cache and pull in the Sui codegen) — the generated bindings are committed,
+so `tsc` alone suffices. Postgres 16 + Redis 7 are managed DO databases;
+`prisma migrate deploy` runs as a PRE_DEPLOY job. Spec lives in `.do/app.yaml`.
+
+**Consequences:** Reliable module resolution (image resolves exactly as built)
+at the cost of larger images — we deliberately don't `pnpm prune --prod` because
+it breaks pnpm's workspace symlink farm that NodeNext relies on. `deploy_on_push`
+gives push-to-deploy. **Open risk:** the gateway's multi-GiB request body limit
+exceeds App Platform's ingress cap, so large S3 uploads must go direct-to-Walrus
+from the browser, or the gateway must move to a Droplet/DOKS. Captured in
+`docs/deployment-digitalocean.md`; decide before any production cutover.

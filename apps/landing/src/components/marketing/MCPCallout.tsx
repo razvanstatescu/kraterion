@@ -69,7 +69,7 @@ function ConfigSnippet() {
 {`{
   `}<span className="text-stone-500">{`"mcpServers"`}</span>{`: {
     `}<span className="text-stone-500">{`"kraterion"`}</span>{`: {
-      `}<span className="text-stone-500">{`"url"`}</span>{`: `}<span className="text-krater">{`"https://mcp.kraterion.com"`}</span>{`,
+      `}<span className="text-stone-500">{`"url"`}</span>{`: `}<span className="text-krater">{`"https://mcp.kraterion.com/mcp"`}</span>{`,
       `}<span className="text-stone-500">{`"auth"`}</span>{`: {
         `}<span className="text-stone-500">{`"type"`}</span>{`: `}<span className="text-[color:var(--color-success)]">{`"oauth"`}</span>{`,
         `}<span className="text-stone-500">{`"dcr"`}</span>{`: `}<span className="text-[color:var(--color-success)]">{`true`}</span>{`
