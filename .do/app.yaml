@@ -12,12 +12,12 @@
 #   doctl databases create kraterion-db    --engine pg     --version 16 --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
 #   doctl databases create kraterion-redis --engine valkey --version 8  --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
 #
-# Source is a generic `git` clone URL (public repo) rather than the GitHub
-# integration: `doctl apps create` with a `github:` source fails with
-# "GitHub user not authenticated" unless the DO↔GitHub OAuth link is
-# established in the browser first. Trade-off: no auto-deploy on push — to
-# ship, run `doctl apps create-deployment <id>` (or re-link GitHub in the UI
-# and switch these back to `github:` + `deploy_on_push: true`).
+# Source is the GitHub integration with `deploy_on_push: true`, so every push
+# to `main` auto-deploys. This requires the DO↔GitHub OAuth link (install the
+# DigitalOcean GitHub app on the repo in the browser) — without it, a `github:`
+# source fails with "GitHub user not authenticated". If you ever need a
+# CLI-only path without that link, swap each source for a public-repo `git`
+# clone URL (no auto-deploy; ship via `doctl apps create-deployment <id>`).
 #
 # Usage:
 #   1. Fill every env var marked `# SET` (secrets) via the DO dashboard or a
@@ -104,9 +104,10 @@ jobs:
     instance_count: 1
     dockerfile_path: apps/control-plane/Dockerfile
     source_dir: /
-    git:
-      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
+    github:
+      repo: razvanstatescu/kraterion
       branch: main
+      deploy_on_push: true
     run_command: pnpm --dir /app db:deploy
     envs:
       - key: DATABASE_URL
@@ -120,9 +121,10 @@ services:
   - name: control-plane
     dockerfile_path: apps/control-plane/Dockerfile
     source_dir: /
-    git:
-      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
+    github:
+      repo: razvanstatescu/kraterion
       branch: main
+      deploy_on_push: true
     http_port: 4001
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -158,9 +160,10 @@ services:
   - name: gateway
     dockerfile_path: apps/gateway/Dockerfile
     source_dir: /
-    git:
-      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
+    github:
+      repo: razvanstatescu/kraterion
       branch: main
+      deploy_on_push: true
     http_port: 4002
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -188,9 +191,10 @@ workers:
   - name: worker
     dockerfile_path: apps/worker/Dockerfile
     source_dir: /
-    git:
-      repo_clone_url: https://github.com/razvanstatescu/kraterion.git
+    github:
+      repo: razvanstatescu/kraterion
       branch: main
+      deploy_on_push: true
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
     envs:
