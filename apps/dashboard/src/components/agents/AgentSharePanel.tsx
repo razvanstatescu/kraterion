@@ -363,7 +363,7 @@ function InstallSnippetCard({
   const { show } = useToast();
   // The loader is served from the dashboard's own origin.
   const origin =
-    typeof window !== "undefined" ? window.location.origin : "https://kraterion.app";
+    typeof window !== "undefined" ? window.location.origin : "https://app.kraterion.com";
   const snippet = buildSnippet({
     origin,
     agentId: agent.id,

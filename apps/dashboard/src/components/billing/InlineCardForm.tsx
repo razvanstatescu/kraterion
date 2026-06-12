@@ -188,7 +188,7 @@ function InnerForm({ onCancel }: { onCancel: () => void }) {
           return_url:
             typeof window !== "undefined"
               ? `${window.location.origin}/billing?setup=ok`
-              : "https://dashboard.kraterion.com/billing?setup=ok",
+              : "https://app.kraterion.com/billing?setup=ok",
         },
         redirect: "if_required",
       });

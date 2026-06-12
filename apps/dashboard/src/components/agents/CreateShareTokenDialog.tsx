@@ -148,7 +148,7 @@ export function CreateShareTokenDialog({ open, agent, onClose }: Props) {
         origin:
           typeof window !== "undefined"
             ? window.location.origin
-            : "https://kraterion.app",
+            : "https://app.kraterion.com",
         agentId: agent.id,
         token: minted.token,
       })

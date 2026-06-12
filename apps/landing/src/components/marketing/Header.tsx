@@ -106,7 +106,7 @@ export function Header() {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Link href="/signin" className="text-[14px] text-stone-700 hover:text-ink">
+          <Link href="https://app.kraterion.com/login" className="text-[14px] text-stone-700 hover:text-ink">
             Sign in
           </Link>
           <ButtonLink

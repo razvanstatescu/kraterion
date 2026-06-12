@@ -1185,7 +1185,7 @@ export function useOpenBillingPortal(projectId: string | undefined) {
           return_url:
             typeof window !== "undefined"
               ? `${window.location.origin}/billing`
-              : "https://dashboard.kraterion.com/billing",
+              : "https://app.kraterion.com/billing",
         },
       }),
   });

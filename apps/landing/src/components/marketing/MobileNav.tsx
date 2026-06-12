@@ -117,7 +117,7 @@ export function MobileNav({
 
             <div className="mt-8 flex flex-col gap-3">
               <Link
-                href="/signin"
+                href="https://app.kraterion.com/login"
                 className="text-[18px] text-stone-300"
                 onClick={() => setOpen(false)}
               >
