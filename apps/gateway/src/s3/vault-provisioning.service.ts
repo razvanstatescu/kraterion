@@ -32,9 +32,9 @@ import {
   initialPoolEpochsAhead,
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
-import { getSuiClient, getPoolStorageCostFrost } from "@kraterion/walrus-client";
+import { getPoolStorageCostFrost } from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { GatewayKeypairService } from "../auth/gateway-keypair.service.js";
+import { GasPoolService } from "../sui/gas-pool.service.js";
 import { S3Error } from "./s3-error.js";
 
 /**
@@ -68,7 +68,7 @@ export class VaultProvisioningService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly gatewayKeypair: GatewayKeypairService,
+    private readonly gasPool: GasPoolService,
   ) {}
 
   /**
@@ -136,9 +136,6 @@ export class VaultProvisioningService {
     projectId: string,
     intendedOwner: string,
   ): Promise<{ vaultObjectId: string; poolObjectId: string }> {
-    const operator = this.gatewayKeypair.getKeypair();
-    const suiClient = getSuiClient();
-
     const paymentBudget = getPoolStorageCostFrost(
       INITIAL_RESERVED_ENCODED_BYTES,
       INITIAL_EPOCHS_AHEAD,
@@ -164,11 +161,7 @@ export class VaultProvisioningService {
 
     let result;
     try {
-      result = await suiClient.signAndExecuteTransaction({
-        transaction: tx,
-        signer: operator,
-        options: { showEffects: true, showObjectChanges: true },
-      });
+      result = await this.gasPool.execute(tx, { showObjectChanges: true });
     } catch (e) {
       this.logger.error(
         `create_vault RPC failed for project=${projectId}: ${(e as Error).message}`,

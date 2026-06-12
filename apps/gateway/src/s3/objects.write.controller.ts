@@ -74,7 +74,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Transaction } from "@mysten/sui/transactions";
 import { toHex } from "@mysten/sui/utils";
 import { Sigv4Guard } from "../auth/sigv4/sigv4.guard.js";
-import { GatewayKeypairService } from "../auth/gateway-keypair.service.js";
+import { GasPoolService } from "../sui/gas-pool.service.js";
 import { MeterClassA } from "../billing/meter-class.decorator.js";
 import { PoolCapacityGuard } from "../billing/pool-capacity.guard.js";
 import { SpendCapGuard } from "../billing/spend-cap.guard.js";
@@ -94,7 +94,6 @@ import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import {
   blobIdStringToU256,
   getEncodedBlobLength,
-  getSuiClient,
   getWalrusClient,
   getWriteFeeFrost,
   rootHashBytesToU256,
@@ -125,7 +124,7 @@ export class ObjectsWriteController {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly gatewayKeypair: GatewayKeypairService,
+    private readonly gasPool: GasPoolService,
     private readonly vaultProvisioning: VaultProvisioningService,
     @Inject(REDIS) _redis: Redis,
   ) {
@@ -260,8 +259,6 @@ export class ObjectsWriteController {
       ? blobIdStringToU256(existing.pooled_blob.walrus_blob_id)
       : null;
 
-    const gatewayKp = this.gatewayKeypair.getKeypair();
-    const suiClient = getSuiClient();
     const writeFeeBudget = getWriteFeeFrost(encodedSize);
 
     const blobIdU256 = blobIdStringToU256(meta.blobId);
@@ -302,11 +299,7 @@ export class ObjectsWriteController {
 
     let r1;
     try {
-      r1 = await suiClient.signAndExecuteTransaction({
-        transaction: tx1,
-        signer: gatewayKp,
-        options: { showEffects: true, showEvents: true },
-      });
+      r1 = await this.gasPool.execute(tx1, { showEvents: true });
     } catch (e) {
       this.logger.warn(
         `PutObject PTB1 RPC failed (bucket=${bucketName} key=${s3Key}): ${(e as Error).message}`,
@@ -430,11 +423,7 @@ export class ObjectsWriteController {
 
     let r2;
     try {
-      r2 = await suiClient.signAndExecuteTransaction({
-        transaction: tx2,
-        signer: gatewayKp,
-        options: { showEffects: true },
-      });
+      r2 = await this.gasPool.execute(tx2);
     } catch (e) {
       this.logger.error(
         `ORPHAN POOLED BLOB (PTB2 RPC failed): pooled_blob_object_id=${pooledBlobObjectId} ` +
@@ -539,8 +528,6 @@ export class ObjectsWriteController {
       return;
     }
 
-    const gatewayKp = this.gatewayKeypair.getKeypair();
-    const suiClient = getSuiClient();
     // Stored form is URL-safe-base64; convert through the SDK helper
     // (see overwrite branch in `putObject` for the same conversion).
     const blobIdU256 = blobIdStringToU256(target.pooled_blob.walrus_blob_id);
@@ -559,11 +546,7 @@ export class ObjectsWriteController {
     );
 
     try {
-      const result = await suiClient.signAndExecuteTransaction({
-        transaction: tx,
-        signer: gatewayKp,
-        options: { showEffects: true },
-      });
+      const result = await this.gasPool.execute(tx);
       if (result.effects?.status?.status !== "success") {
         // Logged but not surfaced — the row is already soft-deleted from
         // the user's perspective; the orphan PooledBlob is reaped later.

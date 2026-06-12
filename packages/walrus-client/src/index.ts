@@ -387,3 +387,7 @@ export { blobIdToInt as blobIdStringToU256 } from "@mysten/walrus";
 export { blobIdFromInt as blobIdU256ToString } from "@mysten/walrus";
 
 export type { WalrusClient };
+
+// Redis-coordinated gas-coin pool — keeps a wallet's gas off a single
+// version-locked coin so concurrent transactions don't equivocate.
+export * from "./gas-pool.js";

@@ -23,7 +23,7 @@ import {
   getSuiClient,
 } from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { OperatorKeypairService } from "../sui/operator-keypair.service.js";
+import { GasPoolService } from "../sui/gas-pool.service.js";
 
 @Injectable()
 export class AdminService {
@@ -31,7 +31,7 @@ export class AdminService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operatorKeypair: OperatorKeypairService,
+    private readonly gasPool: GasPoolService,
   ) {}
 
   /** Paginated list of storage pools. v1: simple, no cursor — admins
@@ -240,13 +240,7 @@ export class AdminService {
   }
 
   private async submit(tx: Transaction, label: string) {
-    const client = getSuiClient();
-    const keypair = this.operatorKeypair.getKeypair();
-    const result = await client.signAndExecuteTransaction({
-      transaction: tx,
-      signer: keypair,
-      options: { showEffects: true },
-    });
+    const result = await this.gasPool.execute(tx);
     if (result.effects?.status?.status !== "success") {
       const err = result.effects?.status?.error ?? "unknown";
       this.logger.error(`Admin tx failed (${label}): ${err}`);

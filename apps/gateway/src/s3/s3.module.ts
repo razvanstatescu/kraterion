@@ -6,6 +6,7 @@ import { ObjectsListController } from "./objects.list.controller.js";
 import { ObjectsWriteController } from "./objects.write.controller.js";
 import { PublicObjectsController } from "./public.controller.js";
 import { VaultProvisioningService } from "./vault-provisioning.service.js";
+import { GasPoolService } from "../sui/gas-pool.service.js";
 
 /**
  * S3 surface area:
@@ -32,6 +33,6 @@ import { VaultProvisioningService } from "./vault-provisioning.service.js";
     ObjectsListController,
     PublicObjectsController,
   ],
-  providers: [ObjectBytesService, VaultProvisioningService],
+  providers: [ObjectBytesService, VaultProvisioningService, GasPoolService],
 })
 export class S3Module {}

@@ -11,7 +11,7 @@ import {
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import { getPoolStorageCostFrost, getSuiClient } from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { OperatorKeypairService } from "../sui/operator-keypair.service.js";
+import { GasPoolService } from "../sui/gas-pool.service.js";
 import { StripeService } from "./stripe.service.js";
 import { ACTIVE_PRICE_LOOKUP_KEYS } from "./catalog.js";
 
@@ -66,7 +66,7 @@ export class PoolRenewalProcessor
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operator: OperatorKeypairService,
+    private readonly gasPool: GasPoolService,
     private readonly stripe: StripeService,
   ) {}
 
@@ -297,11 +297,7 @@ export class PoolRenewalProcessor
         },
       }),
     );
-    const result = await getSuiClient().signAndExecuteTransaction({
-      transaction: tx,
-      signer: this.operator.getKeypair(),
-      options: { showEffects: true },
-    });
+    const result = await this.gasPool.execute(tx);
     if (result.effects?.status?.status !== "success") {
       const err = result.effects?.status?.error ?? "unknown";
       throw new Error(`pool_vault::resize_shrink reverted: ${err}`);
@@ -333,11 +329,7 @@ export class PoolRenewalProcessor
         },
       }),
     );
-    const result = await getSuiClient().signAndExecuteTransaction({
-      transaction: tx,
-      signer: this.operator.getKeypair(),
-      options: { showEffects: true },
-    });
+    const result = await this.gasPool.execute(tx);
     if (result.effects?.status?.status !== "success") {
       const err = result.effects?.status?.error ?? "unknown";
       throw new Error(`pool_vault::extend reverted: ${err}`);

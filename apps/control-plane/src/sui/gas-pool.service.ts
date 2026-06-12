@@ -1,0 +1,88 @@
+/**
+ * Control-plane wrapper around the Redis-coordinated {@link GasCoinPool}.
+ *
+ * The control-plane operator signs admin grants, pool renewals, and
+ * storage-billing resizes with the `api_decryption` wallet — the SAME
+ * wallet the gateway uses. The pool is keyed by wallet address in Redis,
+ * so this process and the gateway lease from one shared set of coins and
+ * never pick the same coin concurrently.
+ */
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
+import type { Redis } from "ioredis";
+import type { Transaction } from "@mysten/sui/transactions";
+import {
+  GasCoinPool,
+  gasPoolConfigFromEnv,
+  getSuiClient,
+  type PoolRedis,
+} from "@kraterion/walrus-client";
+import { OperatorKeypairService } from "./operator-keypair.service.js";
+import { REDIS } from "../redis/redis.module.js";
+
+const REBALANCE_MS = Number(process.env["GAS_POOL_REBALANCE_MS"] ?? 600_000);
+
+@Injectable()
+export class GasPoolService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(GasPoolService.name);
+  private pool: GasCoinPool | null = null;
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly keypair: OperatorKeypairService,
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    let signer;
+    let address;
+    try {
+      signer = this.keypair.getKeypair();
+      address = this.keypair.getAddress();
+    } catch {
+      // No operator keypair (bootstrap not run). Admin/pool ops are
+      // disabled anyway; skip pool setup.
+      this.logger.warn("operator keypair unavailable — gas pool disabled");
+      return;
+    }
+    this.pool = new GasCoinPool({
+      suiClient: getSuiClient(),
+      redis: this.redis as unknown as PoolRedis,
+      signer,
+      address,
+      config: gasPoolConfigFromEnv(),
+      logger: (m) => this.logger.log(m),
+    });
+    try {
+      await this.pool.ensureInitialized();
+    } catch (e) {
+      this.logger.error(`gas pool init failed: ${(e as Error).message}`);
+    }
+    this.timer = setInterval(() => {
+      this.pool?.rebalance().catch((e) =>
+        this.logger.warn(`gas pool rebalance failed: ${(e as Error).message}`),
+      );
+    }, REBALANCE_MS);
+    this.timer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Execute a transaction using a leased pool coin as gas. */
+  execute(
+    tx: Transaction,
+    options?: { showEvents?: boolean; showObjectChanges?: boolean },
+  ) {
+    if (!this.pool) {
+      throw new Error("GasPoolService used before initialization");
+    }
+    return this.pool.execute(tx, options);
+  }
+}
