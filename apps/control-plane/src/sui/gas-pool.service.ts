@@ -11,8 +11,8 @@ import {
   Inject,
   Injectable,
   Logger,
+  OnApplicationBootstrap,
   OnModuleDestroy,
-  OnModuleInit,
 } from "@nestjs/common";
 import type { Redis } from "ioredis";
 import type { Transaction } from "@mysten/sui/transactions";
@@ -28,7 +28,7 @@ import { REDIS } from "../redis/redis.module.js";
 const REBALANCE_MS = Number(process.env["GAS_POOL_REBALANCE_MS"] ?? 600_000);
 
 @Injectable()
-export class GasPoolService implements OnModuleInit, OnModuleDestroy {
+export class GasPoolService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(GasPoolService.name);
   private pool: GasCoinPool | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -38,7 +38,10 @@ export class GasPoolService implements OnModuleInit, OnModuleDestroy {
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  // `onApplicationBootstrap` so the operator keypair is loaded. Init is
+  // fire-and-forget — blocking boot on an on-chain coin-split would fail
+  // the health check (it did, on the first deploy attempt).
+  onApplicationBootstrap(): void {
     let signer;
     let address;
     try {
@@ -58,11 +61,9 @@ export class GasPoolService implements OnModuleInit, OnModuleDestroy {
       config: gasPoolConfigFromEnv(),
       logger: (m) => this.logger.log(m),
     });
-    try {
-      await this.pool.ensureInitialized();
-    } catch (e) {
-      this.logger.error(`gas pool init failed: ${(e as Error).message}`);
-    }
+    void this.pool
+      .ensureInitialized()
+      .catch((e) => this.logger.error(`gas pool init failed: ${(e as Error).message}`));
     this.timer = setInterval(() => {
       this.pool?.rebalance().catch((e) =>
         this.logger.warn(`gas pool rebalance failed: ${(e as Error).message}`),
