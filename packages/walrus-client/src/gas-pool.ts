@@ -291,28 +291,41 @@ export class GasCoinPool {
   }
 
   private async releaseByRefetch(objectId: string, cfg: GasPoolConfig): Promise<void> {
-    try {
-      const obj = await this.deps.suiClient.getObject({
-        id: objectId,
-        options: { showContent: true },
-      });
-      const data = obj.data;
-      const balance = coinBalanceFromObject(obj);
-      if (data) {
-        await this.release(
-          objectId,
-          { objectId, version: String(data.version), digest: data.digest },
-          balance,
-          cfg,
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const obj = await this.deps.suiClient.getObject({
+          id: objectId,
+          options: { showContent: true },
+        });
+        const data = obj.data;
+        if (data) {
+          await this.release(
+            objectId,
+            { objectId, version: String(data.version), digest: data.digest },
+            coinBalanceFromObject(obj),
+            cfg,
+          );
+          return;
+        }
+      } catch (e) {
+        this.log(
+          `gas pool refetch ${attempt}/3 failed for ${objectId}: ${(e as Error).message}`,
         );
-        return;
       }
-    } catch (e) {
-      this.log(`gas pool refetch failed for ${objectId}: ${(e as Error).message}`);
+      await sleep(200 * attempt);
     }
-    // Couldn't refresh — drop the lease so it isn't stuck; rebalance will
-    // rediscover the coin from chain.
-    await this.deps.redis.del(this.leasePrefix + objectId);
+    // Couldn't refresh after retries — park the coin in `dust` (drop the
+    // lease, remove from free) so the next rebalance reclaims it from chain
+    // instead of leaving it orphaned in `data`.
+    await this.deps.redis.eval(
+      PARK_DUST_LUA,
+      3,
+      this.kFree,
+      this.kData,
+      this.kDust,
+      objectId,
+      this.leasePrefix + objectId,
+    );
   }
 
   // === Maintenance ===
@@ -461,6 +474,15 @@ export class GasCoinPool {
     }
   }
 }
+
+// Park a coin in dust (drop its lease, remove from free). KEYS: free,
+// data, dust. ARGV: oid, leaseKey.
+const PARK_DUST_LUA = `
+redis.call('DEL', ARGV[2])
+redis.call('SREM', KEYS[1], ARGV[1])
+redis.call('SADD', KEYS[3], ARGV[1])
+return 1
+`;
 
 // Adds freshly-created coins to free+data, updates treasury, clears dust.
 // KEYS: free, data, dust. ARGV: adds-json([oid,rec,...]), treasury-key,
