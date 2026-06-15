@@ -22,10 +22,18 @@ import { env } from "@/lib/env";
  *     iframe.
  *
  * The page is allowed to be framed from any origin (`frame-ancestors *`
- * via Next's default). The API-level origin check on every chat call
- * is the enforcement boundary: the iframe being loadable is fine; the
- * chat completing requires the request's `Origin` to match one of the
+ * via Next's default). The API-level origin check on every chat call is
+ * the enforcement boundary: the iframe being loadable is fine; the chat
+ * completing requires the *host page's* origin to match one of the
  * token's allowed origins.
+ *
+ * Because every chat request is made from inside this iframe, the
+ * browser's `Origin` header is always the dashboard host and can't
+ * identify the embedding site. So we derive the host-page origin from a
+ * source the embedder can't forge — `location.ancestorOrigins[0]`
+ * (Chromium/WebKit), falling back to the `event.origin` of a
+ * postMessage handshake the loader sends (Firefox) — and forward it to
+ * the control plane, which gates the token's allowlist on it.
  */
 export default function EmbedChatPage({
   params,
@@ -39,6 +47,32 @@ export default function EmbedChatPage({
 
   const [agent, setAgent] = useState<AgentJson | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [embedOrigin, setEmbedOrigin] = useState<string | null>(null);
+
+  // Resolve the host page's origin from a browser-stamped source the
+  // embedding page can't spoof. `ancestorOrigins` is synchronous and
+  // authoritative where supported; otherwise we wait for the loader's
+  // `kraterion:hello` postMessage and read the browser-set `event.origin`.
+  useEffect(() => {
+    const ancestors = window.location.ancestorOrigins;
+    const nearest = ancestors && ancestors.length > 0 ? ancestors.item(0) : null;
+    if (nearest) {
+      setEmbedOrigin(nearest);
+      return;
+    }
+    function onHello(event: MessageEvent) {
+      const data = event.data as unknown;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        (data as { kind?: unknown }).kind === "kraterion:hello"
+      ) {
+        setEmbedOrigin(event.origin);
+      }
+    }
+    window.addEventListener("message", onHello);
+    return () => window.removeEventListener("message", onHello);
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -136,6 +170,7 @@ export default function EmbedChatPage({
           agent={agent}
           authTokenOverride={token}
           hideHeader
+          embedOrigin={embedOrigin}
         />
       </div>
       <EmbedFooter />

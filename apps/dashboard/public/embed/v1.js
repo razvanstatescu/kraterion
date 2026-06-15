@@ -152,6 +152,20 @@
         "allow",
         "clipboard-write; autoplay 'none'; encrypted-media 'none'",
       );
+      // Origin handshake. Browsers that lack `location.ancestorOrigins`
+      // (Firefox) can't read the host-page origin from inside the
+      // iframe, so we hand it over the only unspoofable way: a
+      // postMessage whose `event.origin` the browser stamps with *our*
+      // (the host page's) true origin. Targeted at `host` so only the
+      // dashboard iframe can receive it. Browsers that do support
+      // `ancestorOrigins` ignore this and read the origin directly.
+      iframe.addEventListener("load", function () {
+        try {
+          iframe.contentWindow.postMessage({ kind: "kraterion:hello" }, host);
+        } catch (_e) {
+          /* iframe gone or cross-origin race — ancestorOrigins covers it */
+        }
+      });
       iframeWrap.appendChild(iframe);
       shadow.appendChild(iframeWrap);
     }

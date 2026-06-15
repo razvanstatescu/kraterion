@@ -4810,3 +4810,16 @@ becomes inconsistent.
   the gap for the enable-time backfill. Idempotent (queue dedups on
   `manifest_<id>_v<n>`); coexists with the dashboard's call and the CP's
   server-side backfill on already-granted re-enable.
+
+### 2026-06-15 — [dashboard][control-plane] Embed origin allowlist now checks the host page
+
+Fixed the embed widget's share-token origin gate. All chat traffic flows from an
+iframe served by the dashboard host, so the browser's `Origin` header was always
+that host — the `allowed_origins` allowlist matched it for every embedding site
+and couldn't restrict anything. Now the iframe derives the host-page origin from
+`location.ancestorOrigins` (with a `kraterion:hello` postMessage fallback for
+Firefox), forwards it as `X-Kraterion-Embed-Origin`, and the control plane gates
+on that header. Token `allowed_origins` must now list the embedding site (e.g.
+`https://kraterion.com`), not the dashboard host. Files: `public/embed/v1.js`,
+`embed/chat/[agentId]/page.tsx`, `AgentChatPanel.tsx`, `agents.controller.ts`.
+Both apps typecheck. See decisions.md + runbook.md (2026-06-15).

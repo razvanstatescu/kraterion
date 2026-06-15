@@ -4017,3 +4017,32 @@ tracks the real binding constraint, so judges see headroom and never hit an
 opaque 500. Post-hackathon: revisit whether to surface a separate logical
 (raw-byte) usage figure for the billing view, and recycle orphaned blobs on
 failed certify instead of waiting for the expiry reaper.
+
+## 2026-06-15 — Embed origin allowlist checks the host page, not the iframe
+
+**Status:** Accepted
+
+**Context:** The chat embed widget mounts an iframe served from the dashboard
+host and routes all chat traffic through it. The control plane gated each
+share token's `allowed_origins` allowlist on the request's `Origin` header —
+but that header is always the iframe's own origin (the dashboard host), so the
+allowlist matched the same value for every embedding site and provided no
+per-site restriction. A token whitelisted to work at all worked everywhere.
+
+**Decision:** Gate on the embedding *host page's* origin, derived from a
+browser-stamped, unspoofable source and forwarded to the API. The iframe reads
+`location.ancestorOrigins.item(0)` (Chromium/WebKit) or, on Firefox, the
+`event.origin` of a `kraterion:hello` postMessage the loader sends; neither can
+be forged by the embedding page's JS. `AgentChatPanel` forwards it as
+`X-Kraterion-Embed-Origin`, and the share-token branch checks that header
+instead of `req.headers.origin`. Token `allowed_origins` now list the embedding
+site (e.g. `https://kraterion.com`), not the dashboard host.
+
+**Consequences:** The allowlist is now a meaningful per-site control in the
+browser. It is *not* a defense against a leaked token replayed via curl — a
+caller holding the token can set the header to any allowlisted value; that's
+the same trust model as the browser `Origin` header generally. CORS needed no
+change (the control plane reflects arbitrary request headers). Requests without
+the header (raw API calls) carry no embed origin and are refused. Post-hackathon:
+if stronger binding is needed, sign the derived origin into the share-token
+session rather than trusting a plain forwarded header.

@@ -21,6 +21,12 @@ interface Props {
   /** Hide the "New chat" header bar — used by the embed widget where
    *  the launcher chrome already owns the close affordance. */
   hideHeader?: boolean;
+  /** When rendered inside the embed iframe: the browser-derived origin
+   *  of the host page that embedded the widget. Forwarded to the chat
+   *  endpoint so the share token's origin allowlist checks the
+   *  embedding site rather than the iframe's own (always-dashboard)
+   *  origin. */
+  embedOrigin?: string | null;
 }
 
 interface ChatTurn {
@@ -46,7 +52,7 @@ interface ChatTurn {
  * opens the chunk's source object in the bucket browser and the
  * on-chain manifest blob (Walruscan) when available.
  */
-export function AgentChatPanel({ agent, authTokenOverride, hideHeader }: Props) {
+export function AgentChatPanel({ agent, authTokenOverride, hideHeader, embedOrigin }: Props) {
   const { session } = useCpSession();
   const authToken = authTokenOverride ?? session?.token;
   const [input, setInput] = useState("");
@@ -112,6 +118,10 @@ export function AgentChatPanel({ agent, authTokenOverride, hideHeader }: Props) 
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${authToken!}`,
+            // Embed widget only: forward the host-page origin so the
+            // share token's allowlist gates on the embedding site, not
+            // this iframe's origin. Absent for the in-dashboard panel.
+            ...(embedOrigin ? { "X-Kraterion-Embed-Origin": embedOrigin } : {}),
           },
           body: JSON.stringify({
             messages: messageHistory,

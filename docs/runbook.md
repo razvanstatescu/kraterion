@@ -31,6 +31,40 @@ greppable — paste the actual error string.
 
 ---
 
+## Symptom: embed widget returns `Forbidden` / `"This share token isn't authorized for the request origin."` with `details.origin` equal to the **dashboard** host (e.g. `https://app.kraterion.com`), even though the snippet is on a different site.
+
+**Cause:** The embed loader (`apps/dashboard/public/embed/v1.js`) mounts an
+iframe served from the dashboard host, and *all* chat traffic flows from inside
+that iframe. So the browser stamps the chat request's `Origin` header with the
+iframe's own origin (the dashboard host) — never the embedding page's origin.
+The control plane was gating the share token's `allowed_origins` allowlist on
+that `Origin` header, so it could only ever match the dashboard host, and the
+allowlist couldn't distinguish embedding sites at all.
+
+**Fix:** Gate on the *host page* origin, derived from a browser-stamped source
+the embedder can't forge, and forwarded to the API in a header:
+- Iframe (`apps/dashboard/src/app/embed/chat/[agentId]/page.tsx`) resolves the
+  host origin from `window.location.ancestorOrigins.item(0)` (Chromium/WebKit),
+  falling back to the `event.origin` of a `kraterion:hello` postMessage the
+  loader sends on iframe load (Firefox, which lacks `ancestorOrigins`).
+- `AgentChatPanel` forwards it as `X-Kraterion-Embed-Origin` on the chat fetch.
+- The share-token branch in `agents.controller.ts` reads that header (not
+  `req.headers.origin`) and checks it against `allowedOrigins`.
+So: the token's `allowed_origins` must list the **embedding site** (e.g.
+`https://kraterion.com`), *not* the dashboard host. CORS already reflects
+arbitrary request headers (no `allowedHeaders` override in `main.ts`), so the
+custom header passes preflight with no change. Residual: a raw API caller that
+already holds the token can set the header to any allowlisted value — the gate
+is a browser-enforced control, not a defense against a leaked token.
+
+**Observed:** 2026-06-15 in `apps/dashboard` (embed loader + iframe page) and
+`apps/control-plane` (`src/agents/agents.controller.ts`).
+
+**Notes:** See decisions.md 2026-06-15 "Embed origin allowlist checks the host
+page, not the iframe."
+
+---
+
 ## Symptom: `prisma migrate dev` fails with `ERROR: column "content_tsv" of relation "KnowledgeChunk" is a generated column` / `HINT: Use ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION instead.`
 
 **Cause:** Prisma's migration generator emits spurious operations

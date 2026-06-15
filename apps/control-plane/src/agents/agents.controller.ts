@@ -499,7 +499,19 @@ export class AgentsController {
         throw new ControlPlaneError("NotFound", "Agent not found");
       }
       // Origin allowlist gate. Empty list = dormant token (mint default).
-      const origin = req.headers.origin;
+      //
+      // The chat call is made from inside our embed iframe, which is
+      // served from the dashboard host — so the browser's own `Origin`
+      // header is always that host and tells us nothing about which
+      // site actually embedded the widget. The iframe forwards the real
+      // host-page origin in `X-Kraterion-Embed-Origin`, derived from
+      // `location.ancestorOrigins` (or a postMessage handshake's
+      // `event.origin` on Firefox) — both browser-stamped and not
+      // forgeable by the embedding page's JS. That is the value we gate
+      // on. A request without the header (e.g. a raw API call) carries
+      // no embed origin and is refused.
+      const forwarded = req.headers["x-kraterion-embed-origin"];
+      const origin = Array.isArray(forwarded) ? forwarded[0] : forwarded;
       if (
         user.allowedOrigins.length === 0 ||
         typeof origin !== "string" ||
