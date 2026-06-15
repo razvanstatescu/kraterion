@@ -153,8 +153,16 @@ function Header({ data }: { data: UsageCurrentPeriodJson }) {
 }
 
 function StorageRow({ data }: { data: UsageCurrentPeriodJson }) {
-  const fillPct = data.storage.reserved_mb > 0
-    ? Math.min(100, (data.storage.used_mb / data.storage.reserved_mb) * 100)
+  // Divide encoded-used by the real pool capacity (also encoded), not the
+  // billing reservation (raw MB) — otherwise the bar reads ~92% full on a
+  // pool that's actually ~9% used. Fall back to the billing figure only
+  // before the pool is provisioned (pool_reserved_mb === 0).
+  const capacityMb =
+    data.storage.pool_reserved_mb > 0
+      ? data.storage.pool_reserved_mb
+      : data.storage.reserved_mb;
+  const fillPct = capacityMb > 0
+    ? Math.min(100, (data.storage.used_mb / capacityMb) * 100)
     : 0;
   const monthlyUsd = (data.storage.monthly_cost_usd_cents / 100).toFixed(2);
 
@@ -175,8 +183,11 @@ function StorageRow({ data }: { data: UsageCurrentPeriodJson }) {
             Storage
           </div>
           <div style={{ fontSize: 18, fontWeight: 500, color: "var(--text-primary)" }}>
-            {formatStorageMb(data.storage.used_mb)} used of {formatStorageMb(data.storage.reserved_mb)}
-            reserved
+            {formatStorageMb(data.storage.used_mb)} used of {formatStorageMb(capacityMb)} pool capacity
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {data.storage.object_count} {data.storage.object_count === 1 ? "object" : "objects"}
+            {" · each blob reserves ~64 MB encoded"}
           </div>
           <div
             style={{

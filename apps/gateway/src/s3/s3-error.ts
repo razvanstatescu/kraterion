@@ -22,6 +22,10 @@ export type S3ErrorCode =
   | "BucketNotEmpty"
   | "EntityTooLarge"
   | "IncompleteBody"
+  // Project's storage pool is at capacity. 507; NOT retryable (unlike
+  // 503), so boto3 surfaces it instead of silently retrying. Client
+  // fix is to resize the pool, not wait.
+  | "InsufficientStorage"
   | "InternalError"
   | "InvalidAccessKeyId"
   | "InvalidArgument"
@@ -51,6 +55,8 @@ const STATUS_BY_CODE: Record<S3ErrorCode, HttpStatus> = {
   BucketNotEmpty: HttpStatus.CONFLICT,
   EntityTooLarge: HttpStatus.BAD_REQUEST,
   IncompleteBody: HttpStatus.BAD_REQUEST,
+  // 507 Insufficient Storage — not in NestJS's HttpStatus enum.
+  InsufficientStorage: 507 as HttpStatus,
   InternalError: HttpStatus.INTERNAL_SERVER_ERROR,
   InvalidAccessKeyId: HttpStatus.FORBIDDEN,
   InvalidArgument: HttpStatus.BAD_REQUEST,

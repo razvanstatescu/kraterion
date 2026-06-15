@@ -4777,3 +4777,20 @@ becomes inconsistent.
   (`0x1f420a…`) and wrote its DB row + api-access grants. Bumped bootstrap
   funding to 50 SUI (gateway) / 10 SUI (indexer) / 100 WAL (reserve). Committed
   `.do/app.yaml` now mirrors the live spec (secrets redacted).
+
+- `[gateway][billing]` Storage-capacity monitoring made honest. New pools
+  provision 5 GiB encoded (`INITIAL_RESERVED_ENCODED_BYTES`, decoupled from the
+  500 MB Stripe free tier to avoid a paywall); existing pools backfilled to
+  5 GiB via the one-off `apps/gateway/scripts/grow-pool.ts`. **Dashboard gauge
+  fix:** the Usage page divided encoded-used by the *billing* reservation
+  (500 MB), reading ~92% full on a pool that's ~9% used — now divides by the
+  real on-chain `pool_reserved_mb` (5 GiB) and shows a live object count, since
+  each blob reserves a ~64 MB encoded floor (`getEncodedBlobLength`). CP
+  `usage.getCurrentPeriod().storage` now returns `pool_reserved_mb` +
+  `object_count`. **Capacity guard fix:** `PoolCapacityGuard` projected raw
+  content-length against encoded capacity (under-counting ~64000:1, never
+  tripped — why the pool filled silently into an on-chain
+  `EInsufficientCapacity` 500). Now projects the encoded blob size, enforces by
+  default (`KRATERION_POOL_CAPACITY_ENFORCE=false` to disable), returns a clean
+  S3 `InsufficientStorage` (507, non-retryable), and only fires on the objects
+  controller so a full project can still create buckets.

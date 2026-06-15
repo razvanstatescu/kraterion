@@ -3989,3 +3989,31 @@ gives push-to-deploy. **Open risk:** the gateway's multi-GiB request body limit
 exceeds App Platform's ingress cap, so large S3 uploads must go direct-to-Walrus
 from the browser, or the gateway must move to a Droplet/DOKS. Captured in
 `docs/deployment-digitalocean.md`; decide before any production cutover.
+
+## 2026-06-15 — Storage gauge measures pool capacity, not billing reservation
+
+**Status:** Accepted
+
+**Context:** Walrus encoded size has a ~64 MB/blob floor at 1000 testnet shards
+(`getEncodedBlobLength` = `nShards*(nShards*64+32)+sliver`), so a blob's pool
+cost is dominated by a fixed per-object floor, not its file size. The on-chain
+`StoragePool.reserved_encoded_bytes` (now 5 GiB) is the constraint that aborts
+uploads (`walrus::storage_pool::EInsufficientCapacity`). The Stripe billing
+quantity (500 MB free tier) is a *separate*, raw-byte number. The dashboard
+gauge was dividing encoded-used by the billing quantity — two different units
+and the wrong denominator — so it read ~92% full on a 9%-used pool.
+
+**Decision:** The "how full am I" gauge divides encoded-used by the on-chain
+pool capacity (`pool_reserved_mb`), both in encoded MB, and shows a live object
+count as the intuitive headroom signal (~80 objects per 5 GiB pool). Billing
+reservation stays a distinct concept used only for cost. The `PoolCapacityGuard`
+projects the *encoded* cost of the incoming blob (not raw content-length) and
+rejects over-capacity writes pre-flight with S3 `InsufficientStorage` (507),
+scoped to object writes so bucket creation still works on a full pool.
+
+**Consequences:** A handful of tiny files honestly read as "hundreds of MB used"
+— mitigated by the object-count line + a "~64 MB/object" note. The gauge now
+tracks the real binding constraint, so judges see headroom and never hit an
+opaque 500. Post-hackathon: revisit whether to surface a separate logical
+(raw-byte) usage figure for the billing view, and recycle orphaned blobs on
+failed certify instead of waiting for the expiry reaper.

@@ -519,6 +519,11 @@ export interface UsageCurrentPeriodJson {
   storage: {
     used_mb: number;
     reserved_mb: number;
+    /** Real on-chain pool capacity (encoded MB) — the binding constraint
+     *  the gauge divides by. Same unit as `used_mb`. */
+    pool_reserved_mb: number;
+    /** Live object count; ~80 objects fit per 5 GiB pool on testnet. */
+    object_count: number;
     monthly_cost_usd_cents: number;
   };
   meters: UsageMeterJson[];

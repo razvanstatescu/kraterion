@@ -227,13 +227,27 @@ export class UsageService {
         usedBytes = row.value;
       }
     }
+    // Always read the live pool for its reserved capacity + (on no-rollup
+    // projects) the used figure. `reserved_encoded_bytes` is the REAL
+    // binding constraint — the on-chain pool size (5 GiB on testnet),
+    // distinct from the billing reservation below. This is what aborts
+    // uploads (`EInsufficientCapacity`) when exceeded, so it's the
+    // honest denominator for the "how full am I" gauge.
+    const pool = await this.prisma.storagePool.findUnique({
+      where: { project_id: projectId },
+      select: { used_encoded_bytes: true, reserved_encoded_bytes: true },
+    });
     if (!latestDay) {
-      const pool = await this.prisma.storagePool.findUnique({
-        where: { project_id: projectId },
-        select: { used_encoded_bytes: true },
-      });
       usedBytes = pool?.used_encoded_bytes ?? 0n;
     }
+    // Object count is the most intuitive headroom signal on testnet:
+    // each blob costs a fixed ~64 MB encoded floor regardless of file
+    // size, so a 5 GiB pool holds ~80 objects. Surface it alongside the
+    // byte gauge so a handful of tiny files reading as "hundreds of MB"
+    // makes sense.
+    const objectCount = await this.prisma.s3Object.count({
+      where: { bucket: { project_id: projectId }, deleted_at: null },
+    });
 
     // `reserved_mb` is the BILLING figure: it's what the customer is
     // paying for (Stripe subscription line `quantity`), NOT the on-chain
@@ -247,10 +261,18 @@ export class UsageService {
     //   2. STORAGE_DEFAULT_MB free-tier fallback (no card / no sub).
     const reservedMb = await this.resolveBilledReservationMb(projectId);
     const usedMb = Number(usedBytes / (1024n * 1024n));
+    const poolReservedMb = Number(
+      (pool?.reserved_encoded_bytes ?? 0n) / (1024n * 1024n),
+    );
 
     return {
       used_mb: usedMb,
       reserved_mb: reservedMb,
+      // The on-chain pool's real capacity (encoded). This is what the
+      // gauge divides by — `used_mb` and `pool_reserved_mb` are both
+      // encoded, so the ratio is honest. `0` until the pool is provisioned.
+      pool_reserved_mb: poolReservedMb,
+      object_count: objectCount,
       monthly_cost_usd_cents: Math.round(
         Math.max(0, (reservedMb - 500) * 6) / 1024,
       ),
