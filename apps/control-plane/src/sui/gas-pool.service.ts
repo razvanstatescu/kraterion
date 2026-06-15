@@ -41,23 +41,25 @@ export class GasPoolService implements OnApplicationBootstrap, OnModuleDestroy {
   // `onApplicationBootstrap` so the operator keypair is loaded. Init is
   // fire-and-forget — blocking boot on an on-chain coin-split would fail
   // the health check (it did, on the first deploy attempt).
+  // Defer init until the operator keypair has loaded (it now loads in the
+  // background so boot stays DB-free — see OperatorKeypairService). We
+  // await `whenReady()` rather than calling getKeypair() eagerly, which
+  // would throw before the keypair is loaded.
   onApplicationBootstrap(): void {
-    let signer;
-    let address;
-    try {
-      signer = this.keypair.getKeypair();
-      address = this.keypair.getAddress();
-    } catch {
-      // No operator keypair (bootstrap not run). Admin/pool ops are
-      // disabled anyway; skip pool setup.
-      this.logger.warn("operator keypair unavailable — gas pool disabled");
-      return;
-    }
+    void this.keypair
+      .whenReady()
+      .then(() => this.initPool())
+      .catch((e) =>
+        this.logger.error(`gas pool deferred init failed: ${(e as Error).message}`),
+      );
+  }
+
+  private initPool(): void {
     this.pool = new GasCoinPool({
       suiClient: getSuiClient(),
       redis: this.redis as unknown as PoolRedis,
-      signer,
-      address,
+      signer: this.keypair.getKeypair(),
+      address: this.keypair.getAddress(),
       config: gasPoolConfigFromEnv(),
       logger: (m) => this.logger.log(m),
     });

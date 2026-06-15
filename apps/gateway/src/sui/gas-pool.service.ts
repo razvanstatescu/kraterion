@@ -43,18 +43,27 @@ export class GasPoolService implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
-  // `onApplicationBootstrap` (not `onModuleInit`) so the keypair is loaded.
-  // Init is fire-and-forget: blocking boot on an on-chain coin-split would
-  // fail the health check. If a request beats init, `pool.execute` waits
-  // for a free coin.
+  // Defer init until the keypair has loaded (it now loads in the
+  // background so boot stays DB-free — see GatewayKeypairService). We
+  // await `whenReady()` instead of calling getKeypair() eagerly, which
+  // would throw before the keypair is loaded and permanently disable the
+  // pool. Init itself is fire-and-forget: blocking boot on an on-chain
+  // coin-split would fail the health check.
   onApplicationBootstrap(): void {
-    const signer = this.keypair.getKeypair();
-    const address = this.keypair.getAddress();
+    void this.keypair
+      .whenReady()
+      .then(() => this.initPool())
+      .catch((e) =>
+        this.logger.error(`gas pool deferred init failed: ${(e as Error).message}`),
+      );
+  }
+
+  private initPool(): void {
     this.pool = new GasCoinPool({
       suiClient: getSuiClient(),
       redis: this.redis as unknown as PoolRedis,
-      signer,
-      address,
+      signer: this.keypair.getKeypair(),
+      address: this.keypair.getAddress(),
       config: gasPoolConfigFromEnv(),
       logger: (m) => this.logger.log(m),
     });
