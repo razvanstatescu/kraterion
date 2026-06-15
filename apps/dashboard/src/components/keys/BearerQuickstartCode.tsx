@@ -73,7 +73,7 @@ for chunk in stream:
 {
   "mcpServers": {
     "kraterion": {
-      "url": "${cpUrl}/v1/mcp",
+      "url": "${cpUrl}/mcp",
       "headers": {
         "Authorization": "Bearer ${t}"
       }

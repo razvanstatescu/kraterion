@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -132,6 +133,12 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        <Script
+          src="https://app.kraterion.com/embed/v1.js"
+          strategy="lazyOnload"
+          data-agent-id="81cb84dd-3c39-4aba-9df1-010d020fa425"
+          data-token="kr_share_test_3Wou4lW17LEKP9MVA3LtQ1UDrgjm0KfcCAly"
         />
         <Analytics />
         <SpeedInsights />

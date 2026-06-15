@@ -129,8 +129,9 @@ export function AgentConnectPanel({ agent }: Props) {
     }
   };
 
+  const cpUrl = env.controlPlaneUrl;
   const endpoint = `/v1/agents/${agent.id}/chat/completions`;
-  const curl = `curl -X POST '<your-control-plane-url>${endpoint}' \\
+  const curl = `curl -X POST '${cpUrl}${endpoint}' \\
   -H 'Authorization: Bearer kr_test_<your-token>' \\
   -H 'Content-Type: application/json' \\
   -d '{
@@ -393,7 +394,7 @@ export function AgentConnectPanel({ agent }: Props) {
           }}
         >
           Drop any OpenAI SDK at{" "}
-          <code>base_url = &lt;your-control-plane-url&gt;/v1/agents/{agent.id}</code>{" "}
+          <code>base_url = {cpUrl}/v1/agents/{agent.id}</code>{" "}
           with an API key issued from <Link href="/keys">Access keys</Link>.
         </div>
 
