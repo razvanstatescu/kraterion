@@ -60,6 +60,7 @@ export interface PoolRedis {
     cond: "NX",
   ): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
+  exists(...keys: string[]): Promise<number>;
 }
 
 export interface GasPoolConfig {
@@ -259,7 +260,10 @@ export class GasCoinPool {
       }
       if (!warned) {
         warned = true;
-        this.log(`gas pool ${this.deps.address}: waiting for a free coin…`);
+        this.log(`gas pool ${this.deps.address}: free set empty — reconciling from chain`);
+        await this.reconcile().catch((e) =>
+          this.log(`gas pool reconcile failed: ${(e as Error).message}`),
+        );
       }
       await sleep(50);
     }
@@ -330,91 +334,127 @@ export class GasCoinPool {
 
   // === Maintenance ===
 
-  /**
-   * Ensure the pool has K coins. Leader-locked: only one process across
-   * gateway/control-plane runs the on-chain split. Safe to call on every
-   * boot — it no-ops once the pool is populated.
-   */
+  /** Reconcile on boot (leader-locked) — adopts the wallet's on-chain coins. */
   async ensureInitialized(): Promise<void> {
-    const free = await this.deps.redis.smembers(this.kFree);
-    if (free.length > 0) return;
-    await this.withLock(async () => {
-      const free2 = await this.deps.redis.smembers(this.kFree);
-      if (free2.length > 0) return;
-      await this.consolidateAndSplit(this.cfg.size);
-      this.log(`gas pool ${this.deps.address}: initialized ${this.cfg.size} coins`);
-    });
+    await this.reconcile();
   }
 
-  /**
-   * Merge dust back into the treasury and re-split fresh coins to refill
-   * the free pool to K. Leader-locked; only touches treasury + dust, never
-   * a leased coin. Call on a timer.
-   */
+  /** Periodic maintenance — same reconcile (merge dust, top up, re-adopt). */
   async rebalance(): Promise<void> {
-    await this.withLock(async () => {
-      const free = await this.deps.redis.smembers(this.kFree);
-      const need = this.cfg.size - free.length;
-      const dust = await this.deps.redis.smembers(this.kDust);
-      if (need <= 0 && dust.length === 0) return;
-      await this.consolidateAndSplit(Math.max(need, 0));
-      this.log(
-        `gas pool ${this.deps.address}: rebalanced (+${Math.max(need, 0)} coins, merged ${dust.length} dust)`,
-      );
-    });
+    await this.reconcile();
   }
 
   /**
-   * On-chain: pick/refresh a treasury coin, merge all dust (and any stray
-   * wallet coins not tracked) into it, split `mint` fresh pool coins, and
-   * record them in Redis. Pins gas to the treasury so leased coins are
-   * untouched.
+   * Reconcile the free-set with on-chain truth (leader-locked). Adopts the
+   * wallet's usable SUI coins directly as pool coins; merges any too-small
+   * coins into a treasury and mints fresh ones only if short of K. This is
+   * the single source of truth — `free` always reflects real, current coins,
+   * so the pool self-heals if the Redis bookkeeping ever drifts.
    */
-  private async consolidateAndSplit(mint: number): Promise<void> {
+  async reconcile(): Promise<void> {
+    await this.withLock(() => this.reconcileLocked());
+  }
+
+  private async reconcileLocked(): Promise<void> {
     const { suiClient, address } = this.deps;
     const cfg = this.cfg;
-
-    // Live SUI coins owned by the wallet.
-    const owned = await suiClient.getCoins({ owner: address, coinType: SUI_COIN_TYPE });
-    const ownedCoins = owned.data as unknown as OwnedCoin[];
-    if (ownedCoins.length === 0) {
-      throw new Error(`gas pool ${address}: wallet holds no SUI to seed the pool`);
+    const owned = (
+      await suiClient.getCoins({ owner: address, coinType: SUI_COIN_TYPE })
+    ).data as unknown as OwnedCoin[];
+    if (owned.length === 0) {
+      this.log(`gas pool ${address}: wallet holds no SUI`);
+      return;
     }
-    // Coins currently leasable (free) must not be touched — only merge
-    // coins that are dust or untracked.
-    const leasable = new Set(await this.deps.redis.smembers(this.kFree));
 
-    // Treasury = the largest coin that isn't a leasable pool coin.
-    const candidates = ownedCoins
-      .filter((c: OwnedCoin) => !leasable.has(c.coinObjectId))
-      .sort((a: OwnedCoin, b: OwnedCoin) =>
-        BigInt(b.balance) > BigInt(a.balance) ? 1 : -1,
+    // In-flight (leased) coins must not be touched.
+    const leased = new Set<string>();
+    for (const c of owned) {
+      if ((await this.deps.redis.exists(this.leasePrefix + c.coinObjectId)) > 0) {
+        leased.add(c.coinObjectId);
+      }
+    }
+    const avail = owned
+      .filter((c) => !leased.has(c.coinObjectId))
+      .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1));
+    if (avail.length === 0) return; // everything leased
+
+    const treasury = avail[0]!;
+    let poolCoins = avail
+      .slice(1)
+      .filter((c) => BigInt(c.balance) >= cfg.gasBudgetMist);
+    const dust = avail
+      .slice(1)
+      .filter((c) => BigInt(c.balance) < cfg.gasBudgetMist)
+      .map((c) => c.coinObjectId);
+    const short = Math.max(0, cfg.size - poolCoins.length);
+    let treasuryRef: GasObjectRef = {
+      objectId: treasury.coinObjectId,
+      version: treasury.version,
+      digest: treasury.digest,
+    };
+
+    if (dust.length > 0 || short > 0) {
+      const minted = await this.mergeAndSplit(treasury, dust, short);
+      poolCoins = poolCoins.concat(minted.coins);
+      if (minted.treasuryRef) treasuryRef = minted.treasuryRef;
+      this.log(`gas pool ${address}: merged ${dust.length} dust, minted ${short}`);
+    }
+
+    const finalCoins = poolCoins.slice(0, cfg.size);
+    const entries: string[] = [];
+    for (const c of finalCoins) {
+      entries.push(
+        c.coinObjectId,
+        JSON.stringify({ version: String(c.version), digest: c.digest, balance: c.balance }),
       );
-    if (candidates.length === 0) {
-      throw new Error(`gas pool ${address}: no spare coin to use as treasury`);
     }
-    const treasury = candidates[0]!;
-    const toMerge = candidates.slice(1).map((c: OwnedCoin) => c.coinObjectId);
+    const added = (await this.deps.redis.eval(
+      RESET_POOL_LUA,
+      3,
+      this.kFree,
+      this.kData,
+      this.kDust,
+      JSON.stringify(entries),
+      this.kTreasury,
+      JSON.stringify(treasuryRef),
+      this.leasePrefix,
+    )) as number;
+    this.log(`gas pool ${address}: free=${added} coins`);
+  }
 
+  /**
+   * On-chain: merge `dust` coins into the treasury and mint `count` fresh
+   * 1-coin payouts. Pins gas to the treasury so leased coins are untouched.
+   * Returns the freshly-created coins + the treasury's new reference.
+   */
+  private async mergeAndSplit(
+    treasury: OwnedCoin,
+    dust: string[],
+    count: number,
+  ): Promise<{ coins: OwnedCoin[]; treasuryRef: GasObjectRef | null }> {
+    const { suiClient, address } = this.deps;
+    const cfg = this.cfg;
     const tx = new Transaction();
     tx.setSender(address);
     tx.setGasPayment([
       { objectId: treasury.coinObjectId, version: treasury.version, digest: treasury.digest },
     ]);
     tx.setGasBudget(cfg.gasBudgetMist * 4n); // merge+split is a bit heavier
-    if (toMerge.length > 0) {
+    if (dust.length > 0) {
       tx.mergeCoins(
         tx.gas,
-        toMerge.map((id) => tx.object(id)),
+        dust.map((id) => tx.object(id)),
       );
     }
-    if (mint > 0) {
-      const amounts = Array.from({ length: mint }, () =>
-        tx.pure.u64(cfg.perCoinMist),
+    if (count > 0) {
+      const split = tx.splitCoins(
+        tx.gas,
+        Array.from({ length: count }, () => tx.pure.u64(cfg.perCoinMist)),
       );
-      const split = tx.splitCoins(tx.gas, amounts);
-      const transfers = Array.from({ length: mint }, (_unused, i) => split[i]!);
-      tx.transferObjects(transfers, address);
+      tx.transferObjects(
+        Array.from({ length: count }, (_unused, i) => split[i]!),
+        address,
+      );
     }
 
     const res = await suiClient.signAndExecuteTransaction({
@@ -424,12 +464,10 @@ export class GasCoinPool {
     });
     if (res.effects?.status?.status !== "success") {
       throw new Error(
-        `gas pool ${address}: consolidate tx failed: ${res.effects?.status?.error ?? "unknown"}`,
+        `gas pool ${address}: merge/split tx failed: ${res.effects?.status?.error ?? "unknown"}`,
       );
     }
 
-    // Record freshly-created coins as free + update treasury ref. Clear
-    // the merged dust.
     type CreatedChange = {
       type: string;
       objectType?: string;
@@ -437,30 +475,18 @@ export class GasCoinPool {
       version?: string | number;
       digest?: string;
     };
-    const created = ((res.objectChanges ?? []) as unknown as CreatedChange[]).filter(
-      (c) => c.type === "created" && c.objectType === SUI_COIN_OBJECT_TYPE,
-    );
-    const adds: string[] = [];
-    for (const c of created) {
+    const coins: OwnedCoin[] = [];
+    for (const c of (res.objectChanges ?? []) as unknown as CreatedChange[]) {
+      if (c.type !== "created" || c.objectType !== SUI_COIN_OBJECT_TYPE) continue;
       if (!c.objectId || c.version == null || !c.digest) continue;
-      const rec: CoinRecord = {
+      coins.push({
+        coinObjectId: c.objectId,
         version: String(c.version),
         digest: c.digest,
         balance: cfg.perCoinMist.toString(),
-      };
-      adds.push(c.objectId, JSON.stringify(rec));
+      });
     }
-    const treasuryRef = gasRefFromEffects(res);
-    await this.deps.redis.eval(
-      ADD_FRESH_LUA,
-      3,
-      this.kFree,
-      this.kData,
-      this.kDust,
-      JSON.stringify(adds),
-      this.kTreasury,
-      JSON.stringify(treasuryRef ?? null),
-    );
+    return { coins, treasuryRef: gasRefFromEffects(res) };
   }
 
   private async withLock(fn: () => Promise<void>): Promise<void> {
@@ -484,22 +510,23 @@ redis.call('SADD', KEYS[3], ARGV[1])
 return 1
 `;
 
-// Adds freshly-created coins to free+data, updates treasury, clears dust.
-// KEYS: free, data, dust. ARGV: adds-json([oid,rec,...]), treasury-key,
-// treasury-ref-json.
-const ADD_FRESH_LUA = `
-local adds = cjson.decode(ARGV[1])
-for i = 1, #adds, 2 do
-  redis.call('HSET', KEYS[2], adds[i], adds[i+1])
-  redis.call('SADD', KEYS[1], adds[i])
+// Replace the pool with the reconciled coin set. Clears free/data/dust,
+// then rebuilds data from `entries` and adds each to free UNLESS it has an
+// active lease (in-flight). Sets treasury. Returns the new free size.
+// KEYS: free, data, dust. ARGV: entries-json([oid,rec,...]), treasury-key,
+// treasury-ref-json, lease-prefix.
+const RESET_POOL_LUA = `
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+local entries = cjson.decode(ARGV[1])
+for i = 1, #entries, 2 do
+  local oid = entries[i]
+  redis.call('HSET', KEYS[2], oid, entries[i+1])
+  if redis.call('EXISTS', ARGV[4]..oid) == 0 then
+    redis.call('SADD', KEYS[1], oid)
+  end
 end
 redis.call('SET', ARGV[2], ARGV[3])
-local dust = redis.call('SMEMBERS', KEYS[3])
-for _, oid in ipairs(dust) do
-  redis.call('SREM', KEYS[3], oid)
-  redis.call('HDEL', KEYS[2], oid)
-end
-return 1
+return redis.call('SCARD', KEYS[1])
 `;
 
 // === pure helpers ===
