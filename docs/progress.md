@@ -4794,3 +4794,19 @@ becomes inconsistent.
   default (`KRATERION_POOL_CAPACITY_ENFORCE=false` to disable), returns a clean
   S3 `InsufficientStorage` (507, non-retryable), and only fires on the objects
   controller so a full project can still create buckets.
+
+- `[worker][knowledge]` Knowledge backfill now self-heals off the on-chain
+  grant. Symptom: enable Knowledge on a bucket with pre-existing files → files
+  stuck "pending" indefinitely. Root cause: the dashboard enable flow defers the
+  backfill until a sponsored `grant_api_access(knowledge_indexer)` tx lands, then
+  must make a *second* client call to `/knowledge/backfill`. If that handshake
+  breaks (signature dismissed, Enoki hiccup, tab closed, refetch race) the
+  backfill never fires and no manifest rows are written, so every file reads as
+  "pending" (queued≠failed). Fix: `ApiAccessHandler` (worker indexer) now detects
+  when the grant's `granted_to` is the global `knowledge_indexer` sub-wallet on a
+  knowledge-enabled bucket and fires `EmbeddingsService.enqueueBucket()` itself —
+  durable, triggered by the settled on-chain event regardless of the client. New
+  uploads were already auto-indexed via `PooledBlobRegisteredHandler`; this closes
+  the gap for the enable-time backfill. Idempotent (queue dedups on
+  `manifest_<id>_v<n>`); coexists with the dashboard's call and the CP's
+  server-side backfill on already-granted re-enable.

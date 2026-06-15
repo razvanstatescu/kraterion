@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { EmbeddingsService } from "../../embeddings/embeddings.service.js";
 import {
   ApiAccessGrantedSchema,
   ApiAccessRevokedSchema,
@@ -20,9 +21,18 @@ import type { EventHandler, ParsedEvent } from "./handler.interface.js";
  * (so granted=false applies to everyone), and grants are typically to
  * one gateway address (ours).
  *
- * `ApiAccessGranted` events that target a `granted_to` other than our
- * gateway sub-wallet are logged but skipped — they're someone else's
- * grant, not ours.
+ * Knowledge-indexer self-heal: when the grant targets the global
+ * `knowledge_indexer` sub-wallet on a knowledge-enabled bucket, we
+ * enqueue a full backfill. This is the DURABLE counterpart to the
+ * dashboard's best-effort post-grant backfill call (KnowledgeToggle):
+ * because we trigger off the on-chain grant event, indexing starts the
+ * moment the indexer actually gains decrypt access — regardless of
+ * whether the client's grant→backfill handshake completed, the tab
+ * stayed open, or the user re-enabled to retry. Idempotent: the
+ * embeddings queue dedups on `manifest_<id>_v<n>`.
+ *
+ * Other `granted_to` addresses (per-agent grants, etc.) are logged and
+ * skipped — they're not the gateway and not the indexer.
  *
  * Idempotency: a "set X = Y" UPDATE is naturally idempotent, so no
  * separate log table needed. Re-processing an event under
@@ -41,6 +51,13 @@ export class ApiAccessHandler implements EventHandler {
 
   private readonly logger = new Logger(ApiAccessHandler.name);
 
+  // Cached lowercase address of the global `knowledge_indexer` sub-wallet.
+  // Resolved once from the DB; the wallet is created at bootstrap and
+  // never rotates within a process lifetime.
+  private knowledgeIndexerAddr: string | null = null;
+
+  constructor(private readonly embeddings: EmbeddingsService) {}
+
   async handle(tx: Prisma.TransactionClient, event: ParsedEvent): Promise<void> {
     if (event.eventType.endsWith("::events::ApiAccessGranted")) {
       await this.handleGranted(tx, event);
@@ -51,10 +68,67 @@ export class ApiAccessHandler implements EventHandler {
     }
   }
 
+  /** Lowercase address of the global knowledge_indexer sub-wallet, cached. */
+  private async getKnowledgeIndexerAddr(
+    tx: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    if (this.knowledgeIndexerAddr !== null) return this.knowledgeIndexerAddr;
+    const sw = await tx.subWallet.findFirst({
+      where: { role: "knowledge_indexer", account_id: null },
+      select: { sui_address: true },
+    });
+    this.knowledgeIndexerAddr = sw?.sui_address.toLowerCase() ?? null;
+    return this.knowledgeIndexerAddr;
+  }
+
   private async handleGranted(tx: Prisma.TransactionClient, event: ParsedEvent): Promise<void> {
     const parsed = ApiAccessGrantedSchema.parse(event.payload);
+    const grantedTo = parsed.granted_to.toLowerCase();
+
+    // Knowledge-indexer grant → kick a backfill so the bucket's existing
+    // objects get indexed now that the indexer can decrypt them. Doesn't
+    // touch `api_access_granted` (that boolean tracks the gateway only).
+    const indexerAddr = await this.getKnowledgeIndexerAddr(tx);
+    if (indexerAddr && grantedTo === indexerAddr) {
+      const bucket = await tx.bucket.findFirst({
+        where: { kraterion_bucket_object_id: parsed.bucket_id, deleted_at: null },
+        select: { id: true, knowledge: { select: { bucket_id: true } } },
+      });
+      if (!bucket) {
+        // Out-of-order: bucket-created not yet processed. Bubble to DLQ
+        // for a retry sweep, same as the gateway path below.
+        throw new Error(
+          `ApiAccessGranted(indexer): no Bucket row for ${parsed.bucket_id} (BucketCreatedHandler not yet run?)`,
+        );
+      }
+      if (bucket.knowledge) {
+        // Fire-and-forget — BullMQ Redis writes shouldn't block the
+        // indexer's checkpoint commit, and `enqueueBucket` reads
+        // already-committed S3Object rows on its own connection.
+        const bucketId = bucket.id;
+        void this.embeddings
+          .enqueueBucket(bucketId)
+          .then((n) =>
+            this.logger.log(
+              `indexer granted → backfilled bucket=${bucketId} objects=${n}`,
+            ),
+          )
+          .catch((err: unknown) =>
+            this.logger.error(
+              `indexer-granted backfill failed bucket=${bucketId}: ` +
+                (err instanceof Error ? err.message : String(err)),
+            ),
+          );
+      } else {
+        this.logger.debug(
+          `indexer granted on bucket=${parsed.bucket_id} but Knowledge not enabled; no backfill`,
+        );
+      }
+      return;
+    }
+
     const ourGatewayAddr = process.env["INDEXER_GATEWAY_ADDRESS"] ?? null;
-    if (ourGatewayAddr && parsed.granted_to.toLowerCase() !== ourGatewayAddr.toLowerCase()) {
+    if (ourGatewayAddr && grantedTo !== ourGatewayAddr.toLowerCase()) {
       this.logger.debug(
         `ApiAccessGranted to ${parsed.granted_to} (not our gateway ${ourGatewayAddr}); skipping`,
       );
