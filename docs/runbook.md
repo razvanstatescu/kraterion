@@ -1698,3 +1698,48 @@ Verify: build with the prod value and grep `.next/static` for the expected host
 (it should appear; the dev fallback string should be tree-shaken out).
 
 **Observed:** 2026-06-11 in apps/dashboard/src/lib/env.ts (Vercel deploy).
+
+---
+
+## Symptom: deploy fails with "remaining connection slots are reserved for roles with the SUPERUSER attribute" / DeployContainerExitNonZero
+
+**Cause:** The DO managed Postgres is the smallest plan (`db-s-1vcpu-1gb`,
+`max_connections≈25`, a few reserved for DO's superuser). Three NestJS
+services (control-plane, gateway, worker) each opened an **uncapped** Prisma
+pool (`DATABASE_URL` had no `connection_limit`), so at load they collectively
+held ~all ~22 non-superuser slots. On a rolling deploy the *previous*
+instances keep running until the new ones are healthy — but the new instances
+crash at boot because (a) `PrismaService.onModuleInit` did a fatal `$connect`
+and (b) the keypair services (`GatewayKeypairService` / `OperatorKeypairService`
+/ `KnowledgeIndexerKeypairService`) did `await prisma.subWallet.findFirst()` in
+`onModuleInit` — and there was no free slot. New instances can't boot to let
+the old ones drain → deadlock; the automatic rollback (also new instances)
+fails the same way. `doadmin` is NOT a Postgres superuser, so you can't even
+connect to terminate idle sessions, and DO **clamps `instance_count: 0` back to
+1**, so you can't scale-to-zero to release them either. The PRE_DEPLOY
+`prisma migrate deploy` job hit the same wall first.
+
+**Fix:** Two parts.
+1. **Cap the pools** — append `&connection_limit=4&pool_timeout=20`
+   (control-plane) / `&connection_limit=5&pool_timeout=20` (gateway, worker) to
+   each service's `DATABASE_URL` in the DO app spec (`doctl apps spec get` →
+   edit → `doctl apps update --spec`; the URL already has `?sslmode=require`).
+2. **Make boot DB-free** so a rolling deploy never needs a slot during the
+   old→new overlap: `PrismaService.onModuleInit` `$connect` is now non-fatal
+   (try/catch, lazy on first query), and the keypair services load in the
+   **background** with retry (`onModuleInit` returns immediately, exposes
+   `whenReady()`); the gas-pool services `await keypair.whenReady()` before
+   init instead of calling `getKeypair()` eagerly. `/health` has no DB ping, so
+   new instances go healthy with zero connections, DO drains the old ones,
+   slots free, then keypairs + Prisma connect. This is the durable fix — rolling
+   deploys now work on the tight connection budget without manual intervention.
+
+**Observed:** 2026-06-15 in the DigitalOcean deploy of control-plane / gateway /
+worker (apps/*/src/prisma/prisma.service.ts, apps/*/src/**/*keypair*.service.ts,
+apps/*/src/sui/gas-pool.service.ts, .do app spec).
+
+**Notes:** Don't scale the DB to "fix" this — the cap + DB-free boot is the right
+shape and free. If you ever genuinely need more steady-state connections, add a
+DO connection pool (PgBouncer, transaction mode) and split migrations onto a
+direct `directUrl`; the app's interactive `$transaction` + `pg_advisory_xact_lock`
+usage is transaction-scoped and pooler-safe.

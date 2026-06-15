@@ -138,7 +138,7 @@ services:
       - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
       - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
       - { key: SUI_RPC_URL, scope: RUN_TIME, value: "https://fullnode.testnet.sui.io:443" }
-      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}&connection_limit=4&pool_timeout=20" }
       - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
       - { key: OAUTH_ISSUER, scope: RUN_TIME, value: "https://api.kraterion.com" }
       - { key: GATEWAY_URL, scope: RUN_TIME, value: "https://s3.kraterion.com" }
@@ -176,7 +176,7 @@ services:
       - { key: PORT, scope: RUN_TIME, value: "4002" }
       - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
       - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
-      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}&connection_limit=5&pool_timeout=20" }
       - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
       - { key: DASHBOARD_ORIGIN, scope: RUN_TIME, value: "https://app.kraterion.com" }
       - { key: CORS_ORIGINS, scope: RUN_TIME, value: "https://app.kraterion.com,https://kraterion.com" }
@@ -203,7 +203,7 @@ workers:
       - { key: TRUST_PROXY, scope: RUN_TIME, value: "true" }
       - { key: SUI_NETWORK, scope: RUN_TIME, value: testnet }
       - { key: SUI_GRPC_HOST, scope: RUN_TIME, value: "fullnode.testnet.sui.io:443" }
-      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}" }
+      - { key: DATABASE_URL, scope: RUN_TIME, value: "${db.DATABASE_URL}&connection_limit=5&pool_timeout=20" }
       - { key: REDIS_URL, scope: RUN_TIME, value: "${redis.DATABASE_URL}" }
       - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — SAME value as control-plane
       # Optional indexer tuning.
