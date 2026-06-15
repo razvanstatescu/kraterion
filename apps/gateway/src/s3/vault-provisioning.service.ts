@@ -27,7 +27,6 @@ import { Transaction } from "@mysten/sui/transactions";
 import {
   KRATERION_PACKAGE_ID,
   KRATERION_RESERVE_ID,
-  STORAGE_DEFAULT_MB,
   WALRUS_SYSTEM_OBJECT_ID,
   initialPoolEpochsAhead,
 } from "@kraterion/shared";
@@ -38,14 +37,23 @@ import { GasPoolService } from "../sui/gas-pool.service.js";
 import { S3Error } from "./s3-error.js";
 
 /**
- * Initial vault capacity for new projects. Anchored to
- * `STORAGE_DEFAULT_MB` so the on-chain pool matches the billing free
- * tier — no over-provisioning before the customer reserves more. Each
- * Stripe quantity unit = 1 MiB of encoded capacity. The dashboard
- * resize modal lets the customer go higher; the pool-renewal worker
- * extends every billing cycle.
+ * Initial *encoded* capacity reserved for a new project's pool.
+ *
+ * This is intentionally DECOUPLED from the billing free tier
+ * (`STORAGE_DEFAULT_MB`, which is raw user bytes). Walrus encoded size
+ * has a large per-blob floor — at 1000 testnet shards each blob costs
+ * ~64 MB of encoded capacity REGARDLESS of file size
+ * (`nShards * (nShards * 64 + 32)`). A 500 MiB pool therefore only holds
+ * ~7-8 objects, which is why small-file uploads hit
+ * `walrus::storage_pool::EInsufficientCapacity` (abort 6) after a handful
+ * of files.
+ *
+ * 5 GiB encoded ≈ ~80 objects — generous headroom for testnet / hackathon
+ * judging without touching the billing tier (no paywall). Revisit the
+ * encoded-vs-raw model post-hackathon (and recycle orphaned blobs on
+ * failed certify instead of waiting for the expiry reaper).
  */
-const INITIAL_RESERVED_ENCODED_BYTES = BigInt(STORAGE_DEFAULT_MB) * 1024n * 1024n;
+const INITIAL_RESERVED_ENCODED_BYTES = 5n * 1024n * 1024n * 1024n; // 5 GiB encoded
 /**
  * Initial pool lifetime — one billing cycle + renewal buffer.
  * Computed from `BILLING_CYCLE_DAYS` + `POOL_RENEWAL_BUFFER_DAYS` /
