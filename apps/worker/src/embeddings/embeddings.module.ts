@@ -6,6 +6,7 @@ import { ProvidersModule } from "../providers/providers.module.js";
 import { RedisModule } from "../redis/redis.module.js";
 import { EmbeddingsProcessor } from "./embeddings.processor.js";
 import { EmbeddingsService, EMBEDDINGS_QUEUE } from "./embeddings.service.js";
+import { ManifestArchiveSweeperService } from "./manifest-archive-sweeper.service.js";
 
 /**
  * BullMQ-backed embedding pipeline.
@@ -47,7 +48,7 @@ import { EmbeddingsService, EMBEDDINGS_QUEUE } from "./embeddings.service.js";
       },
     }),
   ],
-  providers: [EmbeddingsService, EmbeddingsProcessor],
+  providers: [EmbeddingsService, EmbeddingsProcessor, ManifestArchiveSweeperService],
   exports: [EmbeddingsService],
 })
 export class EmbeddingsModule {}

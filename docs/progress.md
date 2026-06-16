@@ -4823,3 +4823,17 @@ on that header. Token `allowed_origins` must now list the embedding site (e.g.
 `https://kraterion.com`), not the dashboard host. Files: `public/embed/v1.js`,
 `embed/chat/[agentId]/page.tsx`, `AgentChatPanel.tsx`, `agents.controller.ts`.
 Both apps typecheck. See decisions.md + runbook.md (2026-06-15).
+
+### 2026-06-16 — [worker] Manifest archive self-heals via a backoff sweeper
+
+Knowledge docs index fine but the best-effort K5 on-chain manifest archive could
+fail transiently (relay flake) or persistently (pool full) and was swallowed,
+leaving `manifest_walrus_blob_id` null and the dashboard showing "manifest
+hasn't been archived on chain yet" (seen on the DO worker). Added
+`ManifestArchiveSweeperService` (`apps/worker/src/embeddings/`), a 120s
+`setInterval` loop mirroring the session sweeper, that re-attempts stuck
+`indexed`+null manifests via the existing idempotent `archiveManifestToWalrus`.
+Redis-backed exponential backoff + per-manifest `SET NX` lock + an 8-attempt
+give-up cap so persistent failures (`EInsufficientCapacity`) don't burn
+indexer-wallet gas. No DB migration. Worker typechecks. See decisions.md +
+runbook.md (2026-06-16).

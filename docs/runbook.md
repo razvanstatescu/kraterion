@@ -31,6 +31,49 @@ greppable — paste the actual error string.
 
 ---
 
+## Symptom: dashboard "verify chunk" shows `This chunk's indexing manifest hasn't been archived on chain yet. Re-run the search in ~30 seconds, or re-upload to force a fresh archive.` — search/retrieval works, but the on-chain manifest link is missing.
+
+**Cause:** The document indexed fine (chunks are committed and searchable),
+but the *separate, best-effort* K5 step that archives the chunk-manifest as an
+on-chain Walrus PooledBlob failed and was swallowed by design
+(`apps/worker/src/embeddings/manifest-archive.ts` — the `try/catch` around
+`tryArchiveOnChain` only logs a `manifest-archive: <id> failed: …` warn and
+leaves `KnowledgeManifest.manifest_walrus_blob_id` null). `/search` LEFT-JOINs
+the manifest, sees the null blob id, and the dashboard shows the message
+(`VerifyChunk.tsx`). The failure reason is **only in the worker log** — it is
+not persisted to `error_detail`. Common reasons:
+- `relay POST failed after 3 attempts` → transient testnet relay flake.
+- `register_blob reverted: …EInsufficientCapacity` → the on-chain pool is full.
+  Note each knowledge doc writes **two** PooledBlobs (source + manifest), and
+  every blob pays a ~64 MB encoded floor, so manifests roughly halve effective
+  pool capacity.
+- `no StoragePool found …` / `certify_blob reverted …` → config/auth.
+
+Not the cause: the background-loaded indexer keypair being unready — the same
+keypair decrypts the source at `embeddings.processor.ts:112` *before* indexing,
+so if chunks exist, the keypair was loaded.
+
+**Fix:**
+- Transient: it now self-heals. `ManifestArchiveSweeperService`
+  (`apps/worker/src/embeddings/manifest-archive-sweeper.service.ts`) re-attempts
+  stuck `indexed`+null manifests every 120s with Redis-backed exponential
+  backoff, a per-manifest lock, and a give-up cap (8 attempts) so a persistent
+  failure doesn't burn indexer-wallet gas. Look for `manifest-archive-sweeper:
+  healed <id>`.
+- Persistent (`giving up on <id> after 8 attempts` in the log): the underlying
+  write is doomed — almost always pool capacity. Free/raise pool capacity, then
+  re-run `pnpm -F @kraterion/worker exec tsx scripts/backfill-manifest-archive.ts --manifest-id <id>`.
+
+**Observed:** 2026-06-16 on the DigitalOcean worker instance; pipeline in
+`apps/worker/src/embeddings/` and `apps/control-plane/src/knowledge/`.
+
+**Notes:** See decisions.md 2026-06-16 "Manifest archive self-heals via a
+backoff sweeper." Backoff/attempt state lives in Redis
+(`kraterion:manifest-archive:{attempts,next,lock}:<id>`), so flushing Redis
+resets it (a doomed manifest may get re-attempted once more — harmless).
+
+---
+
 ## Symptom: embed widget returns `Forbidden` / `"This share token isn't authorized for the request origin."` with `details.origin` equal to the **dashboard** host (e.g. `https://app.kraterion.com`), even though the snippet is on a different site.
 
 **Cause:** The embed loader (`apps/dashboard/public/embed/v1.js`) mounts an

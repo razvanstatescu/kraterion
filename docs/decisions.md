@@ -4046,3 +4046,40 @@ change (the control plane reflects arbitrary request headers). Requests without
 the header (raw API calls) carry no embed origin and are refused. Post-hackathon:
 if stronger binding is needed, sign the derived origin into the share-token
 session rather than trusting a plain forwarded header.
+
+## 2026-06-16 — Manifest archive self-heals via a backoff sweeper
+
+**Status:** Accepted
+
+**Context:** The K5 on-chain manifest archive (`archiveManifestToWalrus`) runs
+inline after indexing and is best-effort — any failure (relay flake,
+`register_blob` revert, RPC blip) is swallowed, leaving the manifest
+`status=indexed` with `manifest_walrus_blob_id` null. Chunks stay searchable but
+the chunk can't be verified on chain. The only recovery was a manual backfill
+script or the grant-event self-heal (which re-embeds the whole bucket), so a
+single transient flake stranded a manifest permanently. Observed on the DO
+worker after a knowledge doc indexed but never archived.
+
+**Decision:** Add `ManifestArchiveSweeperService`, a `setInterval` loop
+(mirroring `SessionSweeperService`) that every 120s re-attempts stuck
+`indexed`+null manifests by calling the existing idempotent
+`archiveManifestToWalrus`. Retry bookkeeping lives in **Redis**, not Postgres
+(no migration on the deployed DB; retry state is inherently ephemeral):
+per-manifest attempt counter + exponential backoff key
+(`120s·2^(n-1)`, capped 1h) + a `SET NX` lock so multiple replicas don't
+double-submit `register_blob`. Success is detected by re-reading the blob id
+(the archive swallows its own errors), not a return value, so the archive
+signature stays untouched and the inline call site is unchanged.
+
+**Consequences:** Transient archive failures now heal within minutes with no
+operator action. A *persistent* failure (almost always pool capacity —
+`EInsufficientCapacity`, made worse because each knowledge doc writes two
+PooledBlobs and every blob pays a ~64 MB encoded floor) backs off and is
+abandoned after 8 attempts with a loud log line, rather than burning
+indexer-wallet gas on a doomed `register_blob` every tick; clearing it still
+needs an operator (free capacity, re-run the backfill script). Backoff state is
+lost if Redis is flushed — a doomed manifest may get re-attempted once more,
+which is harmless. Not unit-tested, consistent with the existing untested
+sweepers (only pure helpers like `build-session-trace` have specs). Possible
+follow-up: account for the manifest's encoded floor in the gateway
+`PoolCapacityGuard` so knowledge buckets don't silently exhaust capacity.
