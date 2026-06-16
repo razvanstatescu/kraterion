@@ -31,6 +31,22 @@ interface Props {
 }
 
 /**
+ * Shared row grid for the "Knowledge is on" card. The embedding-model
+ * row and the chat row both use it so their icon / text / action
+ * columns line up exactly. `20px` icon track + `12px` gap puts every
+ * label on the same vertical line; the trailing `auto` column keeps the
+ * action buttons right-aligned to a single edge.
+ */
+const ROW_GRID: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "20px minmax(0, 1fr) auto",
+  columnGap: 12,
+  alignItems: "start",
+  padding: "16px 0",
+  borderBottom: "1px solid var(--border)",
+};
+
+/**
  * Enable / disable card for Knowledge on a single bucket. On enable
  * the worker backfills every existing object; on disable the CP
  * deletes every chunk and the settings row (the manifests stay for
@@ -393,7 +409,7 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
           </div>
         </div>
 
-        <div className="ks-card-body" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        <div className="ks-card-body" style={{ padding: "0 20px" }}>
           <ModelRow
             icon="chart"
             label="Embedding model"
@@ -403,76 +419,67 @@ export function KnowledgeToggle({ bucketId, status }: Props) {
             destructive
             onAction={() => setReindexOpen(true)}
             disabled={mutating}
-            last
           />
-        </div>
 
-        <div
-          style={{
-            marginTop: 12,
-            padding: "16px 0 0",
-            borderTop: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 12,
-          }}
-        >
-          <Icon
-            name="settings"
-            size={16}
-            style={{ color: "var(--text-secondary)", marginTop: 2 }}
-          />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div
-              className="micro"
-              style={{ color: "var(--text-tertiary)", marginBottom: 4 }}
-            >
-              Chat
+          {/* Chat row — shares ModelRow's grid so the icon, text, and
+              action columns line up exactly with the embedding row. */}
+          <div style={ROW_GRID}>
+            <Icon
+              name="settings"
+              size={16}
+              style={{ color: "var(--text-secondary)", marginTop: 2 }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div
+                className="micro"
+                style={{ color: "var(--text-tertiary)", marginBottom: 4 }}
+              >
+                Chat
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>
+                Use an agent to ask questions
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-tertiary)",
+                  marginTop: 6,
+                  lineHeight: 1.5,
+                }}
+              >
+                The bucket no longer carries a per-bucket chat model.
+                Create or pick an agent to chat against this bucket — agents
+                own the system prompt, model, sampling controls, and audit
+                trail.
+              </div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>
-              Use an agent to ask questions
-            </div>
-            <div
-              style={{
-                fontSize: 12,
-                color: "var(--text-tertiary)",
-                marginTop: 6,
-                lineHeight: 1.5,
-              }}
-            >
-              The bucket no longer carries a per-bucket chat model.
-              Create or pick an agent to chat against this bucket — agents
-              own the system prompt, model, sampling controls, and audit
-              trail.
-            </div>
+            <Link href="/agents" style={{ textDecoration: "none" }}>
+              <Button variant="secondary" size="sm" icon="settings">
+                Manage agents
+              </Button>
+            </Link>
           </div>
-          <Link
-            href="/agents"
-            style={{ textDecoration: "none" }}
-          >
-            <Button variant="secondary" size="sm" icon="settings">
-              Manage agents
-            </Button>
-          </Link>
-        </div>
 
-        <div
-          style={{
-            marginTop: 16,
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          <Button
-            variant="ghost"
-            icon="shieldOff"
-            onClick={() => setConfirmDisable(true)}
-            loading={toggle.isPending}
-            disabled={reindex.isPending}
-            style={{ color: "var(--error)" }}
+          {/* Destructive footer action, right-aligned within the body. */}
+          <div
+            style={{
+              padding: "16px 0",
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
           >
-            Disable Knowledge
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="shieldOff"
+              onClick={() => setConfirmDisable(true)}
+              loading={toggle.isPending}
+              disabled={reindex.isPending}
+              style={{ color: "var(--error)" }}
+            >
+              Disable Knowledge
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -575,16 +582,7 @@ function ModelRow({
   last = false,
 }: ModelRowProps) {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "20px minmax(0, 1fr) auto",
-        columnGap: 12,
-        alignItems: "start",
-        padding: "16px 0",
-        ...(last ? {} : { borderBottom: "1px solid var(--border)" }),
-      }}
-    >
+    <div style={{ ...ROW_GRID, ...(last ? { borderBottom: "none" } : {}) }}>
       <Icon
         name={icon}
         size={16}

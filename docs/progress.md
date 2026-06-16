@@ -4837,3 +4837,15 @@ Redis-backed exponential backoff + per-manifest `SET NX` lock + an 8-attempt
 give-up cap so persistent failures (`EInsufficientCapacity`) don't burn
 indexer-wallet gas. No DB migration. Worker typechecks. See decisions.md +
 runbook.md (2026-06-16).
+
+### 2026-06-16 — [dashboard] Knowledge tab "Knowledge is on" card alignment fix
+
+Visual bug fix on the bucket Knowledge tab (`KnowledgeToggle.tsx`). The chat
+row and the "Disable Knowledge" footer were siblings of `.ks-card-body`, so they
+escaped its 20px padding and sat flush to the card edges while the embedding row
+was inset — left icon columns and right-side buttons didn't line up between
+sections. Pulled both into the padded body, gave the chat row the same shared
+`ROW_GRID` as the embedding row (20px icon track + 12px gap) so icon/text/action
+columns align exactly, and unified button sizes (Disable was `md`, now `sm` like
+the rest). Dividers are now consistently inset within the body. Tokens only
+(per kraterion-design); dashboard typechecks.
