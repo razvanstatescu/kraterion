@@ -118,11 +118,11 @@ export default function Page() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
                 <ButtonLink
-                  href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                  href="https://app.kraterion.com/login"
                   variant="primary"
                   size="lg"
                 >
-                  Get early access →
+                  Try Kraterion →
                 </ButtonLink>
                 <a
                   href="/docs/quickstart"
@@ -318,8 +318,8 @@ export default function Page() {
             <span className="text-stone-500">See for yourself.</span>
           </>
         }
-        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
-        primaryLabel="Get early access →"
+        primaryHref="https://app.kraterion.com/login"
+        primaryLabel="Try Kraterion →"
         sub="One environment variable changes. Everything else stays the same."
         satellites={[
           { icon: BookOpen, label: "Quickstart", detail: "Five lines to a sealed bucket.", href: "/docs/quickstart" },

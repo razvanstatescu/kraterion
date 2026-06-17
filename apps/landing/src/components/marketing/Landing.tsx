@@ -365,7 +365,7 @@ export function Landing() {
 
       {/* 08 — Final CTA */}
       <PremiumCTA
-        eyebrow="Get early access"
+        eyebrow="Now on testnet"
         headline={
           <>
             Ship agents you can
@@ -373,8 +373,8 @@ export function Landing() {
             <span className="text-stone-500">debug, reproduce, and trust.</span>
           </>
         }
-        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
-        primaryLabel="Request beta access →"
+        primaryHref="https://app.kraterion.com/login"
+        primaryLabel="Try Kraterion →"
         sub="No card. Free band on every meter. Wrap an agent you already have."
         satellites={[
           {

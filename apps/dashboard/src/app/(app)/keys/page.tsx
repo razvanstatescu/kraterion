@@ -77,10 +77,10 @@ function KeysPageInner() {
               style={{ fontSize: 14, marginTop: 4, maxWidth: 720 }}
             >
               {tab === "tokens"
-                ? "One bearer token works across the CRUD API, agent chat, knowledge search, and the MCP server. Paste it anywhere you'd paste an OpenAI or Stripe key."
+                ? "One token works across the whole API. Paste it anywhere you'd paste an API key."
                 : tab === "access"
-                  ? "S3 access keys are AKIA + secret pairs for the gateway. Use them only with S3 SDKs (boto3, aws-cli, rclone). Not interchangeable with API tokens."
-                  : "Project-scoped credentials for AI providers. The platform stores them encrypted; workers and ingestion use them on your behalf."}
+                  ? "Access keys work only with S3 clients like boto3, aws-cli, and rclone. They aren't interchangeable with API tokens."
+                  : "Credentials for AI providers, scoped to this project. We store them encrypted and use them on your behalf."}
             </p>
           </div>
         </div>

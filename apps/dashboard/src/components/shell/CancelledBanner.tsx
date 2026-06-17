@@ -31,7 +31,7 @@ export function CancelledBanner() {
             >
               {data.account.sui_address}
             </a>
-            . Anyone can fund their storage from the CLI — Kraterion can't take them away.
+            . They stay funded until their storage pool runs out — Kraterion can't take them away.
           </>
         }
       />

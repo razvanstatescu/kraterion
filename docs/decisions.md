@@ -4083,3 +4083,53 @@ which is harmless. Not unit-tested, consistent with the existing untested
 sweepers (only pure helpers like `build-session-trace` have specs). Possible
 follow-up: account for the manifest's encoded floor in the gateway
 `PoolCapacityGuard` so knowledge buckets don't silently exhaust capacity.
+
+## 2026-06-17 — Dashboard copy: plain-first, no vendor/phase leaks
+
+**Status:** Accepted
+
+**Context:** Dashboard UI copy grew organically across build phases. A full
+sweep of user-facing strings surfaced stale references to internal phases
+("lights up in Phase D/E"), a factually wrong crypto claim (Seal "2-of-3
+threshold" — the live committee is a 3-of-5 internal threshold), CLI references
+for a CLI that doesn't exist, leaked vendor names (Enoki), demo meta-commentary,
+and deep crypto trivia (48-byte IBE byte layouts, PTB/Move-call caps, cache
+timings) in routine flows.
+
+**Decision:** All user-facing dashboard copy now follows "plain English first,
+technical detail second" — lead with what the user does or sees, keep
+dev-useful detail (error codes, S3 client names, endpoints) as a trailing
+clause, not the opener. Banned from user-facing strings: internal phase labels,
+vendor names (Enoki → "we sponsor the transaction"), demo meta-commentary, and
+byte-level crypto detail. The Seal threshold is described generically
+("independent key servers," "Kraterion can't bypass it"), never a hard-coded
+count, so it stays true if the committee config changes. Code comments are not
+user-facing and keep their internal terms (Enoki, phase, demo).
+
+**Consequences:** Copy is correct and stable against config drift. Future UI
+strings should match this voice; the design-system README §Content fundamentals
+remains the style source of truth. The accuracy fixes (no CLI claims, generic
+Seal threshold) prevent stating things the product can't back up.
+
+## 2026-06-17 — Subscription cancellation consolidated to the Billing tab
+
+**Status:** Accepted
+
+**Context:** Two "Cancel subscription" actions existed. The Settings page hit
+`PATCH /v1/me/cancel` (immediate account flip to `cancelled`, the demo's
+"twist 1" that drives the persistent `CancelledBanner`); the Billing tab's
+`DangerZoneCard` hits `POST /v1/billing/cancel-subscription` (Stripe
+cancel-at-period-end). Two buttons in two places read as duplicated and
+confused the real billing flow with the demo shortcut.
+
+**Decision:** Removed the Settings "Cancel subscription" card, its confirm
+modal, and the now-dead `useCancelSubscription` hook. Cancellation now lives
+only in the Billing tab (Stripe). Settings is account info + connected-agent
+management.
+
+**Consequences:** The `cancelled` account status — and therefore the
+`CancelledBanner` ownership beat — is now reachable only via the real Stripe
+period-end webhook, not on demand from the UI. If the hackathon demo needs to
+show the cancelled state without waiting for a billing boundary, re-introduce a
+trigger (e.g. a demo-only flag calling `/v1/me/cancel`) rather than the
+always-visible Settings card. Backend `/v1/me/cancel` endpoint is left intact.

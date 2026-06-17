@@ -20,7 +20,7 @@ export function Hero() {
           <FadeUp>
             <div className="inline-flex items-center gap-2 rounded-full border border-stone-200/60 bg-cream px-3 py-1 text-[12px] text-stone-700">
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-krater" />
-              v 0.1 · private beta
+              v 0.1 · testnet
             </div>
           </FadeUp>
 
@@ -45,11 +45,11 @@ export function Hero() {
           <FadeUp delay={0.55}>
             <div className="mt-8 flex items-center gap-6">
               <ButtonLink
-                href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                href="https://app.kraterion.com/login"
                 variant="primary"
                 size="lg"
               >
-                Get early access →
+                Try Kraterion →
               </ButtonLink>
               <a
                 href="/docs"

@@ -61,7 +61,7 @@ export function BucketsList() {
       <EmptyState
         icon="bucket"
         title="No buckets yet"
-        body="Create your first bucket to start uploading. Bucket creation lights up in Phase D."
+        body="Create your first bucket to start uploading files."
       />
     );
   }

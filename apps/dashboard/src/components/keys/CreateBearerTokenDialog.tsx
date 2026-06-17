@@ -185,9 +185,8 @@ export function CreateBearerTokenDialog({ open, onClose, projectId }: Props) {
               </FormField>
               {error ? <div className="ks-field-error">{error}</div> : null}
               <p className="lead" style={{ fontSize: 13 }}>
-                One token works across the CRUD API, agent chat, knowledge
-                search, and the MCP server. Use it anywhere you&apos;d paste
-                an OpenAI or Stripe key.
+                One token works across the whole API. Use it anywhere you&apos;d
+                paste an API key.
               </p>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <Button variant="ghost" onClick={onClose} disabled={busy}>

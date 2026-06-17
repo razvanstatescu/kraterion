@@ -57,8 +57,8 @@ export default function Page() {
               Agents are non-deterministic — the same input rarely gives the same output twice. Kraterion records every run as a tamper-evident trail you can replay from a receipt, then trace backward through every input that shaped the answer.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">
-                Get early access →
+              <ButtonLink href="https://app.kraterion.com/login" variant="primary">
+                Try Kraterion →
               </ButtonLink>
               <ButtonLink href="#lineage" variant="ghost">
                 See lineage

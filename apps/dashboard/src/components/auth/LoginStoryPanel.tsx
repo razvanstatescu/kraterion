@@ -20,13 +20,13 @@ const SLIDES: Slide[] = [
   {
     eyebrow: "02 — Encryption",
     headline: "Sealed by you, not by us.",
-    body: "Files are envelope-encrypted with Seal before they hit Walrus. The keys are held by a 2-of-3 threshold of independent servers — not by Kraterion.",
+    body: "Files are encrypted with Seal before they reach Walrus. The keys are held by independent key servers — not by Kraterion.",
     icon: "lock",
   },
   {
     eyebrow: "03 — Revocability",
     headline: "Revoke us and we can't read it anymore.",
-    body: "Platform access is a Move policy you control. Revoke on-chain and the threshold key servers stop signing for us. Cryptographically enforced, not a promise.",
+    body: "Platform access is an on-chain policy you control. Revoke it and the key servers stop signing for us. Cryptographically enforced, not a promise.",
     icon: "shieldOff",
   },
   {

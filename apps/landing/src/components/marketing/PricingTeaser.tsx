@@ -32,7 +32,7 @@ export function PricingTeaser() {
             </ul>
             <div className="mt-8">
               <ButtonLink
-                href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                href="https://app.kraterion.com/login"
                 variant={t.highlight ? "primary" : "secondary"}
                 size="md"
                 className="w-full"
@@ -43,9 +43,19 @@ export function PricingTeaser() {
           </div>
         ))}
       </div>
-      <div className="mt-8 flex items-center justify-between rounded-md bg-stone-50 px-6 py-4 text-[14px]">
-        <span className="text-stone-700">Cheap egress — 50 GB free, then $0.01/GB. ~9× under AWS, no tier surprises.</span>
-        <Link href="/pricing" className="font-medium text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
+      <div className="mt-8 flex items-center justify-between gap-4 rounded-md bg-stone-50 px-6 py-4 text-[14px]">
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-stone-700">Cheap egress — 50 GB free, then $0.01/GB. ~9× under AWS, no tier surprises.</span>
+          <span
+            className="inline-flex w-fit items-center gap-1.5 rounded-full border border-stone-200/80 px-2.5 py-1 text-[12px] text-stone-600"
+            style={{ background: "rgba(196, 91, 54, 0.06)" }}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-krater" />
+            <span className="font-medium text-ink">Private beta</span>
+            <span>— prices informational, not final</span>
+          </span>
+        </div>
+        <Link href="/pricing" className="shrink-0 font-medium text-ink underline underline-offset-4 decoration-stone-400 hover:decoration-ink">
           See full pricing →
         </Link>
       </div>

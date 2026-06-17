@@ -74,20 +74,6 @@ export function useMe() {
   });
 }
 
-export function useCancelSubscription() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      cpFetch<MeResponse>("/v1/me/cancel", {
-        method: "PATCH",
-        body: { confirm: true },
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["v1", "me"] });
-    },
-  });
-}
-
 // === Buckets =================================================================
 
 export interface UseBucketsOptions {

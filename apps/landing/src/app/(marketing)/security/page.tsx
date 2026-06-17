@@ -91,8 +91,8 @@ export default function Page() {
               Files, run records, and memory are encrypted before they leave you and stored in a project you own. We can&apos;t read them, we can&apos;t alter them, and you can revoke our access in one step.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">
-                Get early access →
+              <ButtonLink href="https://app.kraterion.com/login" variant="primary">
+                Try Kraterion →
               </ButtonLink>
               <ButtonLink href="#sealing" variant="ghost">
                 How sealing works

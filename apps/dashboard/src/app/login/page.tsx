@@ -120,9 +120,8 @@ function LoginContent() {
           </div>
 
           <p className="ks-login-fineprint">
-            We use Mysten Labs Enoki. Your Sui address is derived from your
-            Google account through a zero-knowledge proof. Kraterion never sees
-            your password.
+            Your Sui address is derived from your Google account through a
+            zero-knowledge proof. Kraterion never sees your password.
           </p>
 
           <div className="ks-login-legal">

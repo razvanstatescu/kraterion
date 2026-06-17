@@ -47,7 +47,7 @@ export function AgentsListTab({ projectId, onCreate }: Props) {
       <EmptyState
         icon="settings"
         title="No agents yet"
-        body="Create your first agent to expose a configured chat endpoint over your buckets. Each agent has its own system prompt, chat model, and on-chain sub-wallet identity."
+        body="Create your first agent to put a chat endpoint over your buckets. Each one has its own system prompt, chat model, and on-chain identity."
         action={
           <Button variant="cta" icon="plus" onClick={onCreate}>
             New agent

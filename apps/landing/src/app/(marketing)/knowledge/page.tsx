@@ -138,11 +138,11 @@ export default function Page() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6">
                 <ButtonLink
-                  href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+                  href="https://app.kraterion.com/login"
                   variant="primary"
                   size="lg"
                 >
-                  Get early access →
+                  Try Kraterion →
                 </ButtonLink>
                 <a
                   href="/docs"
@@ -337,8 +337,8 @@ export default function Page() {
             <span className="text-stone-500">Get answers with citations.</span>
           </>
         }
-        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
-        primaryLabel="Get early access →"
+        primaryHref="https://app.kraterion.com/login"
+        primaryLabel="Try Kraterion →"
         sub="Citation-bound responses. Drop-in OpenAI clients. Six built-in tools. BYOK for the model — $0 from us on the chat call itself."
         satellites={[
           { icon: BookOpen, label: "Knowledge docs", detail: "Indexing, retrieval, citations.", href: "/docs" },

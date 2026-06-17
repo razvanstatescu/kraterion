@@ -63,8 +63,8 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
         action.kind === "visibility"
           ? `Visibility set to ${action.nextMode}.`
           : action.kind === "revoke"
-            ? "API access revoked. SDK requests will fail until you re-grant."
-            : "API access granted. boto3 / aws-cli / rclone can now read this bucket again.";
+            ? "API access revoked. S3 clients will fail until you restore it."
+            : "API access restored. boto3, aws-cli, and rclone can reach this bucket again.";
       show({
         tone: "success",
         title: `Bucket "${bucket.name}" updated`,
@@ -110,8 +110,8 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
         <section style={{ marginBottom: 24 }}>
           <h4 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Visibility</h4>
           <p className="lead" style={{ fontSize: 13, marginBottom: 12 }}>
-            Controls who Seal will release decryption shares to. Affects every
-            file in the bucket immediately.
+            Controls who can decrypt your files. Applies to every file in the
+            bucket right away.
           </p>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <ModePill
@@ -141,9 +141,9 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
         <section style={{ marginBottom: 24 }}>
           <h4 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>API access</h4>
           <p className="lead" style={{ fontSize: 13, marginBottom: 12 }}>
-            When granted, the gateway can read and write into this bucket via
-            SigV4 (boto3, aws-cli, rclone). When revoked, on-chain Seal denies
-            even our own gateway — only you can read the files in the dashboard.
+            When granted, S3 clients like boto3, aws-cli, and rclone can read and
+            write to this bucket. When revoked, even Kraterion&apos;s gateway is
+            locked out on-chain — only you can read these files, here in the dashboard.
           </p>
           <div style={{ marginBottom: 12 }}>
             <Pill tone={bucket.api_access_granted ? "success" : "error"} dot>
@@ -173,17 +173,17 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
 
         <hr className="divider" style={{ height: 1, background: "var(--border)", border: 0, margin: "0 0 24px 0" }} />
 
-        {/* Danger zone — delete stubbed for Phase E */}
+        {/* Danger zone — dashboard delete not yet wired up */}
         <section>
           <h4 style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Danger zone</h4>
           <p className="lead" style={{ fontSize: 13, marginBottom: 12 }}>
-            Deleting a bucket marks it removed from the dashboard. The on-chain
-            object and any files persist — that&apos;s the whole point.
+            Deleting a bucket removes it from the dashboard. The on-chain object
+            and your files stay put.
           </p>
           <Banner
             tone="warning"
-            title="Bucket deletion lights up in Phase E"
-            body="Right now the gateway's DELETE /:bucket path is the way to remove a bucket; the dashboard's wrapper is next."
+            title="Deleting from the dashboard isn't available yet"
+            body="For now, remove a bucket through the API."
           />
         </section>
 
@@ -212,12 +212,11 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
                 <strong>{pending.nextMode}</strong>.
               </p>
               <p style={{ marginTop: 8 }}>
-                Affects every existing file immediately — Seal&apos;s
-                policy is bucket-scoped, not per-file. No re-upload needed.
+                Applies to every existing file right away. No re-upload needed.
               </p>
             </>
           }
-          onchainNote="Settles via an Enoki-sponsored Sui transaction. Zero gas for you."
+          onchainNote="No gas and no wallet popup — we sponsor the transaction."
         />
       ) : null}
 
@@ -233,18 +232,17 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
           body={
             <>
               <p>
-                After this, the gateway can no longer read or write to{" "}
-                &ldquo;{bucket.name}&rdquo; via SigV4. boto3, aws-cli,
-                rclone &mdash; they all start failing with{" "}
-                <code>KeyAccessRevoked</code>.
+                S3 clients can no longer read or write to{" "}
+                &ldquo;{bucket.name}&rdquo;. boto3, aws-cli, and rclone start
+                failing with <code>KeyAccessRevoked</code>.
               </p>
               <p style={{ marginTop: 8 }}>
-                Files remain encrypted on-chain. You can still preview and
-                download them from this dashboard. Restore access any time.
+                Files stay encrypted on-chain. You can still preview and
+                download them here. Restore access any time.
               </p>
             </>
           }
-          onchainNote="Enforced on-chain by Seal's threshold key servers. Even Kraterion can't bypass it."
+          onchainNote="Enforced on-chain by Seal's key servers. Even Kraterion can't bypass it."
         />
       ) : null}
 
@@ -260,15 +258,12 @@ export function BucketSettingsDrawer({ open, onClose, bucket }: Props) {
           body={
             <>
               <p>
-                The gateway will be re-added to &ldquo;{bucket.name}&rdquo;&apos;s
-                authorized address list. SDK requests resume.
-              </p>
-              <p style={{ marginTop: 8 }}>
-                Seal key servers update their cache within a few seconds.
+                S3 clients can read and write to &ldquo;{bucket.name}&rdquo;
+                again. Access resumes within a few seconds.
               </p>
             </>
           }
-          onchainNote="Settles via an Enoki-sponsored Sui transaction."
+          onchainNote="No gas and no wallet popup — we sponsor the transaction."
         />
       ) : null}
     </>

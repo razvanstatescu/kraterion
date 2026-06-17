@@ -80,8 +80,8 @@ function AgentsPageInner() {
               style={{ fontSize: 14, marginTop: 4, maxWidth: 720 }}
             >
               {tab === "my-agents"
-                ? "Configured RAG agents you own. Each has a system prompt, a chat model, attached buckets, and a stable OpenAI Chat Completions endpoint at /v1/agents/{id}/chat/completions."
-                : "External MCP clients (Claude Desktop, Cursor, anything that walked your OAuth flow). Disconnect to revoke their access."}
+                ? "Agents you own, each with a system prompt, a chat model, and attached buckets. Call them at an OpenAI-compatible endpoint: /v1/agents/{id}/chat/completions."
+                : "MCP clients like Claude Desktop and Cursor that you've authorized. Disconnect to revoke their access."}
             </p>
           </div>
         </div>

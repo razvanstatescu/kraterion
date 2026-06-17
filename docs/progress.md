@@ -4849,3 +4849,19 @@ sections. Pulled both into the padded body, gave the chat row the same shared
 columns align exactly, and unified button sizes (Disable was `md`, now `sm` like
 the rest). Dividers are now consistently inset within the body. Tokens only
 (per kraterion-design); dashboard typechecks.
+
+### 2026-06-17 — [dashboard] User-facing copy audit & rewrite
+
+Full sweep of dashboard UI strings to "plain English first, technical detail
+second." Fixed accuracy bugs: Seal threshold now described generically
+("independent key servers," not "2-of-3"); removed non-existent CLI references
+in CancelledBanner, settings, and Inspector; replaced "Phase D/E" roadmap leaks
+in BucketsList + BucketSettingsDrawer with real user-facing copy. Cut vendor
+names (Enoki → "we sponsor the transaction"), demo meta-commentary, and deep
+crypto trivia (IBE byte layout, PTB/Move-call caps, cache timings) across
+LoginStoryPanel, login fineprint, BucketSettingsDrawer (all three confirm
+modals), CreateBucketDialog, OwnershipCard, keys lead paragraphs, agents page,
+AgentsListTab, CreateAgentDialog, and the Knowledge re-index banner. Strings
+only — no logic/props/structure changes; code comments keep internal terms.
+Dashboard typechecks; regression greps clean (no Phase/Enoki/CLI/2-of-3 in
+user-facing copy). See decisions.md (2026-06-17).

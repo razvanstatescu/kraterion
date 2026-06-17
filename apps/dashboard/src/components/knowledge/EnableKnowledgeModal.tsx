@@ -332,8 +332,6 @@ function ConfirmStep({
               Existing chunks {indexedChunks > 0 ? `(${indexedChunks.toLocaleString()} indexed)` : ""} will be
               deleted before re-embedding begins. Search and chat return
               empty results for this bucket until the new pass completes.
-              Manifests stay on chain for audit but their hashes no longer
-              match live chunks until re-indexing finishes.
             </>
           }
         />

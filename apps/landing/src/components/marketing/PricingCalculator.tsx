@@ -350,6 +350,14 @@ export function PricingCalculator() {
           <span className="text-[12px] text-stone-600">
             Based on industry averages for this project shape.
           </span>
+          <span
+            className="mt-1.5 inline-flex w-fit items-center gap-1.5 rounded-full border border-stone-200/80 px-2.5 py-1 text-[11px] text-stone-600"
+            style={{ background: "rgba(196, 91, 54, 0.06)" }}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-krater" />
+            <span className="font-medium text-ink">Private beta</span>
+            <span>— rates informational, not final</span>
+          </span>
         </div>
         <motion.span
           key={bill.total}

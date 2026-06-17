@@ -320,7 +320,7 @@ export function CreateAgentDialog({
                 {grantPhase.kind === "idle"
                   ? `Step ${stepNumber} of ${STEP_ORDER.length} · ${STEP_LABELS[step]}`
                   : grantPhase.kind === "running"
-                    ? `Signing one sponsored tx per bucket. ${grantPhase.bucketsRemaining} remaining.`
+                    ? `Signing one sponsored transaction per bucket. ${grantPhase.bucketsRemaining} remaining.`
                     : "Review the on-chain grants and open the agent."}
               </div>
             </div>
@@ -606,9 +606,9 @@ function ToolsStep({
           lineHeight: 1.55,
         }}
       >
-        Pick what this agent can do beyond plain RAG. Read tools are
-        safe by default; write tools mint an on-chain Move tx and
-        spend the bucket&apos;s pre-funded WAL pool.
+        Pick what this agent can do. Read tools are safe by default;
+        write tools settle on-chain and draw on the bucket&apos;s storage
+        pool.
       </p>
 
       <div
@@ -889,10 +889,9 @@ function GrantProgress({
         className="muted"
         style={{ fontSize: 13, margin: 0, lineHeight: 1.55 }}
       >
-        Each bucket needs a separate sponsored Move tx (Enoki caps a
-        sponsored PTB to one Move-call target). You&apos;ll see one
-        wallet-signature prompt per bucket. Failed grants can be retried
-        from the agent&apos;s Connect tab.
+        Each bucket gets its own sponsored transaction, signed one at a
+        time. Failed grants can be retried from the agent&apos;s Connect
+        tab.
       </p>
 
       <div

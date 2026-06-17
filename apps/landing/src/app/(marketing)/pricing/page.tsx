@@ -133,6 +133,16 @@ export default function Page() {
             <p className="mx-auto mt-6 max-w-[640px] text-[17px] leading-[1.55] text-stone-700 md:text-[18px]">
               Pay-as-you-go with a generous free band on every meter. No flat tiers, no minimums, no surprise cliffs — the same per-unit rate from your first GB to your millionth.
             </p>
+            <div
+              className="mx-auto mt-8 flex max-w-[600px] items-start gap-3 rounded-lg border border-stone-200/80 px-5 py-4 text-left"
+              style={{ background: "rgba(196, 91, 54, 0.04)" }}
+            >
+              <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-krater" />
+              <p className="text-[13px] leading-[1.55] text-stone-700">
+                <span className="font-medium text-ink">Kraterion is in private beta.</span>{" "}
+                Every rate on this page is informational and not final — prices may change before general availability.
+              </p>
+            </div>
           </FadeUp>
         </div>
       </section>
@@ -296,8 +306,8 @@ export default function Page() {
             <span className="text-stone-500">Free, forever.</span>
           </>
         }
-        primaryHref="mailto:hello@kraterion.com?subject=Beta%20access%20request"
-        primaryLabel="Request beta access →"
+        primaryHref="https://app.kraterion.com/login"
+        primaryLabel="Try Kraterion →"
         sub="No card required. Pay for storage when you grow. Egress is cheap, not free — 50 GB on the house every month."
         satellites={[
           { icon: BarChart3, label: "Cost calculator", detail: "Estimate by project shape — Hobby to Production.", href: "#" },

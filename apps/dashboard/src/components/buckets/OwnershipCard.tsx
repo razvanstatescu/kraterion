@@ -91,8 +91,8 @@ export function OwnershipCard({ bucket }: Props) {
             <span className="ks-ownership-value ks-ownership-grants">
               {bucket.api_decryption_addresses.length === 0 ? (
                 <span className="muted small">
-                  No platform addresses granted — SDK + indexer are
-                  cut off.
+                  No platform access granted. The API and search can&apos;t
+                  reach this bucket.
                 </span>
               ) : (
                 bucket.api_decryption_addresses.map((addr) => (

@@ -110,11 +110,11 @@ export function Header() {
             Sign in
           </Link>
           <ButtonLink
-            href="mailto:hello@kraterion.com?subject=Beta%20access%20request"
+            href="https://app.kraterion.com/login"
             variant="primary"
             size="sm"
           >
-            Get early access →
+            Try Kraterion →
           </ButtonLink>
         </div>
 

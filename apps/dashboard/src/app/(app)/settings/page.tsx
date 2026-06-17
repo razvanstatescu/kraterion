@@ -1,52 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { Topbar } from "@/components/shell/Topbar";
-import { Button } from "@/components/ui/Button";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Pill } from "@/components/ui/Pill";
-import { useToast } from "@/components/ui/Toast";
-import { ControlPlaneError } from "@/lib/api";
 import { env } from "@/lib/env";
 import { formatRelative, suiscanObjectUrl } from "@/lib/format";
-import { useCancelSubscription, useMe } from "@/lib/queries";
+import { useMe } from "@/lib/queries";
 
 /**
- * Account settings + the demo's "twist 1" (cancel subscription). Cancelling
- * doesn't burn the user's data — the on-chain Bucket / SharedBlob objects
- * keep paying rent until their funding pools dry up. The persistent
- * `CancelledBanner` in the (app) layout drives that point home.
+ * Account settings. Subscription cancellation lives in the Billing tab
+ * (Stripe, cancel-at-period-end); this page is account info + connected
+ * agent management only.
  */
 export default function SettingsPage() {
   const { data, isLoading } = useMe();
-  const cancel = useCancelSubscription();
-  const { show } = useToast();
-  const [confirm, setConfirm] = useState(false);
 
   const account = data?.account;
   const isCancelled = account?.status === "cancelled";
-
-  const onCancel = async () => {
-    try {
-      await cancel.mutateAsync();
-      setConfirm(false);
-      show({
-        tone: "success",
-        title: "Subscription cancelled",
-        body: "Your files remain on-chain.",
-        sticky: true,
-      });
-    } catch (err) {
-      const message =
-        err instanceof ControlPlaneError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "Cancel failed.";
-      show({ tone: "error", title: "Couldn't cancel", body: message });
-    }
-  };
 
   return (
     <>
@@ -103,8 +73,7 @@ export default function SettingsPage() {
                 <div>
                   <div className="ks-card-title">Connected agents</div>
                   <div className="ks-card-sub">
-                    MCP clients (Claude Desktop, Cursor, etc.) you&apos;ve
-                    authorized live in their own section now.
+                    MCP clients like Claude Desktop and Cursor that you&apos;ve authorized.
                   </div>
                 </div>
               </div>
@@ -121,64 +90,9 @@ export default function SettingsPage() {
                 </Link>
               </div>
             </section>
-
-            <section className="ks-card ks-card-danger">
-              <div className="ks-card-head">
-                <div>
-                  <div className="ks-card-title">Cancel subscription</div>
-                  <div className="ks-card-sub">
-                    Stops billing. Your files don&apos;t move — they stay on-chain at your Sui
-                    address. Anyone can keep funding their storage via the CLI.
-                  </div>
-                </div>
-              </div>
-              <div
-                className="ks-card-body"
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}
-              >
-                <div className="muted" style={{ fontSize: 13 }}>
-                  {isCancelled
-                    ? "Already cancelled. Nothing more to do here."
-                    : "This is the demo's signature move — proving you actually own the data."}
-                </div>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  icon="alert"
-                  onClick={() => setConfirm(true)}
-                  disabled={isCancelled || cancel.isPending}
-                >
-                  {isCancelled ? "Cancelled" : "Cancel subscription"}
-                </Button>
-              </div>
-            </section>
           </div>
         )}
       </main>
-
-      <ConfirmModal
-        open={confirm}
-        onCancel={() => (cancel.isPending ? undefined : setConfirm(false))}
-        onConfirm={onCancel}
-        busy={cancel.isPending}
-        danger
-        confirmLabel={cancel.isPending ? "Cancelling…" : "Yes, cancel"}
-        title="Cancel your Kraterion subscription?"
-        body={
-          <>
-            <p style={{ margin: 0 }}>
-              Your buckets and files won&apos;t be deleted. Their on-chain funding pools keep
-              paying Walrus storage costs until they run out — which can be days, weeks, or
-              years depending on how much WAL they hold.
-            </p>
-            <p style={{ marginTop: 12, marginBottom: 0 }}>
-              The dashboard stays read-only after cancellation. To re-activate, sign in again —
-              your address and buckets are still there.
-            </p>
-          </>
-        }
-        onchainNote="Files remain encrypted on-chain at your Sui address. We never had a copy."
-      />
     </>
   );
 }

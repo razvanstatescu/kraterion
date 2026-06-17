@@ -138,8 +138,8 @@ export default function Page() {
               Build an agent over your own files. It speaks the OpenAI wire format, runs on a credential you can revoke, and every run it makes is recorded as a replayable, auditable trail.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">
-                Get early access →
+              <ButtonLink href="https://app.kraterion.com/login" variant="primary">
+                Try Kraterion →
               </ButtonLink>
               <ButtonLink href="/docs" variant="ghost">
                 Read the docs

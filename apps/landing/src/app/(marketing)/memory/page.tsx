@@ -113,8 +113,8 @@ export default function Page() {
               Turn on persistent memory and your agent gets two tools — remember and recall. The model decides when to use them. Every call is scoped to the agent&apos;s credential, recorded with the run, and reachable from your AI assistant over MCP.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <ButtonLink href="mailto:hello@kraterion.com?subject=Beta%20access%20request" variant="primary">
-                Get early access →
+              <ButtonLink href="https://app.kraterion.com/login" variant="primary">
+                Try Kraterion →
               </ButtonLink>
               <ButtonLink href="/docs" variant="ghost">
                 Read the docs

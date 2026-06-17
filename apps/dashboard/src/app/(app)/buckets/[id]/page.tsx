@@ -137,7 +137,7 @@ export default function BucketDetailPage() {
             <Banner
               tone="warning"
               title="API access is revoked"
-              body="SDK requests against this bucket fail with KeyAccessRevoked. Uploads and downloads from the dashboard are blocked too — click Settings → Restore API access to re-grant via a sponsored on-chain transaction."
+              body="Uploads and downloads are blocked here, and S3 clients fail (KeyAccessRevoked). Open Settings → Restore API access to turn it back on."
             />
           </div>
         ) : null}

@@ -135,7 +135,7 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
       await deleteSigned(signed);
       invalidate(bucketId);
       setConfirmDelete(false);
-      show({ tone: "success", title: `Deleted ${filename}`, body: "The on-chain SharedBlob persists — only the dashboard row is marked deleted." });
+      show({ tone: "success", title: `Deleted ${filename}`, body: "The file stays on-chain — only the dashboard listing is removed." });
       // Close the inspector — the object is gone; staying open would
       // render stale state until the next list refresh lands.
       onDeleted?.();
@@ -255,7 +255,7 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
             loading={linkBusy}
             title={
               linkDisabled
-                ? "API access is revoked — restore it to mint share links."
+                ? "API access is revoked — restore it to create share links."
                 : undefined
             }
           >
@@ -300,9 +300,9 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
         {useBrowserDecrypt ? (
           <div
             className="ks-field-helper"
-            title="Ciphertext is fetched directly from Walrus; the gateway never sees plaintext."
+            title="The file is fetched from Walrus and decrypted on your device — Kraterion never sees it."
           >
-            Downloads decrypt in your browser — survives platform revoke.
+            Decrypts in your browser, even after you revoke platform access.
           </div>
         ) : null}
       </section>
@@ -342,9 +342,8 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
         body={
           <>
             <p>
-              Removes the row from this bucket. The on-chain SharedBlob persists
-              regardless &mdash; that&apos;s the whole point. You can refund and
-              re-list it from the CLI if needed.
+              Removes this file from the bucket listing. The file stays on-chain
+              at your Sui address.
             </p>
           </>
         }
@@ -420,8 +419,7 @@ function OnchainDisclosure({
           )}
           <OnchainRef label="Seal identity" value={sealIdentityB64} />
           <p className="ks-inspector-onchain-caption">
-            48-byte IBE identity Seal uses to gate decryption — bucket
-            object id (32 bytes) followed by object uuid (16 bytes).
+            What Seal uses to gate decryption for this file.
           </p>
         </div>
       ) : null}

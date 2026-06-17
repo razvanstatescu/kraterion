@@ -73,7 +73,7 @@ export function CreateBucketDialog({ open, onClose }: Props) {
         title: `Bucket "${name}" created`,
         body: (
           <>
-            Visible in the list once the indexer catches up (~30s).{" "}
+            Appears in your list shortly.{" "}
             <a href={suiscanTxUrl(result.digest, env.network)} target="_blank" rel="noreferrer">
               View on-chain ↗
             </a>
@@ -125,7 +125,7 @@ export function CreateBucketDialog({ open, onClose }: Props) {
             <div style={{ display: "flex", gap: 8 }}>
               <ModeRadio
                 label="Private"
-                description="Files decrypt only via Seal-released keys."
+                description="Encrypted — only you and clients you authorize can read files."
                 checked={mode === "private"}
                 onChange={() => setMode("private")}
                 disabled={busy}
@@ -149,9 +149,9 @@ export function CreateBucketDialog({ open, onClose }: Props) {
               style={{ marginTop: 2 }}
             />
             <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>Grant API access to the gateway</div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>Grant API access</div>
               <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>
-                Required for boto3 / aws-cli / rclone to upload and download. You can revoke it later.
+                Lets boto3, aws-cli, and rclone upload and download. You can revoke it later.
               </div>
             </div>
           </label>
