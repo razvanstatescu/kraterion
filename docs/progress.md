@@ -4880,3 +4880,35 @@ columns (icon + name bar, two pills, three value bars); FileBrowser shows 2
 folder rows (krater-tinted icon + dashes) above 5 file rows (type icon, name,
 size, modified, visibility pill), widths varied per row. Loading containers
 carry `role="status"` / `aria-busy`. Tokens only; dashboard typechecks.
+
+### 2026-06-18 — [dashboard] Favicon, app icons & OG/Twitter cards
+
+The dashboard had no favicon (browser default) and no social images; only
+`apps/landing` did. Added the full suite under `apps/dashboard/src/app/` via
+Next.js file conventions: `icon.svg` (favicon, mirrors landing), `apple-icon.tsx`
+(180×180 apple-touch), `opengraph-image.tsx` (1200×630, console-themed — brand
+bar + "Object storage you actually own." + a buckets-table slice reusing the
+real Pill tones), and `twitter-image.tsx` (re-exports OG to avoid drift).
+Extended `layout.tsx` metadata with `metadataBase` (app.kraterion.com),
+`openGraph`, and `twitter` (summary_large_image); kept `robots: noindex` since
+the console is behind auth (cards are for Slack/iMessage unfurls only). All four
+endpoints verified 200 with correct content-types; head tags present. Tokens
+only (per kraterion-design); dashboard typechecks.
+
+### 2026-06-18 — [dashboard] Repositioned metadata + OG card to agent-runtime direction
+
+Realigned the dashboard's metadata and OG/Twitter card with the landing's new
+"agent runtime" positioning (was the older "object storage you actually own"
+framing). `layout.tsx`: description now "Run any agent and record every run as a
+tamper-evident, replayable trail…"; og/twitter titles use "Kraterion · A runtime
+for agents you can audit" (browser-tab title stays short "Kraterion"). OG image
+(`opengraph-image.tsx`): tagline → "A runtime for agents you can audit." (audit
+accented krater); console slice swapped from a buckets table to a "Recent runs"
+activity view at /activity — run id, agent, trail status (VERIFIED success /
+RECORDING info), duration, recorded (live run highlighted, krater dot). Reuses
+the existing Pill tones. twitter-image re-export unchanged. Verified 200 +
+correct head tags; dashboard typechecks.
+
+Note: landing OG (`apps/landing/src/app/opengraph-image.tsx`) still shows the
+old "Object storage you actually own." tagline — its hero/metadata moved to
+agent-runtime but the OG card didn't. Flagged, not changed.
