@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { Pill } from "@/components/ui/Pill";
+import { Skel } from "@/components/ui/Skeleton";
 import { ControlPlaneError } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { useBuckets } from "@/lib/queries";
@@ -32,8 +33,11 @@ export function BucketsList() {
   }
 
   if (isLoading) {
+    // Mirror the real row layout so nothing shifts when data lands.
+    // Widths vary per row so the block doesn't read as a rigid grid.
+    const nameW = [168, 132, 196, 148, 116];
     return (
-      <div className="ks-table">
+      <div className="ks-table" role="status" aria-busy="true" aria-label="Loading buckets">
         <div className="ks-thead">
           <div style={{ flex: "2 1 0" }}>Name</div>
           <div style={{ flex: "1 1 0" }}>Visibility</div>
@@ -42,14 +46,17 @@ export function BucketsList() {
           <div style={{ flex: "1 1 0" }}>Storage</div>
           <div style={{ flex: "1 1 0" }}>Created</div>
         </div>
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="ks-trow" style={{ cursor: "default" }}>
-            <div style={{ flex: "2 1 0" }} className="muted">Loading…</div>
-            <div style={{ flex: "1 1 0" }} />
-            <div style={{ flex: "1 1 0" }} />
-            <div style={{ flex: "1 1 0" }} />
-            <div style={{ flex: "1 1 0" }} />
-            <div style={{ flex: "1 1 0" }} />
+        {nameW.map((w, i) => (
+          <div key={i} className="ks-trow ks-trow-skel">
+            <div style={{ flex: "2 1 0", display: "flex", alignItems: "center", gap: 10 }}>
+              <Skel shape="circle" width={16} height={16} />
+              <Skel width={w} />
+            </div>
+            <div style={{ flex: "1 1 0" }}><Skel shape="pill" width={64} /></div>
+            <div style={{ flex: "1 1 0" }}><Skel shape="pill" width={72} /></div>
+            <div style={{ flex: "1 1 0" }}><Skel width={36} /></div>
+            <div style={{ flex: "1 1 0" }}><Skel width={56} /></div>
+            <div style={{ flex: "1 1 0" }}><Skel width={80} /></div>
           </div>
         ))}
       </div>

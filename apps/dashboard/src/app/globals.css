@@ -41,6 +41,7 @@
   --border-strong: var(--stone-300);
   --accent: var(--krater);
   --scrim: rgba(15, 14, 12, 0.45);
+  --skel: var(--stone-200);
 
   /* ----- Type scale ----- */
   --fs-micro:   11px;
@@ -97,6 +98,7 @@
   --text-tertiary:  var(--stone-500);
   --border:        var(--stone-700);
   --border-strong: var(--stone-600);
+  --skel: var(--stone-600);
 }
 
 @theme inline {
@@ -501,6 +503,29 @@ code, kbd, samp {
 .ks-trow-folder svg { color: var(--krater); }
 .ks-trow-static { cursor: default; }
 .ks-trow-static:hover { background: var(--bg-elevated); }
+
+/* Skeleton loaders — a soft opacity pulse, not a gradient shimmer
+   (gradients are banned by the brand). Each block stands in for one
+   piece of real content so the layout doesn't shift on load. Borrows
+   the "aperture pulse" rhythm from the mark. */
+.ks-skel {
+  display: inline-block;
+  background: var(--skel);
+  border-radius: var(--radius-sm);
+  animation: ks-skel-pulse 1.6s var(--ease) infinite;
+}
+.ks-skel-circle { border-radius: 999px; }
+.ks-skel-pill { border-radius: var(--radius-sm); }
+/* A loading row is inert — kill the pointer + hover affordances. */
+.ks-trow.ks-trow-skel { cursor: default; }
+.ks-trow.ks-trow-skel:hover { background: var(--bg-elevated); }
+@keyframes ks-skel-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-skel { animation: none; opacity: 0.7; }
+}
 
 .ks-tree {
   border: 1px solid var(--border);

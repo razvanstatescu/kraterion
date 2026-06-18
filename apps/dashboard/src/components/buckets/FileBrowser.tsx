@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Drawer } from "@/components/ui/Drawer";
 import { Pill } from "@/components/ui/Pill";
+import { Skel } from "@/components/ui/Skeleton";
 import { ControlPlaneError, type BucketJson, type S3ObjectJson } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { buildBrowserListing, iconForContentType, splitPrefix } from "@/lib/objects-tree";
@@ -207,8 +208,33 @@ export function FileBrowser({ bucket, prefix, onPrefixChange }: Props) {
           </div>
 
           {isLoading ? (
-            <div className="ks-trow ks-trow-static">
-              <div className="muted" style={{ flex: 1 }}>Loading…</div>
+            // Mirror the real listing: a couple of folder rows (krater
+            // icon, dashes for size/modified) above file rows (type icon,
+            // size, modified, visibility pill). Widths vary so it reads
+            // like content, not a grid.
+            <div role="status" aria-busy="true" aria-label="Loading objects">
+              {[148, 120].map((w, i) => (
+                <div key={`skel-folder-${i}`} className="ks-trow ks-trow-skel">
+                  <div style={{ flex: "2 1 0", display: "flex", alignItems: "center", gap: 10 }}>
+                    <Skel shape="circle" width={16} height={16} style={{ background: "color-mix(in srgb, var(--krater) 32%, var(--skel))" }} />
+                    <Skel width={w} />
+                  </div>
+                  <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
+                  <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
+                  <div style={{ flex: "1 1 0", color: "var(--text-tertiary)" }}>—</div>
+                </div>
+              ))}
+              {[196, 132, 168, 224, 112].map((w, i) => (
+                <div key={`skel-file-${i}`} className="ks-trow ks-trow-skel">
+                  <div style={{ flex: "2 1 0", display: "flex", alignItems: "center", gap: 10 }}>
+                    <Skel shape="circle" width={16} height={16} />
+                    <Skel width={w} />
+                  </div>
+                  <div style={{ flex: "1 1 0" }}><Skel width={48} /></div>
+                  <div style={{ flex: "1 1 0" }}><Skel width={76} /></div>
+                  <div style={{ flex: "1 1 0" }}><Skel shape="pill" width={64} /></div>
+                </div>
+              ))}
             </div>
           ) : visibleEntries.length === 0 ? (
             <div className="ks-trow ks-trow-static" style={{ padding: "32px 16px", display: "block" }}>

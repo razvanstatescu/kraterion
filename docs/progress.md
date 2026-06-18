@@ -4865,3 +4865,18 @@ AgentsListTab, CreateAgentDialog, and the Knowledge re-index banner. Strings
 only — no logic/props/structure changes; code comments keep internal terms.
 Dashboard typechecks; regression greps clean (no Phase/Enoki/CLI/2-of-3 in
 user-facing copy). See decisions.md (2026-06-17).
+
+### 2026-06-18 — [dashboard] Content-shaped skeleton loaders for bucket & file lists
+
+Replaced the two "Loading…" placeholders (BucketsList, FileBrowser) with
+skeleton loaders that mirror the real row layout so nothing shifts on load.
+New `Skel` primitive (`components/ui/Skeleton.tsx`) renders bar/pill/circle
+blocks that pulse opacity — a soft pulse, not a gradient shimmer, since
+gradients are banned by the brand (borrows the mark's "aperture pulse"
+rhythm). Added a theme-aware `--skel` token (stone-200 light / stone-600
+dark) and `.ks-skel` CSS in globals.css, with `prefers-reduced-motion`
+falling back to a static dim. BucketsList shows 5 skeleton rows across all 6
+columns (icon + name bar, two pills, three value bars); FileBrowser shows 2
+folder rows (krater-tinted icon + dashes) above 5 file rows (type icon, name,
+size, modified, visibility pill), widths varied per row. Loading containers
+carry `role="status"` / `aria-busy`. Tokens only; dashboard typechecks.
