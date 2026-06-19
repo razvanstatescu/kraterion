@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const alt =
-  "Kraterion — Object storage you actually own. S3-compatible storage on Walrus, Seal, and Sui.";
+  "Kraterion — A runtime for agents you can audit. Every run recorded as a replayable, tamper-evident trail, built on object storage you own.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -122,16 +122,15 @@ export default async function Image() {
               style={{
                 display: "flex",
                 gap: "0.24em",
-                fontSize: 58,
+                fontSize: 56,
                 fontWeight: 500,
                 letterSpacing: "-0.02em",
                 lineHeight: 1,
                 color: INK,
               }}
             >
-              <span>Object storage you</span>
-              <span style={{ color: KRATER }}>actually</span>
-              <span>own.</span>
+              <span>A runtime for agents you can</span>
+              <span style={{ color: KRATER }}>audit.</span>
             </div>
           </div>
         </div>
@@ -189,7 +188,7 @@ export default async function Image() {
                 >
                   <span style={{ color: STONE_400 }}>app.</span>
                   <span style={{ color: KRATER }}>kraterion.com</span>
-                  <span style={{ color: STONE_400 }}>/krates</span>
+                  <span style={{ color: STONE_400 }}>/activity</span>
                 </div>
               </div>
               <div
@@ -224,7 +223,7 @@ export default async function Image() {
                 }}
               >
                 <div style={{ display: "flex", fontSize: 18, fontWeight: 500, color: INK }}>
-                  Your krates
+                  Recent runs
                 </div>
                 <div
                   style={{
@@ -251,44 +250,12 @@ export default async function Image() {
                     <span>0xfa…12</span>
                   </div>
                   <div style={{ display: "flex", fontSize: 12, color: STONE_500 }}>
-                    2 krates · S3-compatible
+                    1,204 runs · replayable
                   </div>
                 </div>
               </div>
 
-              {/* Create-form row */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  padding: 9,
-                  border: `1px dashed ${STONE_300}`,
-                  borderRadius: 6,
-                  background: STONE_50,
-                  alignItems: "center",
-                }}
-              >
-                <Field label="name" value="assets-prod-2" valueColor={INK} flex={1.4} />
-                <Field label="region" value="eu-central-1" valueColor={KRATER} flex={1.2} />
-                <Field label="access" value="team-write" valueColor={KRATER} flex={1.1} />
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: INK,
-                    color: CREAM,
-                    borderRadius: 4,
-                    padding: "8px 12px",
-                    fontSize: 11,
-                    fontWeight: 500,
-                  }}
-                >
-                  create krate
-                </div>
-              </div>
-
-              {/* Table — headers + 3 rows. Last row gets clipped by OG bottom edge. */}
+              {/* Table — headers + rows. Last row gets clipped by OG bottom edge. */}
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <div
                   style={{
@@ -303,32 +270,39 @@ export default async function Image() {
                     color: STONE_500,
                   }}
                 >
-                  <span style={{ flex: "1.3 1 0" }}>krate</span>
-                  <span style={{ flex: "0.95 1 0" }}>objects</span>
-                  <span style={{ flex: "0.65 1 0" }}>size</span>
-                  <span style={{ flex: "1.1 1 0" }}>access</span>
-                  <span style={{ flex: "1.1 1 0" }}>created</span>
+                  <span style={{ flex: "1.2 1 0" }}>run</span>
+                  <span style={{ flex: "1.4 1 0" }}>agent</span>
+                  <span style={{ flex: "1 1 0" }}>trail</span>
+                  <span style={{ flex: "0.8 1 0" }}>duration</span>
+                  <span style={{ flex: "0.9 1 0" }}>recorded</span>
                 </div>
                 <Row
-                  name="assets-prod"
-                  objects="4,812 objects"
-                  size="24.6 GB"
-                  access="team-read-write"
-                  created="18 days ago"
+                  run="r_8f2a31"
+                  agent="support-triage"
+                  status="verified"
+                  duration="12.4s"
+                  recorded="2m ago"
                 />
                 <Row
-                  name="portfolio.zip"
-                  objects="1 object"
-                  size="2.4 GB"
-                  access="private"
-                  created="6 days ago"
+                  run="r_3c71d9"
+                  agent="doc-indexer"
+                  status="verified"
+                  duration="4.1s"
+                  recorded="14m ago"
                 />
                 <Row
-                  name="assets-prod-2"
-                  objects="0 objects"
-                  size="0 B"
-                  access="team-write"
-                  created="just now"
+                  run="r_5e08b2"
+                  agent="invoice-parser"
+                  status="verified"
+                  duration="7.7s"
+                  recorded="22m ago"
+                />
+                <Row
+                  run="r_9b04e7"
+                  agent="scrape-runner"
+                  status="recording"
+                  duration="0.8s"
+                  recorded="live"
                   highlight
                 />
               </div>
@@ -367,122 +341,99 @@ function BrandMark({ size }: { size: number }) {
   );
 }
 
-function Field({
-  label,
-  value,
-  valueColor,
-  flex,
-}: {
-  label: string;
-  value: string;
-  valueColor: string;
-  flex: number;
-}) {
+function Pill({ label, tone }: { label: string; tone: "info" | "success" }) {
+  const map = {
+    info: { bg: "rgba(59, 111, 115, 0.12)", fg: "#3B6F73" },
+    success: { bg: "rgba(92, 122, 63, 0.14)", fg: SUCCESS },
+  } as const;
+  const c = map[tone];
   return (
-    <div
+    <span
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        flex: `${flex} 1 0`,
-        background: CREAM,
-        border: `1px solid ${STONE_200}`,
+        gap: 5,
+        background: c.bg,
+        color: c.fg,
+        fontSize: 11,
+        fontWeight: 500,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        padding: "3px 7px",
         borderRadius: 4,
-        padding: "8px 10px",
-        fontFamily: "JetBrainsMono, ui-monospace, monospace",
-        fontSize: 12,
       }}
     >
-      <span style={{ color: STONE_500, fontSize: 10.5, fontWeight: 400 }}>{label}</span>
-      <span style={{ color: valueColor, fontWeight: 500 }}>{value}</span>
-    </div>
+      <span style={{ width: 5, height: 5, borderRadius: 999, background: c.fg }} />
+      {label}
+    </span>
   );
 }
 
 function Row({
-  name,
-  objects,
-  size: sizeText,
-  access,
-  created,
+  run,
+  agent,
+  status,
+  duration,
+  recorded,
   highlight,
 }: {
-  name: string;
-  objects: string;
-  size: string;
-  access: string;
-  created: string;
+  run: string;
+  agent: string;
+  status: "verified" | "recording";
+  duration: string;
+  recorded: string;
   highlight?: boolean;
 }) {
-  const tagBg = highlight ? "rgba(196, 91, 54, 0.12)" : STONE_100;
-  const tagFg = highlight ? KRATER : STONE_600;
+  const live = recorded === "live";
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
         padding: "11px 8px",
-        fontSize: 12,
+        fontSize: 13,
         background: highlight ? "rgba(196, 91, 54, 0.06)" : "transparent",
         borderBottom: `1px solid ${STONE_100}`,
       }}
     >
       <div
         style={{
-          flex: "1.3 1 0",
+          flex: "1.2 1 0",
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 8,
           fontFamily: "JetBrainsMono, ui-monospace, monospace",
           fontWeight: 500,
           color: INK,
         }}
       >
         <span style={{ width: 7, height: 7, borderRadius: 2, background: KRATER }} />
-        <span>{name}</span>
+        <span>{run}</span>
       </div>
-      <span style={{ flex: "0.95 1 0", color: STONE_600 }}>{objects}</span>
-      <div style={{ flex: "0.65 1 0", display: "flex" }}>
-        <span
-          style={{
-            display: "flex",
-            background: tagBg,
-            color: tagFg,
-            fontFamily: "JetBrainsMono, ui-monospace, monospace",
-            fontSize: 11,
-            padding: "3px 5px",
-            borderRadius: 4,
-          }}
-        >
-          {sizeText}
-        </span>
+      <span style={{ flex: "1.4 1 0", fontWeight: 500, color: INK }}>{agent}</span>
+      <div style={{ flex: "1 1 0", display: "flex" }}>
+        <Pill label={status} tone={status === "verified" ? "success" : "info"} />
       </div>
-      <div style={{ flex: "1.1 1 0", display: "flex" }}>
-        <span
-          style={{
-            display: "flex",
-            background: tagBg,
-            color: tagFg,
-            fontFamily: "JetBrainsMono, ui-monospace, monospace",
-            fontSize: 11,
-            padding: "3px 5px",
-            borderRadius: 4,
-          }}
-        >
-          {access}
-        </span>
-      </div>
+      <span
+        style={{
+          flex: "0.8 1 0",
+          fontFamily: "JetBrainsMono, ui-monospace, monospace",
+          color: STONE_600,
+        }}
+      >
+        {duration}
+      </span>
       <div
         style={{
-          flex: "1.1 1 0",
+          flex: "0.9 1 0",
           display: "flex",
           alignItems: "center",
           gap: 6,
           color: STONE_600,
         }}
       >
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: SUCCESS }} />
-        <span>{created}</span>
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: live ? KRATER : SUCCESS }} />
+        <span>{recorded}</span>
       </div>
     </div>
   );

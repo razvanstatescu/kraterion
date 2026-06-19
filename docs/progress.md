@@ -4912,3 +4912,18 @@ correct head tags; dashboard typechecks.
 Note: landing OG (`apps/landing/src/app/opengraph-image.tsx`) still shows the
 old "Object storage you actually own." tagline — its hero/metadata moved to
 agent-runtime but the OG card didn't. Flagged, not changed.
+
+### 2026-06-18 — [landing] OG card realigned to agent-runtime direction
+
+Closed the gap flagged in the prior entry: the landing metadata/hero were already
+on the agent-runtime message but its OG image still showed "Object storage you
+actually own." with a krates/create-form console slice. Updated
+`apps/landing/src/app/opengraph-image.tsx`: tagline → "A runtime for agents you
+can audit." (audit accented), alt text rewritten, and the console slice swapped
+from a "Your krates" buckets table to a "Recent runs" activity view at /activity
+(run id, agent, trail status VERIFIED/RECORDING, duration, recorded — live run
+highlighted, 4 rows so the last clips at the OG edge). Dropped the now-unused
+Field helper, added a Pill helper, reworked Row — mirrors the dashboard OG built
+earlier today so both cards read as one family. Kept the landing-specific brand
+row ("v 0.1 · testnet · kraterion.com"). Verified 200 + head tags; landing
+typechecks. Landing + dashboard OG now consistent.
