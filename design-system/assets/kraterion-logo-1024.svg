@@ -1,0 +1,8 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kraterion">
+  <title>Kraterion</title>
+  <desc>Aperture mark — three concentric ink rings on cream. Square project logo.</desc>
+  <rect width="1024" height="1024" fill="#F8F4EC"/>
+  <circle cx="512" cy="512" r="360" fill="none" stroke="#0F0E0C" stroke-width="20"/>
+  <circle cx="512" cy="512" r="222" fill="none" stroke="#0F0E0C" stroke-width="20"/>
+  <circle cx="512" cy="512" r="72" fill="#0F0E0C"/>
+</svg>
