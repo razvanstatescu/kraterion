@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { getSuiClient } from "@kraterion/walrus-client";
-import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import type { SuiGrpcClient } from "@mysten/sui/grpc";
 
 /**
  * Nest-injectable wrapper around the workspace-shared `getSuiClient()`.
@@ -14,9 +14,9 @@ import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
  */
 @Injectable()
 export class SuiClientService {
-  private readonly client: SuiJsonRpcClient = getSuiClient();
+  private readonly client: SuiGrpcClient = getSuiClient();
 
-  get(): SuiJsonRpcClient {
+  get(): SuiGrpcClient {
     return this.client;
   }
 }

@@ -1,7 +1,11 @@
 # Kraterion — Sui JSON-RPC → gRPC / GraphQL Migration Plan
 
-**Status:** Draft v1 — research complete, **not executed**. This is an active
-production-down incident on testnet; execution is urgent (see §1).
+**Status:** **EXECUTED 2026-07-09.** All production code (5 apps + 3 packages),
+tests, the move-sdk, and all 6 ops scripts migrated to gRPC/GraphQL. Full
+monorepo `pnpm typecheck` + `pnpm test` green. Backend paths live-verified
+against local testnet (see §Execution log). One residual: dashboard interactive
+sign+sponsor needs a manual browser+wallet pass; ops scripts migrated
+mechanically but not run (they do real on-chain writes).
 **Author:** generated 2026-07-09 (Claude), from a full codebase inventory + the
 Mysten migration guides.
 **Scope:** Migrate every Kraterion server-side (and browser) Sui data-access call

@@ -8,7 +8,7 @@ import {
 } from "@kraterion/shared";
 import { ACTIVE_PRICE_LOOKUP_KEYS } from "./catalog.js";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
-import { getPoolStorageCostFrost } from "@kraterion/walrus-client";
+import { gasStatusError, gasTx, getPoolStorageCostFrost } from "@kraterion/walrus-client";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { GasPoolService } from "../sui/gas-pool.service.js";
@@ -460,12 +460,11 @@ export class StorageBillingService {
         },
       }),
     );
-    const result = await this.gasPool.execute(tx);
-    if (result.effects?.status?.status !== "success") {
-      const err = result.effects?.status?.error ?? "unknown";
-      throw new Error(`pool_vault::resize_grow reverted: ${err}`);
+    const tx2 = gasTx(await this.gasPool.execute(tx));
+    if (!tx2.effects.status.success) {
+      throw new Error(`pool_vault::resize_grow reverted: ${gasStatusError(tx2)}`);
     }
-    return result.digest;
+    return tx2.digest;
   }
 
   private assertSane(newMb: number, usedMb: number): void {

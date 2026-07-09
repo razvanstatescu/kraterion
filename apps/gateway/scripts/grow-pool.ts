@@ -25,7 +25,12 @@ import {
   KRATERION_RESERVE_ID,
   WALRUS_SYSTEM_OBJECT_ID,
 } from "@kraterion/shared";
-import { getSuiClient, getPoolStorageCostFrost } from "@kraterion/walrus-client";
+import {
+  gasStatusError,
+  gasTx,
+  getSuiClient,
+  getPoolStorageCostFrost,
+} from "@kraterion/walrus-client";
 import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 
 const TARGET_BYTES = 5n * 1024n * 1024n * 1024n; // 5 GiB encoded
@@ -44,14 +49,14 @@ async function main(): Promise<void> {
   console.log(`operator: ${address}`);
 
   // Largest SUI coin = treasury (not leased by the gas pool). Pin it as gas.
-  const coins = await suiClient.getCoins({ owner: address, coinType: "0x2::sui::SUI" });
-  const treasury = coins.data
+  const coins = await suiClient.core.listCoins({ owner: address, coinType: "0x2::sui::SUI" });
+  const treasury = coins.objects
     .slice()
     .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1))[0];
   if (!treasury) throw new Error("operator wallet holds no SUI");
   let gasRef = {
-    objectId: treasury.coinObjectId,
-    version: treasury.version,
+    objectId: treasury.objectId,
+    version: String(treasury.version),
     digest: treasury.digest,
   };
 
@@ -92,19 +97,23 @@ async function main(): Promise<void> {
         },
       }),
     );
-    const res = await suiClient.signAndExecuteTransaction({
-      transaction: tx,
-      signer: keypair,
-      options: { showEffects: true },
-    });
-    const ok = res.effects?.status?.status === "success";
+    const res = gasTx(
+      await suiClient.signAndExecuteTransaction({
+        transaction: tx,
+        signer: keypair,
+        include: { effects: true },
+      }),
+    );
+    const ok = res.effects.status.success;
     console.log(
-      `  ${p.vault_object_id}: ${ok ? "OK" : "FAILED " + res.effects?.status?.error} ` +
+      `  ${p.vault_object_id}: ${ok ? "OK" : "FAILED " + gasStatusError(res)} ` +
         `(used=${used} reserved ${reserved}→5GiB, +${additional}B, budget=${budget} FROST) tx=${res.digest}`,
     );
     // Advance the treasury ref for the next iteration.
-    const g = res.effects?.gasObject?.reference;
-    if (g) gasRef = { objectId: g.objectId, version: String(g.version), digest: g.digest };
+    const g = res.effects.gasObject;
+    if (g && g.outputVersion && g.outputDigest) {
+      gasRef = { objectId: g.objectId, version: String(g.outputVersion), digest: g.outputDigest };
+    }
   }
 
   await prisma.$disconnect();

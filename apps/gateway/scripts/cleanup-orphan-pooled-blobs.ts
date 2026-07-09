@@ -34,7 +34,7 @@ import {
   WALRUS_SYSTEM_OBJECT_ID,
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
-import { blobIdStringToU256, getSuiClient } from "@kraterion/walrus-client";
+import { blobIdStringToU256, gasStatusError, gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 
 const args = process.argv.slice(2).filter((a) => a !== "--");
@@ -127,15 +127,17 @@ async function deleteOne(
     }),
   );
   try {
-    const result = await client.signAndExecuteTransaction({
-      transaction: tx,
-      signer,
-      options: { showEffects: true },
-    });
-    if (result.effects?.status?.status !== "success") {
+    const result = gasTx(
+      await client.signAndExecuteTransaction({
+        transaction: tx,
+        signer,
+        include: { effects: true },
+      }),
+    );
+    if (!result.effects.status.success) {
       return {
         ok: false,
-        error: result.effects?.status?.error ?? "unknown",
+        error: gasStatusError(result) ?? "unknown",
       };
     }
     return { ok: true, digest: result.digest };

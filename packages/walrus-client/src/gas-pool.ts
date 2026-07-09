@@ -26,21 +26,56 @@
  * own gas to the treasury coin and only touches treasury + dust, so it
  * never races a leased coin.
  */
-import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import type { ClientWithCoreApi, SuiClientTypes } from "@mysten/sui/client";
 import type { Signer } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";
 import { MIST_PER_SUI } from "@mysten/sui/utils";
 
 const SUI_COIN_TYPE = "0x2::sui::SUI";
-const SUI_COIN_OBJECT_TYPE = "0x2::coin::Coin<0x2::sui::SUI>";
 
-/** Minimal view of a `getCoins` row — avoids depending on the SDK's
- *  exact `CoinStruct` export. */
+/** Minimal internal view of a coin — normalized from `core.listCoins`
+ *  (`Coin`) rows, keeping the `coinObjectId` name the pool uses internally. */
 interface OwnedCoin {
   coinObjectId: string;
   version: string;
   digest: string;
   balance: string;
+}
+
+/** Unwrap a Core-API transaction result's inner `Transaction` (present on
+ *  both the success and failed variants — the gas coin still moves on a
+ *  revert, so effects are always available). */
+function txOf(
+  res: SuiClientTypes.TransactionResult<{ effects: true }>,
+): SuiClientTypes.Transaction<{ effects: true }> {
+  return res.$kind === "Transaction" ? res.Transaction : res.FailedTransaction;
+}
+
+/**
+ * Unwrap a {@link GasExecuteResult} to its inner `Transaction` — the object
+ * carrying `.effects` (status/gasObject/changedObjects), `.digest`, and
+ * `.events`. Use at every call site that consumes `pool.execute(...)`:
+ *
+ * ```ts
+ * const tx = gasTx(await pool.execute(txb));
+ * if (!tx.effects.status.success) throw new Error(gasStatusError(tx));
+ * const digest = tx.digest;
+ * ```
+ *
+ * Replaces the JSON-RPC-era `result.effects?.status?.status === "success"` /
+ * `result.digest` shape (Sui deprecated JSON-RPC — /docs/json-rpc-migration.md).
+ */
+export function gasTx<Include extends SuiClientTypes.TransactionInclude>(
+  res: SuiClientTypes.TransactionResult<Include>,
+): SuiClientTypes.Transaction<Include> {
+  return res.$kind === "Transaction" ? res.Transaction : res.FailedTransaction;
+}
+
+/** Human-readable status error from an unwrapped transaction (`null` on success). */
+export function gasStatusError(
+  tx: SuiClientTypes.Transaction<{ effects: true }>,
+): string | null {
+  return tx.effects.status.success ? null : JSON.stringify(tx.effects.status.error);
 }
 
 /**
@@ -77,13 +112,18 @@ export interface GasPoolConfig {
   acquireTimeoutMs: number;
 }
 
-/** Result of a pooled transaction execution. */
-export type GasExecuteResult = Awaited<
-  ReturnType<SuiJsonRpcClient["signAndExecuteTransaction"]>
->;
+/** Result of a pooled transaction execution. Always includes effects;
+ *  events / object types are included on request. */
+export type GasExecuteResult = SuiClientTypes.TransactionResult<{
+  effects: true;
+  events: true;
+  objectTypes: true;
+}>;
 
 /** A bound `pool.execute` — pass this where a raw signer used to be
- *  threaded (e.g. the worker's archive helpers). */
+ *  threaded (e.g. the worker's archive helpers). Option names are kept
+ *  from the JSON-RPC era; internally they map to the Core API `include`
+ *  flags (`events`, `objectTypes`). */
 export type GasExecute = (
   tx: Transaction,
   options?: { showEvents?: boolean; showObjectChanges?: boolean },
@@ -169,7 +209,7 @@ export class GasCoinPool {
 
   constructor(
     private readonly deps: {
-      suiClient: SuiJsonRpcClient;
+      suiClient: ClientWithCoreApi;
       redis: PoolRedis;
       signer: Signer;
       address: string;
@@ -209,21 +249,22 @@ export class GasCoinPool {
     tx.setGasBudget(cfg.gasBudgetMist);
 
     try {
-      const res = await suiClient.signAndExecuteTransaction({
+      const res = await suiClient.core.signAndExecuteTransaction({
         transaction: tx,
         signer,
-        options: {
-          showEffects: true,
-          showEvents: options.showEvents ?? false,
-          showObjectChanges: options.showObjectChanges ?? false,
+        include: {
+          effects: true,
+          events: options.showEvents ?? false,
+          objectTypes: options.showObjectChanges ?? false,
         },
       });
       // The gas coin is consumed even on an on-chain revert, so its
       // version always advances — recover the new ref from effects.
-      const ref = gasRefFromEffects(res);
-      const newBalance = estimateNewBalance(lease.balance, res);
+      const effects = txOf(res).effects;
+      const ref = gasRefFromEffects(effects);
+      const newBalance = estimateNewBalance(lease.balance, effects);
       await this.release(lease.objectId, ref ?? lease, newBalance, cfg);
-      return res;
+      return res as GasExecuteResult;
     } catch (err) {
       // RPC/build error: the coin may or may not have moved. Re-fetch the
       // truth from chain so we never reuse a stale version.
@@ -297,16 +338,15 @@ export class GasCoinPool {
   private async releaseByRefetch(objectId: string, cfg: GasPoolConfig): Promise<void> {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const obj = await this.deps.suiClient.getObject({
-          id: objectId,
-          options: { showContent: true },
+        const { object } = await this.deps.suiClient.core.getObject({
+          objectId,
+          include: { json: true },
         });
-        const data = obj.data;
-        if (data) {
+        if (object) {
           await this.release(
             objectId,
-            { objectId, version: String(data.version), digest: data.digest },
-            coinBalanceFromObject(obj),
+            { objectId, version: String(object.version), digest: object.digest },
+            coinBalanceFromJson(object.json),
             cfg,
           );
           return;
@@ -358,9 +398,14 @@ export class GasCoinPool {
   private async reconcileLocked(): Promise<void> {
     const { suiClient, address } = this.deps;
     const cfg = this.cfg;
-    const owned = (
-      await suiClient.getCoins({ owner: address, coinType: SUI_COIN_TYPE })
-    ).data as unknown as OwnedCoin[];
+    const owned: OwnedCoin[] = (
+      await suiClient.core.listCoins({ owner: address, coinType: SUI_COIN_TYPE })
+    ).objects.map((c) => ({
+      coinObjectId: c.objectId,
+      version: String(c.version),
+      digest: c.digest,
+      balance: c.balance,
+    }));
     if (owned.length === 0) {
       this.log(`gas pool ${address}: wallet holds no SUI`);
       return;
@@ -457,36 +502,35 @@ export class GasCoinPool {
       );
     }
 
-    const res = await suiClient.signAndExecuteTransaction({
+    const res = await suiClient.core.signAndExecuteTransaction({
       transaction: tx,
       signer: this.deps.signer,
-      options: { showEffects: true, showObjectChanges: true },
+      include: { effects: true },
     });
-    if (res.effects?.status?.status !== "success") {
+    const effects = txOf(res).effects;
+    if (!effects.status.success) {
       throw new Error(
-        `gas pool ${address}: merge/split tx failed: ${res.effects?.status?.error ?? "unknown"}`,
+        `gas pool ${address}: merge/split tx failed: ${JSON.stringify(effects.status.error)}`,
       );
     }
 
-    type CreatedChange = {
-      type: string;
-      objectType?: string;
-      objectId?: string;
-      version?: string | number;
-      digest?: string;
-    };
+    // This tx only ever creates SUI coins (splitCoins from gas), so every
+    // freshly-created object other than the gas coin is a new pool coin.
+    // `changedObjects` replaces the old `objectChanges`; created objects
+    // carry `idOperation === 'Created'` with their output ref.
     const coins: OwnedCoin[] = [];
-    for (const c of (res.objectChanges ?? []) as unknown as CreatedChange[]) {
-      if (c.type !== "created" || c.objectType !== SUI_COIN_OBJECT_TYPE) continue;
-      if (!c.objectId || c.version == null || !c.digest) continue;
+    for (const c of effects.changedObjects) {
+      if (c.idOperation !== "Created") continue;
+      if (c.objectId === effects.gasObject?.objectId) continue;
+      if (c.outputVersion == null || !c.outputDigest) continue;
       coins.push({
         coinObjectId: c.objectId,
-        version: String(c.version),
-        digest: c.digest,
+        version: String(c.outputVersion),
+        digest: c.outputDigest,
         balance: cfg.perCoinMist.toString(),
       });
     }
-    return { coins, treasuryRef: gasRefFromEffects(res) };
+    return { coins, treasuryRef: gasRefFromEffects(effects) };
   }
 
   private async withLock(fn: () => Promise<void>): Promise<void> {
@@ -531,50 +575,37 @@ return redis.call('SCARD', KEYS[1])
 
 // === pure helpers ===
 
-function gasRefFromEffects(res: {
-  effects?: { gasObject?: { reference?: GasObjectRef } } | null;
-}): GasObjectRef | null {
-  const ref = res.effects?.gasObject?.reference;
-  if (ref && ref.objectId && ref.version != null && ref.digest) {
-    return { objectId: ref.objectId, version: String(ref.version), digest: ref.digest };
+function gasRefFromEffects(
+  effects: SuiClientTypes.TransactionEffects,
+): GasObjectRef | null {
+  // `gasObject` is a `ChangedObject`; its post-tx ref is the output side.
+  const g = effects.gasObject;
+  if (g && g.objectId && g.outputVersion != null && g.outputDigest) {
+    return { objectId: g.objectId, version: String(g.outputVersion), digest: g.outputDigest };
   }
   return null;
 }
 
 function estimateNewBalance(
   oldBalance: string,
-  res: {
-    effects?: {
-      gasUsed?: {
-        computationCost?: string | number;
-        storageCost?: string | number;
-        storageRebate?: string | number;
-      };
-    } | null;
-  },
+  effects: SuiClientTypes.TransactionEffects,
 ): bigint {
-  const g = res.effects?.gasUsed;
-  let used = 0n;
-  if (g) {
-    used =
-      BigInt(g.computationCost ?? 0) +
-      BigInt(g.storageCost ?? 0) -
-      BigInt(g.storageRebate ?? 0);
-    if (used < 0n) used = 0n;
-  }
+  // `gasUsed` is a `GasCostSummary` (always present), fields are decimal strings.
+  const g = effects.gasUsed;
+  let used =
+    BigInt(g.computationCost) + BigInt(g.storageCost) - BigInt(g.storageRebate);
+  if (used < 0n) used = 0n;
   const next = BigInt(oldBalance) - used;
   return next < 0n ? 0n : next;
 }
 
-function coinBalanceFromObject(obj: {
-  data?: { content?: unknown } | null;
-}): bigint {
-  const content = obj.data?.content as
-    | { dataType?: string; fields?: { balance?: string } }
-    | undefined;
-  if (content?.dataType === "moveObject" && content.fields?.balance) {
-    return BigInt(content.fields.balance);
-  }
+function coinBalanceFromJson(json: Record<string, unknown> | null): bigint {
+  // `core.getObject({ include: { json: true } })` returns the Move struct as
+  // JSON. A `0x2::coin::Coin<T>` has a top-level `balance` (u64 as string).
+  const raw = json?.["balance"];
+  if (typeof raw === "string") return BigInt(raw);
+  if (typeof raw === "number") return BigInt(raw);
+  if (typeof raw === "bigint") return raw;
   return 0n;
 }
 

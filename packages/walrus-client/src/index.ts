@@ -22,20 +22,25 @@
 
 import { WalrusClient } from "@mysten/walrus";
 import { bcs } from "@mysten/sui/bcs";
-import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import {
-  SUI_TESTNET_RPC,
+  SUI_TESTNET_GRPC,
   WALRUS_AGGREGATOR_URL,
   WALRUS_UPLOAD_RELAY_URL,
 } from "@kraterion/shared";
 
-let _suiClient: SuiJsonRpcClient | null = null;
+let _suiClient: SuiGrpcClient | null = null;
 let _walrusClient: WalrusClient | null = null;
 
-/** Memoized SuiClient pointed at testnet. */
-export function getSuiClient(): SuiJsonRpcClient {
+/**
+ * Memoized Sui client pointed at testnet over gRPC (Sui deprecated JSON-RPC —
+ * see /docs/json-rpc-migration.md). The default `GrpcWebFetchTransport` handles
+ * the unary calls every server-side consumer makes; the worker indexer builds
+ * its own client with a keepalive transport for streaming.
+ */
+export function getSuiClient(): SuiGrpcClient {
   if (!_suiClient) {
-    _suiClient = new SuiJsonRpcClient({ network: "testnet", url: SUI_TESTNET_RPC });
+    _suiClient = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_TESTNET_GRPC });
   }
   return _suiClient;
 }
@@ -56,6 +61,13 @@ export function getWalrusClient(): WalrusClient {
       uploadRelay: {
         host: WALRUS_UPLOAD_RELAY_URL,
         sendTip: { max: 10_000_000 },
+        // The SDK default is 30s, which is too tight on testnet: even a tiny
+        // blob RS2-encodes to ~61 MiB across 1000 shards, and the relay holds
+        // the POST open while it fans slivers out to storage nodes and collects
+        // a quorum certificate. 30s frequently times out; 120s covers the
+        // testnet relay's fanout latency. (Tip GET is fast; it's the write
+        // fanout that's slow.)
+        timeout: 120_000,
       },
     });
   }
@@ -281,30 +293,25 @@ export async function readPoolUsedEncodedBytes(
   // (V2 etc.) we'd hit `null` here and need to advance the key.
   // List dynamic fields first so a future version change doesn't
   // silently break us — we read the FIRST u64 key, whatever it is.
-  const df = await client.getDynamicFields({
-    parentId: poolObjectId,
-    limit: 5,
-  });
-  const first = df.data?.find(
-    (f) => f.name?.type === "u64" && typeof f.name?.value === "string",
-  );
-  if (!first) return null;
-  const inner = await client.getDynamicFieldObject({
-    parentId: poolObjectId,
-    name: first.name as { type: "u64"; value: string },
-  });
-  const content = inner.data?.content;
-  if (!content || content.dataType !== "moveObject") return null;
-  const fields = (content as { fields?: Record<string, unknown> }).fields;
-  const valueWrap = fields?.["value"];
-  if (typeof valueWrap !== "object" || valueWrap === null) return null;
-  const innerFields = (valueWrap as { fields?: Record<string, unknown> })
-    .fields;
-  const raw = innerFields?.["used_encoded_bytes"];
-  if (typeof raw === "string") return BigInt(raw);
-  if (typeof raw === "number") return BigInt(raw);
-  if (typeof raw === "bigint") return raw;
-  return null;
+  //
+  // Core API: `getDynamicField` returns the value only as BCS, so instead
+  // we fetch the `Field<u64, StoragePoolInnerV1>` object by its `fieldId`
+  // with `json: true`. That yields `{ id, name, value }` where `value` is
+  // the inner struct rendered flat — `value.used_encoded_bytes`.
+  try {
+    const df = await client.core.listDynamicFields({ parentId: poolObjectId });
+    const first = df.dynamicFields.find((f) => f.name?.type === "u64");
+    if (!first) return null;
+    const inner = await client.core.getObject({
+      objectId: first.fieldId,
+      include: { json: true },
+    });
+    const value = (inner.object.json as { value?: Record<string, unknown> } | null)
+      ?.value;
+    return toBigIntOrNull(value?.["used_encoded_bytes"]);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -316,17 +323,16 @@ export async function readPoolUsedEncodedBytes(
 export async function readPooledBlobRegisteredEpoch(
   pooledBlobObjectId: string,
 ): Promise<number | null> {
-  const res = await getSuiClient().getObject({
-    id: pooledBlobObjectId,
-    options: { showContent: true },
-  });
-  const content = res.data?.content;
-  if (!content || content.dataType !== "moveObject") return null;
-  const fields = (content as { fields?: Record<string, unknown> }).fields;
-  const raw = fields?.["registered_epoch"];
-  if (typeof raw === "number") return raw;
-  if (typeof raw === "string") return Number(raw);
-  return null;
+  try {
+    const { object } = await getSuiClient().core.getObject({
+      objectId: pooledBlobObjectId,
+      include: { json: true },
+    });
+    const fields = (object.json ?? {}) as Record<string, unknown>;
+    return toNumberOrNull(fields["registered_epoch"]);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -338,35 +344,51 @@ export async function readPooledBlobRegisteredEpoch(
 export async function readPooledBlobEpochs(
   pooledBlobObjectId: string,
 ): Promise<{ registered: number | null; certified: number | null }> {
-  const res = await getSuiClient().getObject({
-    id: pooledBlobObjectId,
-    options: { showContent: true },
-  });
-  const content = res.data?.content;
-  if (!content || content.dataType !== "moveObject") {
+  try {
+    const { object } = await getSuiClient().core.getObject({
+      objectId: pooledBlobObjectId,
+      include: { json: true },
+    });
+    const fields = (object.json ?? {}) as Record<string, unknown>;
+    return {
+      registered: toNumberOrNull(fields["registered_epoch"]),
+      certified: optionU32ToNumber(fields["certified_epoch"]),
+    };
+  } catch {
     return { registered: null, certified: null };
   }
-  const fields = (content as { fields?: Record<string, unknown> }).fields ?? {};
-  const reg = fields["registered_epoch"];
-  let registered: number | null = null;
-  if (typeof reg === "number") registered = reg;
-  else if (typeof reg === "string") registered = Number(reg);
-  // certified_epoch shape (Option<u32>): `{ vec: [123] }` or `{ vec: [] }`.
-  const certWrap = fields["certified_epoch"];
-  let certified: number | null = null;
-  if (
-    typeof certWrap === "object" &&
-    certWrap !== null &&
-    "vec" in (certWrap as Record<string, unknown>)
-  ) {
-    const vec = (certWrap as { vec: unknown }).vec;
-    if (Array.isArray(vec) && vec.length > 0) {
-      const v = vec[0];
-      if (typeof v === "number") certified = v;
-      else if (typeof v === "string") certified = Number(v);
-    }
+}
+
+// === JSON field coercion helpers (Core API `include: { json: true }`) ===
+// gRPC renders Move structs flat, with u64/u32 as decimal strings.
+
+function toBigIntOrNull(raw: unknown): bigint | null {
+  if (typeof raw === "string") return BigInt(raw);
+  if (typeof raw === "number") return BigInt(raw);
+  if (typeof raw === "bigint") return raw;
+  return null;
+}
+
+function toNumberOrNull(raw: unknown): number | null {
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") return Number(raw);
+  return null;
+}
+
+/**
+ * Decode a Move `Option<u32>` from Core-API json. Handles both renderings:
+ * the struct form `{ vec: [123] }` / `{ vec: [] }`, and a flattened
+ * `123` / `null`. Returns `null` for `None`.
+ */
+function optionU32ToNumber(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") return Number(raw);
+  if (typeof raw === "object" && "vec" in (raw as Record<string, unknown>)) {
+    const vec = (raw as { vec: unknown }).vec;
+    if (Array.isArray(vec) && vec.length > 0) return toNumberOrNull(vec[0]);
   }
-  return { registered, certified };
+  return null;
 }
 
 // === Re-exports of public SDK helpers callers will want ===

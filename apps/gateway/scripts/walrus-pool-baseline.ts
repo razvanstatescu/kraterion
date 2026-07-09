@@ -42,7 +42,8 @@ import {
   WALRUS_SYSTEM_OBJECT_ID,
   WAL_COIN_TYPE,
 } from "@kraterion/shared";
-import { getSuiClient } from "@kraterion/walrus-client";
+import type { SuiClientTypes } from "@mysten/sui/client";
+import { gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
 type Client = ReturnType<typeof getSuiClient>;
@@ -85,14 +86,14 @@ async function findWalCoin(
 ): Promise<{ coinObjectId: string; balance: bigint }> {
   let cursor: string | null | undefined;
   do {
-    const page = await client.getCoins({ owner, coinType: WAL_COIN_TYPE, cursor });
-    for (const c of page.data) {
+    const page = await client.core.listCoins({ owner, coinType: WAL_COIN_TYPE, cursor });
+    for (const c of page.objects) {
       const balance = BigInt(c.balance);
       if (balance >= minBalance) {
-        return { coinObjectId: c.coinObjectId, balance };
+        return { coinObjectId: c.objectId, balance };
       }
     }
-    cursor = page.hasNextPage ? page.nextCursor : null;
+    cursor = page.hasNextPage ? page.cursor : null;
   } while (cursor);
   throw new Error(
     `No WAL coin with balance >= ${minBalance} FROST found for ${owner}. ` +
@@ -100,7 +101,7 @@ async function findWalCoin(
   );
 }
 
-function extractGas(effects: NonNullable<Awaited<ReturnType<Client["executeTransactionBlock"]>>["effects"]>): {
+function extractGas(effects: SuiClientTypes.TransactionEffects): {
   computationCost: bigint;
   storageCost: bigint;
   storageRebate: bigint;
@@ -149,7 +150,7 @@ async function main() {
 
   const client = getSuiClient();
 
-  const suiBalance = BigInt((await client.getBalance({ owner: address })).totalBalance);
+  const suiBalance = BigInt((await client.core.getBalance({ owner: address })).balance);
   info(`SUI balance:      ${(Number(suiBalance) / 1e9).toFixed(4)} SUI`);
   if (suiBalance < GAS_BUDGET * 5n) {
     bad(`Insufficient SUI for ~5 tx at ${GAS_BUDGET} MIST gas-budget each. Faucet at https://faucet.testnet.sui.io`);
@@ -157,7 +158,7 @@ async function main() {
   }
 
   const walBalance = BigInt(
-    (await client.getBalance({ owner: address, coinType: WAL_COIN_TYPE })).totalBalance,
+    (await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE })).balance,
   );
   info(`WAL balance:      ${(Number(walBalance) / 1e9).toFixed(6)} WAL`);
   const minWalNeeded = 1_000_000n; // 0.001 WAL — pool storage at 1 MiB × few epochs is ~hundreds of FROST
@@ -199,12 +200,12 @@ async function main() {
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
-      options: { showEffects: true, showObjectChanges: true },
+      include: { effects: true, objectTypes: true },
     });
-    await client.waitForTransaction({ digest: result.digest });
+    await client.core.waitForTransaction({ digest: gasTx(result).digest });
 
-    const effects = result.effects;
-    if (!effects || effects.status.status !== "success") {
+    const effects = gasTx(result).effects;
+    if (!effects.status.success) {
       bad(`create_storage_pool failed: ${JSON.stringify(effects?.status)}`);
       process.exit(1);
     }
@@ -215,14 +216,17 @@ async function main() {
     // The inner Field's type ALSO contains "::storage_pool::StoragePool"
     // as a substring, so a substring filter would grab the wrong one.
     const expectedType = `${WALRUS_PACKAGE_PUBLISHED_AT_TESTNET}::storage_pool::StoragePool`;
-    const changes = result.objectChanges ?? [];
-    const created = changes.find(
-      (c) => c.type === "created" && c.objectType === expectedType,
+    // `objectChanges` → `effects.changedObjects` (idOperation) + the
+    // `objectTypes` id→type map from `include: { objectTypes: true }`.
+    const t = gasTx(result);
+    const types = t.objectTypes ?? {};
+    const created = t.effects.changedObjects.find(
+      (c) => c.idOperation === "Created" && types[c.objectId] === expectedType,
     );
-    if (!created || created.type !== "created") {
-      bad(`Could not find created ${expectedType} in objectChanges`);
-      info("objectChanges:");
-      console.error(JSON.stringify(changes, null, 2));
+    if (!created) {
+      bad(`Could not find created ${expectedType} in changedObjects`);
+      info("changedObjects:");
+      console.error(JSON.stringify(t.effects.changedObjects, null, 2));
       process.exit(1);
     }
     poolObjectId = created.objectId;
@@ -231,12 +235,12 @@ async function main() {
     const gas = extractGas(effects);
     readings.push({
       step: "create_storage_pool",
-      txDigest: result.digest,
+      txDigest: gasTx(result).digest,
       ...gas,
       notes: `pool=${poolObjectId}; capacity=${INITIAL_CAPACITY_BYTES}; epochs=${INITIAL_EPOCHS_AHEAD}`,
     });
     info(`  ↪ Gas:           ${gas.netCost} MIST net (${gas.computationCost} compute + ${gas.storageCost} storage - ${gas.storageRebate} rebate)`);
-    info(`  ↪ Tx:            ${result.digest}`);
+    info(`  ↪ Tx:            ${gasTx(result).digest}`);
   }
   console.log();
 
@@ -265,23 +269,23 @@ async function main() {
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
-      options: { showEffects: true },
+      include: { effects: true },
     });
-    await client.waitForTransaction({ digest: result.digest });
-    const effects = result.effects;
-    if (!effects || effects.status.status !== "success") {
+    await client.core.waitForTransaction({ digest: gasTx(result).digest });
+    const effects = gasTx(result).effects;
+    if (!effects.status.success) {
       bad(`increase_storage_pool_capacity failed: ${JSON.stringify(effects?.status)}`);
       process.exit(1);
     }
     const gas = extractGas(effects);
     readings.push({
       step: "increase_storage_pool_capacity",
-      txDigest: result.digest,
+      txDigest: gasTx(result).digest,
       ...gas,
       notes: `+${GROW_BY_BYTES} bytes`,
     });
     info(`  ↪ Gas:           ${gas.netCost} MIST net`);
-    info(`  ↪ Tx:            ${result.digest}`);
+    info(`  ↪ Tx:            ${gasTx(result).digest}`);
   }
   console.log();
 
@@ -308,23 +312,23 @@ async function main() {
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
-      options: { showEffects: true },
+      include: { effects: true },
     });
-    await client.waitForTransaction({ digest: result.digest });
-    const effects = result.effects;
-    if (!effects || effects.status.status !== "success") {
+    await client.core.waitForTransaction({ digest: gasTx(result).digest });
+    const effects = gasTx(result).effects;
+    if (!effects.status.success) {
       bad(`extend_storage_pool failed: ${JSON.stringify(effects?.status)}`);
       process.exit(1);
     }
     const gas = extractGas(effects);
     readings.push({
       step: "extend_storage_pool",
-      txDigest: result.digest,
+      txDigest: gasTx(result).digest,
       ...gas,
       notes: `+${EXTEND_BY_EPOCHS} epochs`,
     });
     info(`  ↪ Gas:           ${gas.netCost} MIST net`);
-    info(`  ↪ Tx:            ${result.digest}`);
+    info(`  ↪ Tx:            ${gasTx(result).digest}`);
   }
   console.log();
 
@@ -352,26 +356,29 @@ async function main() {
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
-      options: { showEffects: true, showObjectChanges: true },
+      include: { effects: true, objectTypes: true },
     });
-    await client.waitForTransaction({ digest: result.digest });
-    const effects = result.effects;
-    if (!effects || effects.status.status !== "success") {
+    await client.core.waitForTransaction({ digest: gasTx(result).digest });
+    const effects = gasTx(result).effects;
+    if (!effects.status.success) {
       bad(`decrease_storage_pool_unused_capacity_by_percent failed: ${JSON.stringify(effects?.status)}`);
       process.exit(1);
     }
-    const recovered = (result.objectChanges ?? []).find(
-      (c) => c.type === "created" && c.objectType.includes("::storage_resource::Storage"),
+    const recTypes = gasTx(result).objectTypes ?? {};
+    const recovered = gasTx(result).effects.changedObjects.find(
+      (c) =>
+        c.idOperation === "Created" &&
+        recTypes[c.objectId]?.includes("::storage_resource::Storage"),
     );
     const gas = extractGas(effects);
     readings.push({
       step: "decrease_unused_capacity_by_percent",
-      txDigest: result.digest,
+      txDigest: gasTx(result).digest,
       ...gas,
-      notes: `-${SHRINK_BY_PERCENT}%; recovered_storage=${recovered && recovered.type === "created" ? recovered.objectId : "?"}`,
+      notes: `-${SHRINK_BY_PERCENT}%; recovered_storage=${recovered ? recovered.objectId : "?"}`,
     });
     info(`  ↪ Gas:           ${gas.netCost} MIST net`);
-    info(`  ↪ Tx:            ${result.digest}`);
+    info(`  ↪ Tx:            ${gasTx(result).digest}`);
   }
   console.log();
 
@@ -404,12 +411,12 @@ async function getSharedObjectInitialVersion(
   client: Client,
   objectId: string,
 ): Promise<string> {
-  const obj = await client.getObject({ id: objectId, options: { showOwner: true } });
-  const owner = obj.data?.owner;
-  if (!owner || typeof owner !== "object" || !("Shared" in owner)) {
+  const { object } = await client.core.getObject({ objectId });
+  const owner = object.owner;
+  if (!owner || owner.$kind !== "Shared") {
     throw new Error(`Object ${objectId} is not a shared object: ${JSON.stringify(owner)}`);
   }
-  return String(owner.Shared.initial_shared_version);
+  return String(owner.Shared.initialSharedVersion);
 }
 
 function renderReport(readings: GasReading[], deployer: string, poolObjectId: string): string {

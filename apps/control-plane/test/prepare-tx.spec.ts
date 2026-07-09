@@ -13,6 +13,7 @@ import { ControlPlaneError } from "../src/errors/control-plane-error.js";
 import { PrismaService } from "../src/prisma/prisma.service.js";
 import { ProjectsService } from "../src/projects/projects.service.js";
 import { GatewayAddressService } from "../src/sui/gateway-address.service.js";
+import type { KnowledgeIndexerAddressService } from "../src/sui/knowledge-indexer-address.service.js";
 import type { SuiClientService } from "../src/sui/sui-client.service.js";
 
 /**
@@ -32,6 +33,10 @@ describe("PrepareTxService — Enoki-sponsored PTB build + authz", () => {
   const projects = new ProjectsService(prisma);
   const FAKE_GATEWAY = "0x" + "ab".repeat(32);
   const gatewayStub = { get: async () => FAKE_GATEWAY } as unknown as GatewayAddressService;
+  const FAKE_KNOWLEDGE_INDEXER = "0x" + "cd".repeat(32);
+  const knowledgeIndexerStub = {
+    get: async () => FAKE_KNOWLEDGE_INDEXER,
+  } as unknown as KnowledgeIndexerAddressService;
   // Stub SuiClient: the prepare path calls `tx.build({ client, onlyTransactionKind: true })`,
   // and the SDK's resolver hits `client.core.getObjects` to fill in shared-object versions.
   // We stub that call to return a synthetic Shared owner so tests don't need a live RPC.
@@ -69,7 +74,15 @@ describe("PrepareTxService — Enoki-sponsored PTB build + authz", () => {
     executeSponsored: vi.fn(async () => ({ digest: "x" })),
   } as unknown as SponsorshipService;
 
-  const service = new PrepareTxService(buckets, projects, gatewayStub, sui, sponsorshipStub);
+  const service = new PrepareTxService(
+    buckets,
+    projects,
+    gatewayStub,
+    knowledgeIndexerStub,
+    prisma,
+    sui,
+    sponsorshipStub,
+  );
 
   let alice: { account: Account; project: Project; bucket: Bucket };
   let bob: { account: Account; project: Project; bucket: Bucket };

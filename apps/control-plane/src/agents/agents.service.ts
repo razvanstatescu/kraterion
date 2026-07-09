@@ -394,12 +394,11 @@ export class AgentsService {
     for (const b of bucketRows) {
       let granted = false;
       try {
-        const obj = await this.sui.get().getObject({
-          id: b.kraterion_bucket_object_id,
-          options: { showContent: true },
+        const { object } = await this.sui.get().core.getObject({
+          objectId: b.kraterion_bucket_object_id,
+          include: { json: true },
         });
-        const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
-          ?.fields;
+        const fields = object.json;
         const list = fields?.["api_decryption_addresses"];
         if (Array.isArray(list)) {
           granted = list.some(

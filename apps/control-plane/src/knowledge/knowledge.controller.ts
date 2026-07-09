@@ -102,12 +102,11 @@ export class KnowledgeController {
     addr: string,
   ): Promise<boolean> {
     try {
-      const obj = await this.suiClient.get().getObject({
-        id: bucketObjectId,
-        options: { showContent: true },
+      const { object } = await this.suiClient.get().core.getObject({
+        objectId: bucketObjectId,
+        include: { json: true },
       });
-      const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
-        ?.fields;
+      const fields = object.json;
       const list = (fields?.["api_decryption_addresses"] as string[] | undefined) ?? [];
       const norm = (a: string) => a.toLowerCase();
       return list.map(norm).includes(norm(addr));

@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
 import { KRATERION_PACKAGE_ID, KRATERION_RESERVE_ID } from "@kraterion/shared";
 import { reserve } from "@kraterion/kraterion-move-sdk";
-import { getSuiClient } from "@kraterion/walrus-client";
+import { gasStatusError, gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
 const WAL_COIN_TYPE =
@@ -69,13 +69,15 @@ async function main() {
       },
     }),
   );
-  const r = await suiClient.signAndExecuteTransaction({
-    transaction: tx,
-    signer: deployer,
-    options: { showEffects: true },
-  });
-  if (r.effects?.status?.status !== "success") {
-    console.error(`reserve.fund failed: ${JSON.stringify(r.effects?.status)}`);
+  const r = gasTx(
+    await suiClient.signAndExecuteTransaction({
+      transaction: tx,
+      signer: deployer,
+      include: { effects: true },
+    }),
+  );
+  if (!r.effects.status.success) {
+    console.error(`reserve.fund failed: ${gasStatusError(r)}`);
     process.exit(1);
   }
   console.log(`funded reserve with ${args.walMist} MIST (tx ${r.digest})`);
@@ -85,8 +87,8 @@ async function getOwnedWalBalance(
   client: ReturnType<typeof getSuiClient>,
   address: string,
 ): Promise<bigint> {
-  const balance = await client.getBalance({ owner: address, coinType: WAL_COIN_TYPE });
-  return BigInt(balance.totalBalance);
+  const balance = await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE });
+  return BigInt(balance.balance);
 }
 
 main().catch((e) => {

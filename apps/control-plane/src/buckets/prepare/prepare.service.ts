@@ -320,12 +320,11 @@ export class PrepareTxService {
     bucketObjectId: string,
   ): Promise<string[]> {
     try {
-      const obj = await this.sui.get().getObject({
-        id: bucketObjectId,
-        options: { showContent: true },
+      const { object } = await this.sui.get().core.getObject({
+        objectId: bucketObjectId,
+        include: { json: true },
       });
-      const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)
-        ?.fields;
+      const fields = object.json;
       const list = fields?.["api_decryption_addresses"];
       if (!Array.isArray(list)) return [];
       return list

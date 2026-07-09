@@ -31,7 +31,7 @@ import {
   initialPoolEpochsAhead,
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
-import { getPoolStorageCostFrost } from "@kraterion/walrus-client";
+import { gasStatusError, gasTx, getPoolStorageCostFrost } from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { GasPoolService } from "../sui/gas-pool.service.js";
 import { S3Error } from "./s3-error.js";
@@ -179,13 +179,14 @@ export class VaultProvisioningService {
         "Could not provision storage for your project; please retry.",
       );
     }
-    if (result.effects?.status?.status !== "success") {
+    const vault = gasTx(result);
+    if (!vault.effects.status.success) {
       this.logger.error(
-        `create_vault reverted for project=${projectId}: ${result.effects?.status?.error}`,
+        `create_vault reverted for project=${projectId}: ${gasStatusError(vault)}`,
       );
       throw new S3Error(
         "InternalError",
-        `Storage vault creation failed: ${result.effects?.status?.error ?? "unknown"}`,
+        `Storage vault creation failed: ${gasStatusError(vault)}`,
       );
     }
 
@@ -198,7 +199,7 @@ export class VaultProvisioningService {
 
     this.logger.log(
       `vault provisioned project=${projectId} vault=${row.vault_object_id.slice(0, 12)}… ` +
-        `pool=${row.pool_object_id.slice(0, 12)}… tx=${result.digest}`,
+        `pool=${row.pool_object_id.slice(0, 12)}… tx=${vault.digest}`,
     );
     return {
       vaultObjectId: row.vault_object_id,

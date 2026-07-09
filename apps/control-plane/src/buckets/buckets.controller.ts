@@ -122,13 +122,11 @@ export class BucketsController {
     addresses?: string[];
   }> {
     try {
-      const obj = await this.suiClient.get().getObject({
-        id: bucketObjectId,
-        options: { showContent: true },
+      const { object } = await this.suiClient.get().core.getObject({
+        objectId: bucketObjectId,
+        include: { json: true },
       });
-      const fields = (
-        obj.data?.content as { fields?: Record<string, unknown> } | undefined
-      )?.fields;
+      const fields = object.json;
       const owner = typeof fields?.["owner"] === "string"
         ? (fields["owner"] as string)
         : undefined;

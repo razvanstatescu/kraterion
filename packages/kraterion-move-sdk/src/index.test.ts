@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Transaction } from "@mysten/sui/transactions";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
+import { SuiGraphQLClient } from "@mysten/sui/graphql";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+
+const TESTNET_GRPC = "https://fullnode.testnet.sui.io:443";
+const TESTNET_GRAPHQL = "https://graphql.testnet.sui.io/graphql";
 import {
   EVENT_TYPE,
   KRATERION_PACKAGE_ID,
@@ -64,27 +68,30 @@ describe("@kraterion/kraterion-move-sdk", () => {
 describe.skipIf(process.env["KRATERION_LIVE"] !== "1")(
   "live testnet integration",
   () => {
-    it("queryEvents on the deployed package returns 200", async () => {
-      const client = new SuiJsonRpcClient({
-        network: "testnet",
-        url: getJsonRpcFullnodeUrl("testnet"),
+    it("queries events on the deployed package via GraphQL", async () => {
+      // JSON-RPC `queryEvents` → GraphQL `events` (Sui deprecated JSON-RPC —
+      // see /docs/json-rpc-migration.md).
+      const gql = new SuiGraphQLClient({ url: TESTNET_GRAPHQL, network: "testnet" });
+      const res = await gql.query({
+        query: `query($t: String!) {
+          events(first: 1, filter: { type: $t }) { nodes { sender { address } } }
+        }`,
+        variables: { t: EVENT_TYPE.bucketCreated },
       });
-      const res = await client.queryEvents({
-        query: { MoveEventType: EVENT_TYPE.bucketCreated },
-        limit: 1,
-      });
-      expect(Array.isArray(res.data)).toBe(true);
+      expect(res.data?.events).toBeDefined();
     });
 
-    it("getNormalizedMoveModulesByPackage returns our three modules", async () => {
-      const client = new SuiJsonRpcClient({
-        network: "testnet",
-        url: getJsonRpcFullnodeUrl("testnet"),
+    it("lists the package modules via gRPC MovePackageService", async () => {
+      // JSON-RPC `getNormalizedMoveModulesByPackage` → gRPC
+      // `MovePackageService.getPackage`.
+      const grpc = new SuiGrpcClient({ network: "testnet", baseUrl: TESTNET_GRPC });
+      const { response } = await grpc.movePackageService.getPackage({
+        packageId: KRATERION_PACKAGE_ID,
       });
-      const modules = await client.getNormalizedMoveModulesByPackage({
-        package: KRATERION_PACKAGE_ID,
-      });
-      expect(Object.keys(modules).sort()).toEqual([
+      const moduleNames = (response.package?.modules ?? [])
+        .map((m) => m.name)
+        .sort();
+      expect(moduleNames).toEqual([
         "access",
         "events",
         "kraterion",

@@ -31,7 +31,7 @@ import {
   KRATERION_RESERVE_ID,
   WAL_COIN_TYPE,
 } from "@kraterion/shared";
-import { getSuiClient } from "@kraterion/walrus-client";
+import { gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
@@ -77,8 +77,8 @@ async function getOwnedWalBalance(
 ): Promise<bigint> {
   // Server-side type filter via `getBalance`; cheaper than fetching every
   // owned coin and filtering locally.
-  const b = await suiClient.getBalance({ owner, coinType: WAL_COIN_TYPE });
-  return BigInt(b.totalBalance);
+  const b = await suiClient.core.getBalance({ owner, coinType: WAL_COIN_TYPE });
+  return BigInt(b.balance);
 }
 
 // === Steps ===
@@ -188,11 +188,11 @@ async function grantKnowledgeIndexerAccessOnTestBucket(
   bucketObjectId: string,
   knowledgeIndexerAddress: string,
 ) {
-  const obj = await suiClient.getObject({
-    id: bucketObjectId,
-    options: { showContent: true },
+  const obj = await suiClient.core.getObject({
+    objectId: bucketObjectId,
+    include: { json: true },
   });
-  const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)?.fields;
+  const fields = obj.object?.json;
   const granted = (fields?.["api_decryption_addresses"] as string[] | undefined) ?? [];
   const norm = (a: string) => a.toLowerCase();
   if (granted.map(norm).includes(norm(knowledgeIndexerAddress))) {
@@ -213,14 +213,14 @@ async function grantKnowledgeIndexerAccessOnTestBucket(
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true },
+    include: { effects: true },
   });
-  if (r.effects?.status?.status !== "success") {
+  if (!gasTx(r).effects.status.success) {
     throw new Error(
-      `kraterion.grant_api_access (knowledge_indexer) failed: ${JSON.stringify(r.effects?.status)}`,
+      `kraterion.grant_api_access (knowledge_indexer) failed: ${JSON.stringify(gasTx(r).effects.status)}`,
     );
   }
-  info(`granted knowledge-indexer access on test bucket (tx ${r.digest})`);
+  info(`granted knowledge-indexer access on test bucket (tx ${gasTx(r).digest})`);
 }
 
 async function fundKnowledgeIndexerWithSui(
@@ -228,25 +228,25 @@ async function fundKnowledgeIndexerWithSui(
   deployer: Ed25519Keypair,
   address: string,
 ) {
-  const balance = await suiClient.getBalance({ owner: address });
-  if (BigInt(balance.totalBalance) >= KNOWLEDGE_INDEXER_FUND_SUI) {
-    const sui = BigInt(balance.totalBalance) / MIST_PER_SUI;
+  const balance = await suiClient.core.getBalance({ owner: address });
+  if (BigInt(balance.balance) >= KNOWLEDGE_INDEXER_FUND_SUI) {
+    const sui = BigInt(balance.balance) / MIST_PER_SUI;
     info(`knowledge-indexer already has ~${sui} SUI; skipping`);
     return;
   }
-  const need = KNOWLEDGE_INDEXER_FUND_SUI - BigInt(balance.totalBalance);
+  const need = KNOWLEDGE_INDEXER_FUND_SUI - BigInt(balance.balance);
   const tx = new Transaction();
   const [coin] = tx.splitCoins(tx.gas, [need]);
   tx.transferObjects([coin], address);
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true },
+    include: { effects: true },
   });
-  if (r.effects?.status?.status !== "success") {
-    throw new Error(`SUI funding tx failed: ${JSON.stringify(r.effects?.status)}`);
+  if (!gasTx(r).effects.status.success) {
+    throw new Error(`SUI funding tx failed: ${JSON.stringify(gasTx(r).effects.status)}`);
   }
-  info(`funded knowledge-indexer with ${need} MIST SUI (tx ${r.digest})`);
+  info(`funded knowledge-indexer with ${need} MIST SUI (tx ${gasTx(r).digest})`);
 }
 
 async function fundGatewayWithSui(
@@ -254,14 +254,14 @@ async function fundGatewayWithSui(
   deployer: Ed25519Keypair,
   gatewayAddress: string,
 ) {
-  const balance = await suiClient.getBalance({ owner: gatewayAddress });
+  const balance = await suiClient.core.getBalance({ owner: gatewayAddress });
   const target = GATEWAY_FUND_SUI * MIST_PER_SUI;
-  if (BigInt(balance.totalBalance) >= target) {
-    info(`gateway already has ${BigInt(balance.totalBalance) / MIST_PER_SUI} SUI; skipping`);
+  if (BigInt(balance.balance) >= target) {
+    info(`gateway already has ${BigInt(balance.balance) / MIST_PER_SUI} SUI; skipping`);
     return;
   }
 
-  const need = target - BigInt(balance.totalBalance);
+  const need = target - BigInt(balance.balance);
   const tx = new Transaction();
   const [coin] = tx.splitCoins(tx.gas, [need]);
   tx.transferObjects([coin], gatewayAddress);
@@ -269,12 +269,12 @@ async function fundGatewayWithSui(
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true },
+    include: { effects: true },
   });
-  if (r.effects?.status?.status !== "success") {
-    throw new Error(`SUI funding tx failed: ${JSON.stringify(r.effects?.status)}`);
+  if (!gasTx(r).effects.status.success) {
+    throw new Error(`SUI funding tx failed: ${JSON.stringify(gasTx(r).effects.status)}`);
   }
-  info(`funded gateway with ${need / MIST_PER_SUI} SUI (tx ${r.digest})`);
+  info(`funded gateway with ${need / MIST_PER_SUI} SUI (tx ${gasTx(r).digest})`);
 }
 
 /**
@@ -292,11 +292,11 @@ async function authorizeAddressOnReserve(
   address: string,
   label: string,
 ) {
-  const obj = await suiClient.getObject({
-    id: KRATERION_RESERVE_ID,
-    options: { showContent: true },
+  const obj = await suiClient.core.getObject({
+    objectId: KRATERION_RESERVE_ID,
+    include: { json: true },
   });
-  const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)?.fields;
+  const fields = obj.object?.json;
   const authorized = (fields?.["authorized_callers"] as string[] | undefined) ?? [];
   if (authorized.map((a) => a.toLowerCase()).includes(address.toLowerCase())) {
     info(`${label} already authorized on reserve; skipping`);
@@ -313,12 +313,12 @@ async function authorizeAddressOnReserve(
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true },
+    include: { effects: true },
   });
-  if (r.effects?.status?.status !== "success") {
-    throw new Error(`reserve.authorize_caller failed: ${JSON.stringify(r.effects?.status)}`);
+  if (!gasTx(r).effects.status.success) {
+    throw new Error(`reserve.authorize_caller failed: ${JSON.stringify(gasTx(r).effects.status)}`);
   }
-  info(`authorized ${label} on reserve (tx ${r.digest})`);
+  info(`authorized ${label} on reserve (tx ${gasTx(r).digest})`);
 }
 
 async function fundReserveWithWal(
@@ -326,11 +326,11 @@ async function fundReserveWithWal(
   deployer: Ed25519Keypair,
 ) {
   // Skip if the reserve already has enough WAL.
-  const obj = await suiClient.getObject({
-    id: KRATERION_RESERVE_ID,
-    options: { showContent: true },
+  const obj = await suiClient.core.getObject({
+    objectId: KRATERION_RESERVE_ID,
+    include: { json: true },
   });
-  const fields = (obj.data?.content as { fields?: Record<string, unknown> } | undefined)?.fields;
+  const fields = obj.object?.json;
   const balanceField = fields?.["wal_balance"] as string | undefined;
   const current = BigInt(balanceField ?? "0");
   if (current >= RESERVE_FUND_WAL_MIST) {
@@ -364,12 +364,12 @@ async function fundReserveWithWal(
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true },
+    include: { effects: true },
   });
-  if (r.effects?.status?.status !== "success") {
-    throw new Error(`reserve.fund failed: ${JSON.stringify(r.effects?.status)}`);
+  if (!gasTx(r).effects.status.success) {
+    throw new Error(`reserve.fund failed: ${JSON.stringify(gasTx(r).effects.status)}`);
   }
-  info(`funded reserve with ${need} MIST WAL (tx ${r.digest})`);
+  info(`funded reserve with ${need} MIST WAL (tx ${gasTx(r).digest})`);
 }
 
 async function ensureTestAccount(prisma: PrismaClient, wrapper: EnvKeyWrapper, deployerAddress: string) {
@@ -450,23 +450,26 @@ async function ensureTestBucket(
   const r = await suiClient.signAndExecuteTransaction({
     transaction: tx,
     signer: deployer,
-    options: { showEffects: true, showObjectChanges: true },
+    include: { effects: true, objectTypes: true },
   });
-  if (r.effects?.status?.status !== "success") {
-    throw new Error(`createGrantAndShareBucket failed: ${JSON.stringify(r.effects?.status)}`);
+  const tx2 = gasTx(r);
+  if (!tx2.effects.status.success) {
+    throw new Error(`createGrantAndShareBucket failed: ${JSON.stringify(tx2.effects.status)}`);
   }
 
-  const created = (r.objectChanges ?? []).find(
+  // `objectChanges` → `effects.changedObjects` (idOperation) cross-referenced
+  // with the `objectTypes` id→type map from `include: { objectTypes: true }`.
+  const types = tx2.objectTypes ?? {};
+  const created = tx2.effects.changedObjects.find(
     (c) =>
-      c.type === "created" &&
-      "objectType" in c &&
-      c.objectType.endsWith("::kraterion::KraterionBucket"),
+      c.idOperation === "Created" &&
+      types[c.objectId]?.endsWith("::kraterion::KraterionBucket"),
   );
-  if (!created || !("objectId" in created)) {
+  if (!created) {
     throw new Error("Could not find created KraterionBucket in tx effects.");
   }
   const bucketObjectId = created.objectId;
-  info(`created test bucket on chain: ${bucketObjectId} (tx ${r.digest})`);
+  info(`created test bucket on chain: ${bucketObjectId} (tx ${gasTx(r).digest})`);
   // The on-chain bucket emits `KraterionBucketCreated`; the indexer
   // worker (separate process) writes the `Bucket` row. Per the
   // single-writer ADR we don't insert here. Print a hint so the

@@ -4927,3 +4927,34 @@ Field helper, added a Pill helper, reworked Row — mirrors the dashboard OG bui
 earlier today so both cards read as one family. Kept the landing-specific brand
 row ("v 0.1 · testnet · kraterion.com"). Verified 200 + head tags; landing
 typechecks. Landing + dashboard OG now consistent.
+
+### 2026-07-09 — [migration] JSON-RPC → gRPC/GraphQL (Sui deprecation)
+
+Sui deactivated public testnet JSON-RPC the week of 2026-07-06, breaking every
+on-chain path. Migrated the whole stack to the `@mysten/sui@2.16.2` gRPC Core
+API (default) + GraphQL (historical queries only) — no dependency bumps; the SDK
+already shipped both transports. Full plan + method mapping in
+[`/docs/json-rpc-migration.md`](json-rpc-migration.md).
+
+Shipped: `getSuiClient()`/`getSuiClientForSeal()` → `SuiGrpcClient`; all
+`getObject`/`getDynamicField` reads → `core.getObject({include:{json:true}})`
+(gRPC renders Move structs flat; u64 as strings; `Option` handled defensively);
+`getCoins`→`listCoins`, `getLatestSuiSystemState`→`getCurrentSystemState`,
+`getBalance().totalBalance`→`core.getBalance().balance`. New exported
+`gasTx()`/`gasStatusError()` helpers in `@kraterion/walrus-client` unwrap the
+Core-API `TransactionResult` discriminated union (`$kind` →
+`.effects.status.success`, `.digest`, `.events`) at every `signAndExecute` /
+`gasPool.execute` consumer (gateway PUT path, control-plane admin/billing,
+worker archive). Event parsing `type`/`parsedJson` → `eventType`/`json`.
+move-sdk test `queryEvents`→GraphQL, `getNormalizedMoveModulesByPackage`→gRPC
+`MovePackageService`. Dashboard: `SuiClientProvider` `createClient` override
+returns a `SuiGrpcClient` (dapp-kit@1 stays; no v2 upgrade needed). Constants:
+added `SUI_TESTNET_GRPC`/`SUI_TESTNET_GRAPHQL`, deleted `SUI_TESTNET_RPC`.
+
+Verified live against local testnet: gas-pool real tx (effects parse), seal
+`fetchKeys` grant over gRPC-built `seal_approve` PTB, control-plane bucket/reserve
+reads + epoch, and a full smoke register→event-parse→indexer→handler chain
+(worker fast-forwarded past the retention-window cursor gap). Full monorepo
+`pnpm typecheck` + `pnpm test` green (also fixed a pre-existing stale DI arg-count
+in `prepare-tx.spec`). Residual: dashboard interactive sign+sponsor needs a
+manual browser+wallet pass; the 6 ops scripts are migrated but not run.

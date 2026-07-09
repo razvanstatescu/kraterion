@@ -10,6 +10,8 @@ import {
 } from "@kraterion/shared";
 import {
   blobIdStringToU256,
+  gasStatusError,
+  gasTx,
   getEncodedBlobLength,
   getSuiClient,
   getWalrusClient,
@@ -281,14 +283,16 @@ async function tryArchiveOnChain(args: {
     }),
   );
 
-  const r1 = await suiClient.signAndExecuteTransaction({
-    transaction: tx1,
-    signer,
-    options: { showEffects: true, showEvents: true },
-  });
-  if (r1.effects?.status?.status !== "success") {
+  const r1 = gasTx(
+    await suiClient.signAndExecuteTransaction({
+      transaction: tx1,
+      signer,
+      include: { effects: true, events: true },
+    }),
+  );
+  if (!r1.effects.status.success) {
     throw new Error(
-      `pool_vault::register_blob reverted: ${r1.effects?.status?.error ?? "unknown"}`,
+      `pool_vault::register_blob reverted: ${gasStatusError(r1)}`,
     );
   }
   const pooledBlobObjectId = pickPooledBlobObjectIdFromEvents(r1.events ?? [], blobIdU256);
@@ -357,13 +361,15 @@ async function tryArchiveOnChain(args: {
     }),
   );
 
-  const r2 = await suiClient.signAndExecuteTransaction({
-    transaction: tx2,
-    signer,
-    options: { showEffects: true },
-  });
-  if (r2.effects?.status?.status !== "success") {
-    throw new Error(`pool_vault::certify_blob reverted: ${r2.effects?.status?.error ?? "unknown"}`);
+  const r2 = gasTx(
+    await suiClient.signAndExecuteTransaction({
+      transaction: tx2,
+      signer,
+      include: { effects: true },
+    }),
+  );
+  if (!r2.effects.status.success) {
+    throw new Error(`pool_vault::certify_blob reverted: ${gasStatusError(r2)}`);
   }
 
   await prisma.knowledgeManifest.update({
@@ -385,12 +391,14 @@ async function tryArchiveOnChain(args: {
  * worker doesn't depend on the gateway package.
  */
 function pickPooledBlobObjectIdFromEvents(
-  events: Array<Record<string, unknown>>,
+  events: ReadonlyArray<{ eventType?: string; json?: Record<string, unknown> | null }>,
   blobId: bigint,
 ): string | null {
   for (const ev of events) {
-    if (ev["type"] !== KRATERION_POOLED_BLOB_REGISTERED_TYPE) continue;
-    const json = ev["parsedJson"] as Record<string, unknown> | undefined;
+    // Core-API events: `eventType` is the full `0xpkg::module::Struct`
+    // string and `json` is the already-deserialized Move struct (flat).
+    if (ev.eventType !== KRATERION_POOLED_BLOB_REGISTERED_TYPE) continue;
+    const json = ev.json;
     if (!json) continue;
     const evBlobId = json["walrus_blob_id"];
     if (typeof evBlobId === "string" && BigInt(evBlobId) === blobId) {

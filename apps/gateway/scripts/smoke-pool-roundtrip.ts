@@ -58,6 +58,8 @@ import {
 import { access, pool_vault } from "@kraterion/kraterion-move-sdk";
 import {
   blobIdStringToU256,
+  gasStatusError,
+  gasTx,
   getEncodedBlobLength,
   getPoolStorageCostFrost,
   getSuiClient,
@@ -160,13 +162,15 @@ async function ensureVault(args: {
     }),
   );
   const client = getSuiClient();
-  const result = await client.signAndExecuteTransaction({
-    transaction: tx,
-    signer: args.operatorSigner,
-    options: { showEffects: true, showObjectChanges: true },
-  });
-  if (result.effects?.status?.status !== "success") {
-    throw new Error(`create_vault failed: ${result.effects?.status?.error}`);
+  const result = gasTx(
+    await client.signAndExecuteTransaction({
+      transaction: tx,
+      signer: args.operatorSigner,
+      include: { effects: true, objectTypes: true },
+    }),
+  );
+  if (!result.effects.status.success) {
+    throw new Error(`create_vault failed: ${gasStatusError(result)}`);
   }
   info(`  tx ${result.digest}`);
 
@@ -261,21 +265,23 @@ async function registerAndCertify(args: {
   );
 
   const client = getSuiClient();
-  const r1 = await client.signAndExecuteTransaction({
-    transaction: tx1,
-    signer: args.operatorSigner,
-    options: { showEffects: true, showEvents: true },
-  });
-  if (r1.effects?.status?.status !== "success") {
-    throw new Error(`register_blob failed: ${r1.effects?.status?.error}`);
+  const r1 = gasTx(
+    await client.signAndExecuteTransaction({
+      transaction: tx1,
+      signer: args.operatorSigner,
+      include: { effects: true, events: true },
+    }),
+  );
+  if (!r1.effects.status.success) {
+    throw new Error(`register_blob failed: ${gasStatusError(r1)}`);
   }
   info(`  tx ${r1.digest}`);
 
   const events = r1.events ?? [];
   let pooledBlobObjectId: string | null = null;
   for (const ev of events) {
-    if (ev.type === POOLED_BLOB_REGISTERED_TYPE) {
-      const json = ev.parsedJson as { walrus_blob_id: string; pooled_blob_object_id: string };
+    if (ev.eventType === POOLED_BLOB_REGISTERED_TYPE) {
+      const json = ev.json as { walrus_blob_id: string; pooled_blob_object_id: string };
       if (BigInt(json.walrus_blob_id) === blobIdU256) {
         pooledBlobObjectId = json.pooled_blob_object_id;
         break;
@@ -317,13 +323,15 @@ async function registerAndCertify(args: {
       },
     }),
   );
-  const r2 = await client.signAndExecuteTransaction({
-    transaction: tx2,
-    signer: args.operatorSigner,
-    options: { showEffects: true },
-  });
-  if (r2.effects?.status?.status !== "success") {
-    throw new Error(`certify_blob failed: ${r2.effects?.status?.error}`);
+  const r2 = gasTx(
+    await client.signAndExecuteTransaction({
+      transaction: tx2,
+      signer: args.operatorSigner,
+      include: { effects: true },
+    }),
+  );
+  if (!r2.effects.status.success) {
+    throw new Error(`certify_blob failed: ${gasStatusError(r2)}`);
   }
   info(`  tx ${r2.digest}`);
 
@@ -485,13 +493,15 @@ async function main() {
         },
       }),
     );
-    const dr = await getSuiClient().signAndExecuteTransaction({
-      transaction: tx,
-      signer: operator,
-      options: { showEffects: true },
-    });
-    if (dr.effects?.status?.status !== "success") {
-      throw new Error(`delete_blob failed: ${dr.effects?.status?.error}`);
+    const dr = gasTx(
+      await getSuiClient().signAndExecuteTransaction({
+        transaction: tx,
+        signer: operator,
+        include: { effects: true },
+      }),
+    );
+    if (!dr.effects.status.success) {
+      throw new Error(`delete_blob failed: ${gasStatusError(dr)}`);
     }
     info(`  tx ${dr.digest}`);
     console.log();

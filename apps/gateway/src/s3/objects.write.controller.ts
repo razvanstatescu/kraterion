@@ -93,6 +93,8 @@ import {
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import {
   blobIdStringToU256,
+  gasStatusError,
+  gasTx,
   getEncodedBlobLength,
   getWalrusClient,
   getWriteFeeFrost,
@@ -309,14 +311,15 @@ export class ObjectsWriteController {
         "Could not register the blob on-chain; please retry.",
       );
     }
-    if (r1.effects?.status?.status !== "success") {
+    const reg = gasTx(r1);
+    if (!reg.effects.status.success) {
       throw new S3Error(
         "InternalError",
-        `pool_vault::register_blob failed: ${r1.effects?.status?.error ?? "unknown"}`,
+        `pool_vault::register_blob failed: ${gasStatusError(reg)}`,
       );
     }
     const pooledBlobObjectId = pickPooledBlobObjectIdFromEvents(
-      r1.events ?? [],
+      reg.events ?? [],
       blobIdU256,
     );
     if (!pooledBlobObjectId) {
@@ -345,7 +348,7 @@ export class ObjectsWriteController {
             blob: encrypted,
             blobId: meta.blobId,
             nonce: meta.nonce,
-            txDigest: r1.digest,
+            txDigest: reg.digest,
             blobObjectId: pooledBlobObjectId,
             deletable: true,
           });
@@ -434,14 +437,15 @@ export class ObjectsWriteController {
         "Storage commit failed; please retry.",
       );
     }
-    if (r2.effects?.status?.status !== "success") {
+    const cert = gasTx(r2);
+    if (!cert.effects.status.success) {
       this.logger.error(
         `ORPHAN POOLED BLOB (PTB2 reverted): pooled_blob_object_id=${pooledBlobObjectId} ` +
-          `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${r2.effects?.status?.error}`,
+          `blob_id=${meta.blobId} bucket=${bucketName} key=${s3Key}: ${gasStatusError(cert)}`,
       );
       throw new S3Error(
         "InternalError",
-        `pool_vault::certify_blob failed: ${r2.effects?.status?.error ?? "unknown"}`,
+        `pool_vault::certify_blob failed: ${gasStatusError(cert)}`,
       );
     }
 
@@ -546,20 +550,20 @@ export class ObjectsWriteController {
     );
 
     try {
-      const result = await this.gasPool.execute(tx);
-      if (result.effects?.status?.status !== "success") {
+      const del = gasTx(await this.gasPool.execute(tx));
+      if (!del.effects.status.success) {
         // Logged but not surfaced — the row is already soft-deleted from
         // the user's perspective; the orphan PooledBlob is reaped later.
         this.logger.error(
           `ORPHAN POOLED BLOB (delete reverted): ` +
             `pooled_blob_object_id=${target.pooled_blob.pooled_blob_object_id} ` +
-            `bucket=${bucketName} key=${s3Key}: ${result.effects?.status?.error}`,
+            `bucket=${bucketName} key=${s3Key}: ${gasStatusError(del)}`,
         );
         return;
       }
       this.logger.log(
         `object deleted: bucket=${bucketName} key=${s3Key} ` +
-          `pooled=${target.pooled_blob.pooled_blob_object_id.slice(0, 12)}… tx=${result.digest}`,
+          `pooled=${target.pooled_blob.pooled_blob_object_id.slice(0, 12)}… tx=${del.digest}`,
       );
     } catch (e) {
       this.logger.error(
@@ -703,15 +707,17 @@ function pickContentType(headers: Record<string, string | string[] | undefined>)
  * insurance.
  */
 function pickPooledBlobObjectIdFromEvents(
-  events: Array<Record<string, unknown>>,
+  events: ReadonlyArray<{ eventType?: string; json?: Record<string, unknown> | null }>,
   blobId: bigint,
 ): string | null {
   for (const ev of events) {
-    if (ev["type"] !== KRATERION_POOLED_BLOB_REGISTERED_TYPE) continue;
-    const json = ev["parsedJson"] as Record<string, unknown> | undefined;
+    // Core-API events: `eventType` is the full `0xpkg::module::Struct`
+    // string and `json` is the already-deserialized Move struct (flat).
+    if (ev.eventType !== KRATERION_POOLED_BLOB_REGISTERED_TYPE) continue;
+    const json = ev.json;
     if (!json) continue;
     const evBlobId = json["walrus_blob_id"];
-    // Sui RPC serialises u256 as decimal strings; compare as BigInt.
+    // Sui serialises u256 as decimal strings; compare as BigInt.
     if (typeof evBlobId === "string" && BigInt(evBlobId) === blobId) {
       const oid = json["pooled_blob_object_id"];
       if (typeof oid === "string") return oid;

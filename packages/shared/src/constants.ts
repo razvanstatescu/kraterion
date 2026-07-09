@@ -8,7 +8,22 @@ export const NETWORK = {
   walrus: "testnet",
 } as const;
 
-export const SUI_TESTNET_RPC = "https://fullnode.testnet.sui.io:443";
+/**
+ * Sui testnet gRPC endpoint. Same host as the old (deactivated) JSON-RPC
+ * endpoint; the
+ * `SuiGrpcClient` default `GrpcWebFetchTransport` speaks gRPC-Web over it for
+ * unary calls (verified working). The default transport is fine for unary
+ * services; the worker indexer overrides it with `@grpc/grpc-js` for its
+ * long-lived checkpoint stream.
+ */
+export const SUI_TESTNET_GRPC = "https://fullnode.testnet.sui.io:443";
+
+/**
+ * Sui testnet GraphQL endpoint, for `SuiGraphQLClient`. Only needed for
+ * historical queries gRPC doesn't serve (e.g. `queryEvents`); not on any
+ * hot path.
+ */
+export const SUI_TESTNET_GRAPHQL = "https://graphql.testnet.sui.io/graphql";
 
 // === Walrus testnet (Architecture D — SDK + public upload-relay + public aggregator) ===
 

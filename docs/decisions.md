@@ -4133,3 +4133,37 @@ period-end webhook, not on demand from the UI. If the hackathon demo needs to
 show the cancelled state without waiting for a billing boundary, re-introduce a
 trigger (e.g. a demo-only flag calling `/v1/me/cancel`) rather than the
 always-visible Settings card. Backend `/v1/me/cancel` endpoint is left intact.
+
+---
+
+## 2026-07-09 — Sui gRPC Core API as default transport (JSON-RPC deprecated)
+
+**Status:** Accepted
+
+**Context:** Sui deactivated public testnet JSON-RPC the week of 2026-07-06
+(mainnet week of 07-20), with no fallback — breaking every on-chain path.
+`@mysten/sui@2.16.2` (already installed) ships `SuiGrpcClient` (`/grpc`),
+`SuiGraphQLClient` (`/graphql`), and a transport-agnostic Core API
+(`client.core.*`); `@mysten/walrus@1.1.6` and `@mysten/seal@1.1.3` both accept
+any Core-API client. So the fix was a transport swap, not a version bump.
+
+**Decision:** Standardize on `SuiGrpcClient` (default `GrpcWebFetchTransport`,
+verified working for unary calls against `fullnode.testnet.sui.io:443`) as the
+default transport everywhere. Use GraphQL only for historical queries gRPC can't
+serve (`queryEvents`; test-only today). The worker indexer keeps its
+`@grpc/grpc-js` keepalive transport for the long-lived checkpoint stream. On-chain
+object reads use `include:{json:true}` (flat Move-struct JSON) rather than
+hand-rolled BCS, for now; codegen'd `MoveStruct.parse` is the hardening path if a
+value's exact numeric type ever matters. Dashboard keeps dapp-kit@1 and injects a
+gRPC client via the provider's `createClient` override — no dapp-kit 2.x upgrade.
+
+**Consequences:** Response shapes changed repo-wide: transaction results are a
+`{$kind, Transaction|FailedTransaction}` union unwrapped via `gasTx()`
+(`.effects.status.success` boolean, not `.status.status === "success"`); object
+content is flat JSON, not `.data.content.fields`; events use `eventType`/`json`.
+The public gRPC endpoint is rate-limited (100 req/30s) and retention-bounded
+(historical txs beyond the window 404 — see runbook). Production will need a
+dedicated gRPC/GraphQL provider before mainnet cutover. `SUI_TESTNET_RPC` deleted.
+
+**Consequences (cont.):** dapp-kit interactive sign+sponsor is verified only at
+the type/analysis level + SSR boot; a browser+wallet pass is the remaining check.

@@ -1820,3 +1820,28 @@ shape and free. If you ever genuinely need more steady-state connections, add a
 DO connection pool (PgBouncer, transaction mode) and split migrations onto a
 direct `directUrl`; the app's interactive `$transaction` + `pg_advisory_xact_lock`
 usage is transaction-scoped and pooler-safe.
+
+---
+
+## Symptom: on-chain calls fail after 2026-07-06 — JSON-RPC endpoint errors / `SuiClient` requests hang or 404 on testnet
+
+**Cause:** Sui deactivated the public testnet JSON-RPC endpoint the week of
+2026-07-06 (mainnet week of 07-20). Anything built on `SuiJsonRpcClient` /
+`@mysten/sui/jsonRpc` (or dapp-kit@1's default JSON-RPC client) hits a dead
+endpoint. There is no implicit fallback.
+
+**Fix:** Use the gRPC Core API. Server-side, `getSuiClient()` /
+`getSuiClientForSeal()` return a `SuiGrpcClient` over `SUI_TESTNET_GRPC`
+(`fullnode.testnet.sui.io:443`, same host, gRPC-Web). Reads →
+`client.core.getObject({ objectId, include: { json: true } })` (flat JSON, u64 as
+strings); tx results → `gasTx(result)` from `@kraterion/walrus-client` then
+`.effects.status.success` / `.digest` / `.events`. Full mapping in
+[`/docs/json-rpc-migration.md`](json-rpc-migration.md).
+
+**Observed:** 2026-07-09, whole stack (gateway/control-plane/worker/dashboard).
+
+**Notes:** Two gRPC gotchas — (1) the public endpoint is rate-limited to
+**100 req / 30s**; (2) it only retains recent checkpoints, so `getTransaction` /
+indexer backfill on a **stale cursor** fails with `Checkpoint <n> not found` /
+`lowest-available-checkpoint`. Fix a stuck local indexer with
+`pnpm -F @kraterion/worker indexer:fast-forward --back 5` then restart the worker.

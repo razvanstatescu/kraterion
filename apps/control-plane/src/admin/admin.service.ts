@@ -18,6 +18,8 @@ import {
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
 import {
+  gasStatusError,
+  gasTx,
   getPoolExtendCostFrost,
   getPoolStorageCostFrost,
   getSuiClient,
@@ -214,21 +216,20 @@ export class AdminService {
    */
   async getReserve() {
     const client = getSuiClient();
-    const obj = await client.getObject({
-      id: KRATERION_RESERVE_ID,
-      options: { showContent: true },
+    const { object } = await client.core.getObject({
+      objectId: KRATERION_RESERVE_ID,
+      include: { json: true },
     });
-    const content = obj.data?.content;
-    if (!content || content.dataType !== "moveObject") {
+    const fields = object.json;
+    if (!fields) {
       throw new Error("PlatformReserve object missing or not a Move object.");
     }
-    const fields = content.fields as Record<string, unknown>;
-    // wal_balance is `Balance<WAL>`; the inner `value` field is the
-    // u64 FROST amount.
-    const balance = fields["wal_balance"] as
-      | { fields: { value: string | number } }
-      | undefined;
-    const walFrost = balance ? BigInt(balance.fields.value) : 0n;
+    // In the Core-API json rendering, `wal_balance` (a `Balance<WAL>`) comes
+    // back as the u64 FROST amount directly (flat string), not nested under
+    // `.fields.value` as JSON-RPC did.
+    const walRaw = fields["wal_balance"];
+    const walFrost =
+      walRaw != null ? BigInt(walRaw as string | number) : 0n;
     return {
       reserve_object_id: KRATERION_RESERVE_ID,
       admin_address: fields["admin"] as string,
@@ -240,13 +241,13 @@ export class AdminService {
   }
 
   private async submit(tx: Transaction, label: string) {
-    const result = await this.gasPool.execute(tx);
-    if (result.effects?.status?.status !== "success") {
-      const err = result.effects?.status?.error ?? "unknown";
+    const tx2 = gasTx(await this.gasPool.execute(tx));
+    if (!tx2.effects.status.success) {
+      const err = gasStatusError(tx2);
       this.logger.error(`Admin tx failed (${label}): ${err}`);
       throw new Error(`Admin tx failed: ${err}`);
     }
-    this.logger.log(`Admin tx ok (${label}): digest=${result.digest}`);
-    return { tx_digest: result.digest };
+    this.logger.log(`Admin tx ok (${label}): digest=${tx2.digest}`);
+    return { tx_digest: tx2.digest };
   }
 }

@@ -20,25 +20,29 @@
  */
 
 import { SealClient, SessionKey, type ExportedSessionKey } from "@mysten/seal";
-import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { Signer } from "@mysten/sui/cryptography";
 import {
   KRATERION_PACKAGE_ID,
   SEAL_AGGREGATOR_URL,
   SEAL_KEY_SERVERS,
-  SUI_TESTNET_RPC,
+  SUI_TESTNET_GRPC,
 } from "@kraterion/shared";
 import type { Redis } from "ioredis";
 
 const SESSION_KEY_TTL_MIN = 25; // 5 min skew under Seal's 30-min ceiling (SDK 1.1)
 const SESSION_KEY_REDIS_PREFIX = "seal:session:";
 
-let _suiClient: SuiJsonRpcClient | null = null;
+let _suiClient: SuiGrpcClient | null = null;
 let _sealClient: SealClient | null = null;
 
-function getSuiClientForSeal(): SuiJsonRpcClient {
+// gRPC client for Seal (Sui deprecated JSON-RPC — see
+// /docs/json-rpc-migration.md). `SealClient` / `SessionKey` accept any
+// client exposing the Core API (`SealCompatibleClient`), so the gRPC
+// client is a drop-in.
+function getSuiClientForSeal(): SuiGrpcClient {
   if (!_suiClient) {
-    _suiClient = new SuiJsonRpcClient({ network: "testnet", url: SUI_TESTNET_RPC });
+    _suiClient = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_TESTNET_GRPC });
   }
   return _suiClient;
 }

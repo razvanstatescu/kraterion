@@ -9,7 +9,12 @@ import {
   renewalEpochsPerCycle,
 } from "@kraterion/shared";
 import { pool_vault } from "@kraterion/kraterion-move-sdk";
-import { getPoolStorageCostFrost, getSuiClient } from "@kraterion/walrus-client";
+import {
+  gasStatusError,
+  gasTx,
+  getPoolStorageCostFrost,
+  getSuiClient,
+} from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { GasPoolService } from "../sui/gas-pool.service.js";
 import { StripeService } from "./stripe.service.js";
@@ -166,10 +171,10 @@ export class PoolRenewalProcessor
 
   private async readCurrentEpoch(): Promise<number | null> {
     try {
-      const sys = await getSuiClient().getLatestSuiSystemState();
-      return Number(sys.epoch);
+      const { systemState } = await getSuiClient().core.getCurrentSystemState();
+      return Number(systemState.epoch);
     } catch (err) {
-      this.logger.warn(`getLatestSuiSystemState failed: ${(err as Error).message}`);
+      this.logger.warn(`getCurrentSystemState failed: ${(err as Error).message}`);
       return null;
     }
   }
@@ -297,12 +302,11 @@ export class PoolRenewalProcessor
         },
       }),
     );
-    const result = await this.gasPool.execute(tx);
-    if (result.effects?.status?.status !== "success") {
-      const err = result.effects?.status?.error ?? "unknown";
-      throw new Error(`pool_vault::resize_shrink reverted: ${err}`);
+    const tx2 = gasTx(await this.gasPool.execute(tx));
+    if (!tx2.effects.status.success) {
+      throw new Error(`pool_vault::resize_shrink reverted: ${gasStatusError(tx2)}`);
     }
-    return result.digest;
+    return tx2.digest;
   }
 
   private async submitExtend(args: {
@@ -329,11 +333,10 @@ export class PoolRenewalProcessor
         },
       }),
     );
-    const result = await this.gasPool.execute(tx);
-    if (result.effects?.status?.status !== "success") {
-      const err = result.effects?.status?.error ?? "unknown";
-      throw new Error(`pool_vault::extend reverted: ${err}`);
+    const tx2 = gasTx(await this.gasPool.execute(tx));
+    if (!tx2.effects.status.success) {
+      throw new Error(`pool_vault::extend reverted: ${gasStatusError(tx2)}`);
     }
-    return result.digest;
+    return tx2.digest;
   }
 }

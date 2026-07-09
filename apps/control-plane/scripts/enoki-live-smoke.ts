@@ -38,11 +38,12 @@ dotenvConfig({ path: resolve(__dirname, "../../../.env") });
 
 import { fromBase64 } from "@mysten/sui/utils";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import { KRATERION_PACKAGE_ID } from "@kraterion/shared";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { gasTx } from "@kraterion/walrus-client";
+import { KRATERION_PACKAGE_ID, SUI_TESTNET_GRPC } from "@kraterion/shared";
 
 const CP_URL = process.env["CP_URL"] ?? "http://127.0.0.1:4001";
-const SUI_RPC = process.env["SUI_RPC_URL"] ?? getJsonRpcFullnodeUrl("testnet");
+const SUI_GRPC = process.env["SUI_RPC_URL"] ?? SUI_TESTNET_GRPC;
 
 function bold(s: string) { console.log(`\x1b[1m${s}\x1b[0m`); }
 function info(s: string) { console.log(`  ${s}`); }
@@ -167,15 +168,17 @@ async function main() {
   // 6. On-chain confirmation. We re-encode the digest the canonical
   //    way and ask the fullnode for effects + emitted events.
   bold("\n[5/5] verify on-chain");
-  const sui = new SuiJsonRpcClient({ url: SUI_RPC });
-  const txResult = await sui.waitForTransaction({
-    digest: exec.digest,
-    options: { showEffects: true, showEvents: true },
-  });
-  if (txResult.effects?.status?.status !== "success") {
-    fail(`on-chain status: ${JSON.stringify(txResult.effects?.status)}`);
+  const sui = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_GRPC });
+  const txResult = gasTx(
+    await sui.core.waitForTransaction({
+      digest: exec.digest,
+      include: { effects: true, events: true },
+    }),
+  );
+  if (!txResult.effects.status.success) {
+    fail(`on-chain status: ${JSON.stringify(txResult.effects.status)}`);
   }
-  ok(`on-chain status: ${txResult.effects.status.status}`);
+  ok(`on-chain status: ${txResult.effects.status.success ? "success" : "failure"}`);
   const created = txResult.effects.created ?? [];
   const sharedBucketObj = created.find(
     (c) => typeof c.owner === "object" && c.owner !== null && "Shared" in c.owner,
