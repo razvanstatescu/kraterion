@@ -1,0 +1,16 @@
+{
+  "name": "@kraterion/deck",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "slides": "slidev slides.md --open",
+    "slides:build": "slidev build slides.md",
+    "slides:export": "slidev export slides.md"
+  },
+  "devDependencies": {
+    "@slidev/cli": "^52.16.0",
+    "@slidev/theme-default": "^0.25.0",
+    "vue": "^3.5.39"
+  }
+}
