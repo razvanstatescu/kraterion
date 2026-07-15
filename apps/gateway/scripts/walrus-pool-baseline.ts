@@ -150,7 +150,7 @@ async function main() {
 
   const client = getSuiClient();
 
-  const suiBalance = BigInt((await client.core.getBalance({ owner: address })).balance);
+  const suiBalance = BigInt((await client.core.getBalance({ owner: address })).balance.balance);
   info(`SUI balance:      ${(Number(suiBalance) / 1e9).toFixed(4)} SUI`);
   if (suiBalance < GAS_BUDGET * 5n) {
     bad(`Insufficient SUI for ~5 tx at ${GAS_BUDGET} MIST gas-budget each. Faucet at https://faucet.testnet.sui.io`);
@@ -158,7 +158,7 @@ async function main() {
   }
 
   const walBalance = BigInt(
-    (await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE })).balance,
+    (await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE })).balance.balance,
   );
   info(`WAL balance:      ${(Number(walBalance) / 1e9).toFixed(6)} WAL`);
   const minWalNeeded = 1_000_000n; // 0.001 WAL — pool storage at 1 MiB × few epochs is ~hundreds of FROST

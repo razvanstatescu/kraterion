@@ -77,7 +77,7 @@ async function getOwnedWalBalance(
 ): Promise<bigint> {
   // Server-side type filter via `getBalance`; cheaper than fetching every
   // owned coin and filtering locally.
-  const b = await suiClient.core.getBalance({ owner, coinType: WAL_COIN_TYPE });
+  const { balance: b } = await suiClient.core.getBalance({ owner, coinType: WAL_COIN_TYPE });
   return BigInt(b.balance);
 }
 
@@ -228,7 +228,7 @@ async function fundKnowledgeIndexerWithSui(
   deployer: Ed25519Keypair,
   address: string,
 ) {
-  const balance = await suiClient.core.getBalance({ owner: address });
+  const { balance } = await suiClient.core.getBalance({ owner: address });
   if (BigInt(balance.balance) >= KNOWLEDGE_INDEXER_FUND_SUI) {
     const sui = BigInt(balance.balance) / MIST_PER_SUI;
     info(`knowledge-indexer already has ~${sui} SUI; skipping`);
@@ -254,7 +254,7 @@ async function fundGatewayWithSui(
   deployer: Ed25519Keypair,
   gatewayAddress: string,
 ) {
-  const balance = await suiClient.core.getBalance({ owner: gatewayAddress });
+  const { balance } = await suiClient.core.getBalance({ owner: gatewayAddress });
   const target = GATEWAY_FUND_SUI * MIST_PER_SUI;
   if (BigInt(balance.balance) >= target) {
     info(`gateway already has ${BigInt(balance.balance) / MIST_PER_SUI} SUI; skipping`);

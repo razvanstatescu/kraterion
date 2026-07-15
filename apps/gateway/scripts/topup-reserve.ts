@@ -87,7 +87,7 @@ async function getOwnedWalBalance(
   client: ReturnType<typeof getSuiClient>,
   address: string,
 ): Promise<bigint> {
-  const balance = await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE });
+  const { balance } = await client.core.getBalance({ owner: address, coinType: WAL_COIN_TYPE });
   return BigInt(balance.balance);
 }
 
