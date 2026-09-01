@@ -55,6 +55,11 @@ export class StripeWebhookController {
     @Req() req: FastifyRequest,
     @Headers("stripe-signature") signature: string | undefined,
   ): Promise<{ received: true; event_id: string }> {
+    // Billing off → we don't process Stripe events (and have no webhook secret
+    // to verify them). Ack with 200 so Stripe doesn't retry if one arrives.
+    if (!this.stripe.enabled) {
+      return { received: true, event_id: "billing-disabled" };
+    }
     if (!signature) {
       this.logger.warn("rejected: missing Stripe-Signature header");
       throw new HttpException("Missing Stripe-Signature header", 400);

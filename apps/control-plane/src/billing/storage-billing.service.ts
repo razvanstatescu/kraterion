@@ -112,6 +112,8 @@ export class StorageBillingService {
       effective_at: string;
     } | null;
   } | null> {
+    // Billing off → no Stripe-backed storage subscription to report.
+    if (!this.stripe.enabled) return null;
     const pool = await this.prisma.storagePool.findUnique({
       where: { project_id: projectId },
     });

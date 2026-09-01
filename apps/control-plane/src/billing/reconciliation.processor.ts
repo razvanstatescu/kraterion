@@ -81,6 +81,10 @@ export class ReconciliationProcessor
     drifted: number;
     over_threshold: number;
   }> {
+    // Billing off → nothing to reconcile against Stripe.
+    if (!this.stripe.enabled) {
+      return { accounts: 0, matched: 0, drifted: 0, over_threshold: 0 };
+    }
     // Window: yesterday-UTC 00:00 → today-UTC 00:00.
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);

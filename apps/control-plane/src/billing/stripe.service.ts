@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import Stripe from "stripe";
-import { readStripeMode, type StripeMode } from "@kraterion/shared";
+import { isBillingEnabled, readStripeMode, type StripeMode } from "@kraterion/shared";
 
 /**
  * Thin DI wrapper around the official Stripe Node SDK. One singleton
@@ -35,6 +35,7 @@ export class StripeService implements OnModuleInit {
   private _client!: Stripe;
   private _mode!: StripeMode;
   private _webhookSecret: string | null = null;
+  private _enabled = false;
 
   /** Pinned API version. Bumped to match what `stripe@22.x` ships as
    *  its default. Changing this is a coordinated effort across the
@@ -42,6 +43,18 @@ export class StripeService implements OnModuleInit {
   public static readonly API_VERSION = "2026-04-22.dahlia" as const;
 
   onModuleInit(): void {
+    this._enabled = isBillingEnabled(process.env);
+    if (!this._enabled) {
+      // Billing off: boot without Stripe keys — only the free plan is available.
+      // `mode` is still read (defaults to "test") so column selection helpers
+      // stay well-defined; no client is constructed and no key is required.
+      this._mode = readStripeMode(process.env);
+      this.logger.warn(
+        "Billing is DISABLED (set BILLING_ENABLED=true to enable). Stripe not " +
+          "initialised — paid plans are blocked and only the free plan is usable.",
+      );
+      return;
+    }
     this._mode = readStripeMode(process.env);
     const secretKey = process.env["STRIPE_SECRET_KEY"];
     if (!secretKey) {
@@ -67,8 +80,21 @@ export class StripeService implements OnModuleInit {
     }
   }
 
-  /** Raw SDK. Use for everything Stripe-specific. */
+  /** Whether paid billing is enabled. Every code path that touches
+   *  {@link client} must check this first and take a free-plan branch when
+   *  false. */
+  get enabled(): boolean {
+    return this._enabled;
+  }
+
+  /** Raw SDK. Use for everything Stripe-specific. Throws when billing is
+   *  disabled — callers must guard on {@link enabled}. */
   get client(): Stripe {
+    if (!this._enabled) {
+      throw new Error(
+        "Billing is disabled (BILLING_ENABLED != true); no Stripe client is available.",
+      );
+    }
     return this._client;
   }
 

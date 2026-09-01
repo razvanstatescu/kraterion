@@ -58,6 +58,9 @@ export class MeterEmitProcessor implements OnModuleInit, OnModuleDestroy {
 
   /** Single-shot drain. Exposed for tests + admin triggers. */
   async tick(): Promise<{ sent: number; failed: number; deadLetter: number; skipped: number }> {
+    // Billing off → nothing is pushed to Stripe (usage rows still accrue in the
+    // DB and drain once billing is enabled).
+    if (!this.stripe.enabled) return { sent: 0, failed: 0, deadLetter: 0, skipped: 0 };
     const pending = await this.prisma.meterEvent.findMany({
       where: {
         stripe_status: "pending",

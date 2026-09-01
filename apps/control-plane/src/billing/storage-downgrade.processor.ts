@@ -68,6 +68,8 @@ export class StorageDowngradeProcessor implements OnModuleInit, OnModuleDestroy 
 
   /** Single-shot. Exposed for tests + the boot-time first run. */
   async tick(): Promise<{ applied: number; failed: number; skipped: number }> {
+    // Billing off → no paid subscriptions, so no scheduled downgrades to apply.
+    if (!this.stripe.enabled) return { applied: 0, failed: 0, skipped: 0 };
     const due = await this.prisma.pendingStorageDowngrade.findMany({
       where: {
         status: "scheduled",

@@ -285,7 +285,7 @@ export class UsageService {
    *  the subscription (any one of those means the customer isn't
    *  being billed for storage right now). */
   private async resolveBilledReservationMb(projectId: string): Promise<number> {
-    if (!this.stripe) return STORAGE_DEFAULT_MB;
+    if (!this.stripe || !this.stripe.enabled) return STORAGE_DEFAULT_MB;
     try {
       const account = await this.prisma.billingAccount.findUnique({
         where: { project_id: projectId },

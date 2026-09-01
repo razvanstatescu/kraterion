@@ -45,6 +45,18 @@ export class BillingController {
     private readonly prisma: PrismaService,
   ) {}
 
+  /** Paid-billing endpoints are blocked while billing is disabled
+   *  (`BILLING_ENABLED != true`) — only the free plan is available. */
+  private assertBillingEnabled(): void {
+    if (!this.stripe.enabled) {
+      throw new ControlPlaneError(
+        "PreconditionFailed",
+        "Billing isn't enabled yet — only the free plan is available right now.",
+        { reason: "billing_disabled" },
+      );
+    }
+  }
+
   /**
    * Read the current `BillingAccount` row for a project. Returns
    * `null` for projects that haven't gone through Checkout yet — the
@@ -90,6 +102,7 @@ export class BillingController {
     @Req() req: FastifyRequest,
     @Body(parseBody(portalSessionSchema)) dto: PortalSessionDto,
   ) {
+    this.assertBillingEnabled();
     const user = requireAccountPrincipal(req);
     const project = await this.assertProjectOwned(user.accountId, dto.project_id);
     const account = await this.billing.findBillingAccount(dto.project_id);
@@ -146,6 +159,7 @@ export class BillingController {
     @Req() req: FastifyRequest,
     @Body(parseBody(resizeStorageSchema)) dto: ResizeStorageDto,
   ) {
+    this.assertBillingEnabled();
     const user = requireAccountPrincipal(req);
     await this.assertProjectOwned(user.accountId, dto.project_id);
     return this.storageBilling.resize({
@@ -162,6 +176,7 @@ export class BillingController {
     @Req() req: FastifyRequest,
     @Body(parseBody(cancelDowngradeSchema)) dto: CancelDowngradeDto,
   ) {
+    this.assertBillingEnabled();
     const user = requireAccountPrincipal(req);
     await this.assertProjectOwned(user.accountId, dto.project_id);
     return this.storageBilling.cancelPendingDowngrade(dto.project_id);
@@ -182,6 +197,7 @@ export class BillingController {
     @Req() req: FastifyRequest,
     @Body(parseBody(setupIntentSchema)) dto: SetupIntentDto,
   ) {
+    this.assertBillingEnabled();
     const user = requireAccountPrincipal(req);
     const project = await this.assertProjectOwned(user.accountId, dto.project_id);
     return this.billing.createSetupIntent({
@@ -219,6 +235,7 @@ export class BillingController {
     @Req() req: FastifyRequest,
     @Body(parseBody(cancelSubscriptionSchema)) dto: CancelSubscriptionDto,
   ) {
+    this.assertBillingEnabled();
     const user = requireAccountPrincipal(req);
     await this.assertProjectOwned(user.accountId, dto.project_id);
     return this.billing.cancelSubscription(dto.project_id);

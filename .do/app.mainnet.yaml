@@ -155,10 +155,15 @@ services:
       # Secrets — SET in the dashboard (type SECRET, encrypted by DO).
       - { key: KEY_WRAPPING_MASTER_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — 32-byte hex, shared by all 3 services
       - { key: JWT_SECRET, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # SET — 32-byte hex
-      - { key: STRIPE_MODE, scope: RUN_TIME, value: "live" }
-      - { key: STRIPE_PUBLISHABLE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
-      - { key: STRIPE_SECRET_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
-      - { key: STRIPE_WEBHOOK_SECRET, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      # Billing gate. "false" (default) → Stripe fully disabled, only the free
+      # plan is usable, and no Stripe keys are required to boot. Flip to "true"
+      # and set the live keys below to enable paid plans.
+      - { key: BILLING_ENABLED, scope: RUN_TIME, value: "false" }
+      - { key: STRIPE_MODE, scope: RUN_TIME, value: "test" }
+      # Only required when BILLING_ENABLED=true:
+      # - { key: STRIPE_PUBLISHABLE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      # - { key: STRIPE_SECRET_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
+      # - { key: STRIPE_WEBHOOK_SECRET, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
       # Optional integrations — leave unset to disable those paths.
       - { key: MEMWAL_ACCOUNT_ID, scope: RUN_TIME, value: "" } # optional
       - { key: MEMWAL_DELEGATE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" } # optional

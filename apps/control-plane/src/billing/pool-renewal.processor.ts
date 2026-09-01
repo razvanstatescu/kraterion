@@ -180,6 +180,9 @@ export class PoolRenewalProcessor
   }
 
   private async isSubscriptionActive(projectId: string): Promise<boolean> {
+    // Billing off → everyone is a valid free-plan user; keep their pools alive
+    // (there are no Stripe subscriptions to check).
+    if (!this.stripe.enabled) return true;
     const account = await this.prisma.billingAccount.findUnique({
       where: { project_id: projectId },
     });

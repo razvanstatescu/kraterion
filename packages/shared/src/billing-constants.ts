@@ -18,6 +18,16 @@
  *  Stripe SDK key is wired in CP and never inspected anywhere else. */
 export type StripeMode = "test" | "live";
 
+/**
+ * Whether paid billing (Stripe) is enabled. Defaults to **false**: until this
+ * is explicitly turned on (`BILLING_ENABLED=true`), Stripe is fully disabled —
+ * the control-plane boots without any Stripe keys and only the free plan is
+ * available (paid upgrades / checkout / metering are all no-ops or blocked).
+ */
+export function isBillingEnabled(env: Record<string, string | undefined>): boolean {
+  return (env["BILLING_ENABLED"] ?? "false").toLowerCase() === "true";
+}
+
 /** Reads `process.env.STRIPE_MODE`, defaults to `"test"` for safety.
  *  Throws on unknown values so a typo can't silently land in prod. */
 export function readStripeMode(env: Record<string, string | undefined>): StripeMode {
