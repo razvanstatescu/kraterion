@@ -12,7 +12,7 @@
 #   doctl databases create kraterion-db    --engine pg     --version 16 --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
 #   doctl databases create kraterion-redis --engine valkey --version 8  --size db-s-1vcpu-1gb --num-nodes 1 --region nyc3
 #
-# Source is the GitHub integration with `deploy_on_push: false`, so every push
+# Source is the GitHub integration with `deploy_on_push: true`, so every push
 # to `main` auto-deploys. This requires the DO↔GitHub OAuth link (install the
 # DigitalOcean GitHub app on the repo in the browser) — without it, a `github:`
 # source fails with "GitHub user not authenticated". If you ever need a
@@ -107,7 +107,7 @@ jobs:
     github:
       repo: razvanstatescu/kraterion
       branch: main
-      deploy_on_push: false
+      deploy_on_push: true
     run_command: pnpm --dir /app db:deploy
     envs:
       - key: DATABASE_URL
@@ -124,7 +124,7 @@ services:
     github:
       repo: razvanstatescu/kraterion
       branch: main
-      deploy_on_push: false
+      deploy_on_push: true
     http_port: 4001
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -169,7 +169,7 @@ services:
     github:
       repo: razvanstatescu/kraterion
       branch: main
-      deploy_on_push: false
+      deploy_on_push: true
     http_port: 4002
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
@@ -204,7 +204,7 @@ workers:
     github:
       repo: razvanstatescu/kraterion
       branch: main
-      deploy_on_push: false
+      deploy_on_push: true
     instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
     envs:
