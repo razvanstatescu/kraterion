@@ -1,0 +1,48 @@
+# Self-hosted Sui zkLogin proving service — replaces Enoki's prover.
+#
+# Two containers (both linux/amd64, published by Mysten):
+#   - prover     : the Groth16 backend. Internal only. Needs the ceremony zkey.
+#   - prover-fe  : the public-facing HTTP front-end the dashboard talks to
+#                  (via the control-plane's /v1/auth/zklogin/prove proxy).
+#
+# A proof is generated once per login (valid until its maxEpoch), so a single
+# modest instance serves many users. Get the zkey first:
+#   ./download-zkey.sh
+# then:
+#   docker compose up -d
+#
+# Point the control-plane at the front-end:
+#   ZKLOGIN_PROVER_URL=http://localhost:5001/v1     (local dev)
+#   ZKLOGIN_PROVER_URL=http://zklogin-prover-fe:8080/v1   (same compose network)
+services:
+  prover:
+    image: mysten/zklogin:prover-stable
+    platform: linux/amd64
+    environment:
+      # The circuit proving key (network-agnostic) + witness binaries baked
+      # into the image at /app/binaries.
+      ZKEY: /app/binaries/zkLogin.zkey
+      WITNESS_BINARIES: /app/binaries
+    volumes:
+      - ./zkey/zkLogin.zkey:/app/binaries/zkLogin.zkey:ro
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  prover-fe:
+    image: mysten/zklogin:prover-fe-stable
+    platform: linux/amd64
+    container_name: zklogin-prover-fe
+    environment:
+      PROVER_URI: http://prover:8080/input
+      NODE_ENV: production
+      # Avoid logging PII; only info + jwks.
+      DEBUG: zkLogin:info,jwks
+      PROVER_TIMEOUT: "45"
+    # prover-fe takes the listen port as its argument.
+    command: ["8080"]
+    ports:
+      - "${ZKLOGIN_PROVER_FE_PORT:-5001}:8080"
+    depends_on:
+      - prover
+    restart: unless-stopped
