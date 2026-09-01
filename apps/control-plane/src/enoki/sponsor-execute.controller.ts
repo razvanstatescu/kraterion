@@ -8,12 +8,12 @@ import { SponsorshipService } from "./sponsorship.service.js";
  * Relay endpoint for sponsored-tx execution.
  *
  * The dashboard (a) fetches a sponsored tx via `POST /v1/buckets/prepare-*`,
- * (b) signs the returned `bytes` with its Enoki zkLogin wallet,
+ * (b) signs the returned `bytes` with its zkLogin key,
  * (c) calls this endpoint with `{ digest, signature }` to settle.
  *
- * We don't re-validate the move-call target here — Enoki already
- * pinned the allow-list at create time and will refuse a digest from
- * a different (or unauthorized) sponsorship.
+ * We don't re-validate the move-call target here — the sponsored bytes were
+ * built and stashed by us at create time (keyed by digest), so the client
+ * can only supply a signature over a transaction we already authorized.
  */
 @Controller("v1/sponsor")
 @UseGuards(AuthGuard)

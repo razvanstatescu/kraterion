@@ -24,9 +24,11 @@ import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { Signer } from "@mysten/sui/cryptography";
 import {
   KRATERION_PACKAGE_ID,
+  NETWORK,
   SEAL_AGGREGATOR_URL,
+  SEAL_API_KEY_NAME,
   SEAL_KEY_SERVERS,
-  SUI_TESTNET_GRPC,
+  SUI_GRPC_URL,
 } from "@kraterion/shared";
 import type { Redis } from "ioredis";
 
@@ -42,7 +44,7 @@ let _sealClient: SealClient | null = null;
 // client is a drop-in.
 function getSuiClientForSeal(): SuiGrpcClient {
   if (!_suiClient) {
-    _suiClient = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_TESTNET_GRPC });
+    _suiClient = new SuiGrpcClient({ network: NETWORK.sui, baseUrl: SUI_GRPC_URL });
   }
   return _suiClient;
 }
@@ -54,14 +56,27 @@ function getSuiClientForSeal(): SuiGrpcClient {
  */
 export function getSealClient(): SealClient {
   if (!_sealClient) {
+    // Mainnet's aggregator is gated: it wants the API key under the
+    // `SEAL_API_KEY_NAME` header. Attach it per-server only when both the
+    // header name and key are present (env `SEAL_API_KEY`). This mirrors the
+    // working inkray mainnet config. Testnet's aggregator is open.
+    const apiKey = process.env.SEAL_API_KEY?.trim() || undefined;
+    const apiKeyName = SEAL_API_KEY_NAME || undefined;
+
     _sealClient = new SealClient({
       suiClient: getSuiClientForSeal(),
       serverConfigs: SEAL_KEY_SERVERS.map((s) => ({
         objectId: s.objectId,
         weight: s.weight,
         aggregatorUrl: SEAL_AGGREGATOR_URL,
+        // `apiKeyName && apiKey` narrows both to string (satisfies
+        // exactOptionalPropertyTypes); attached only when both are present.
+        ...(apiKeyName && apiKey ? { apiKeyName, apiKey } : {}),
       })),
-      verifyKeyServers: false, // testnet — fast startup; flip to true for mainnet
+      // inkray runs mainnet with verifyKeyServers:false — the gated aggregator
+      // fronts the committee, so per-server URL identity checks aren't the
+      // trust boundary and add a slow round-trip. Off on both networks.
+      verifyKeyServers: false,
     });
   }
   return _sealClient;

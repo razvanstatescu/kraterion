@@ -4167,3 +4167,85 @@ dedicated gRPC/GraphQL provider before mainnet cutover. `SUI_TESTNET_RPC` delete
 
 **Consequences (cont.):** dapp-kit interactive sign+sponsor is verified only at
 the type/analysis level + SSR boot; a browser+wallet pass is the remaining check.
+
+---
+
+## 2026-09-01 — Mainnet Seal uses the gated aggregator + Enoki API key (verifyKeyServers off)
+
+**Status:** Accepted
+
+**Context:** On mainnet the decentralized Seal committee (`0x686098f1…`, V2,
+8 operators) sits behind Mysten's gated aggregator, not the open testnet one.
+Our first draft pointed mainnet at a single committee-member URL
+(`seal-key-server-committee-mainnet-0.mystenlabs.com`), which returned 401. The
+working reference is our own inkray deployment (live on mainnet): it fronts the
+committee through `https://seal-aggregator-mainnet.mystenlabs.com` and sends an
+Enoki-issued API key as the HTTP header `x-api-key`. Probing the aggregator
+confirmed it: `x-api-key: <key>` → 400 (auth accepted, GET shape wrong), every
+other header / no key → 401.
+
+**Decision:** Match inkray. Mainnet `SEAL_AGGREGATOR_URL` =
+`https://seal-aggregator-mainnet.mystenlabs.com`; attach the API key per
+server-config as `{ apiKeyName, apiKey }`, with `apiKeyName` from
+`SEAL_API_KEY_NAME` (default `x-api-key`) and `apiKey` from `SEAL_API_KEY`
+(server) / `NEXT_PUBLIC_SEAL_API_KEY` (browser). The header is attached only
+when both are present, so testnet's open aggregator is untouched. Run
+`verifyKeyServers: false` on both networks — the gated aggregator is the trust
+boundary, and inkray runs the same way; per-server URL identity checks just add
+a slow round-trip. The key server object id (`0x686098f1…`) and threshold (1)
+were already correct.
+
+**Consequences:** Both the server SealClient (`packages/seal-client`) and the
+browser SealClient (`apps/dashboard/src/lib/seal.ts`) read the key from env and
+plumb it into `serverConfigs`. The Enoki aggregator key is a client-shipped
+credential (exposed via `NEXT_PUBLIC_SEAL_API_KEY`) — acceptable, it only grants
+aggregator access, same posture as inkray. The real key lives off-repo in
+`~/kraterion-mainnet-deploy/generated-secrets.json` and as DO/Vercel secrets;
+`.do/app.mainnet.yaml` carries `SEAL_API_KEY_NAME=x-api-key` inline and
+`SEAL_API_KEY` as a SECRET placeholder. Mainnet decrypt fails loudly (401) if
+the key is unset — by design.
+
+---
+
+## 2026-09-01 — Invite-only sign-up (admin-generated KRT-XXXXXX codes)
+
+**Status:** Accepted
+
+**Context:** Kraterion launches invite-only. We modeled it on inkray's working
+invite system but with a key departure: inkray is a *referral* system (every
+user earns codes to invite others, plus weekly/milestone grants). Kraterion
+codes are generated ONLY by us — there is no user-facing earning surface.
+Requirements: codes format `KRT-[6 chars]`, each code carries a claim budget
+(1 or more), required at account creation.
+
+**Decision:** Two tables — `InviteCode` (unique `code`, `max_claims`,
+`claim_count`, `note`, `disabled`, `expires_at`) and `InviteClaim` (unique
+`account_id` → one invite per account ever). No earning-events table (dropped
+vs inkray — no referral/period grants to guard). Codes use an unambiguous
+alphabet (no 0/O/1/I); 32^6 ≈ 1.07e9 space with a uniqueness retry loop.
+
+The gate lives in the first-time-signup branch of `ZkLoginService.resolveOrCreate`
+(returning users skip it). The claim runs INSIDE the account-creation
+`$transaction` — a stronger guarantee than inkray, which claims after creating
+the account. Race-safety is inkray's pattern: a single conditional
+`updateMany({ where: { claim_count < max_claims }, data: { increment } })`,
+rejecting when `count === 0`. Verified with a 5-racers-on-cap-2 probe (exactly
+2 win). Gated by `INVITE_SYSTEM_ENABLED` (default true; false opens sign-up,
+used locally/tests).
+
+Generation is admin-only two ways: `POST /admin/invites` behind
+`AuthGuard + AdminGuard` (the existing `ADMIN_EMAILS` allowlist), and a CLI
+`scripts/generate-invites.ts` (`invites:generate`). Public surface is just
+`GET /v1/invites/system-status` + `POST /v1/invites/validate` (read-only). The
+dashboard collects the code on `/login`, stashes it in localStorage across the
+Google redirect, and the callback bounces invite failures back to `/login` with
+a message. Typed error discriminators ride in `ControlPlaneError.details.reason`
+(`invite_required` / `invite_invalid` / `invite_already_claimed`).
+
+**Consequences:** New tables + migration `20260901162325_add_invite_system`.
+`ZkLoginService` gains an `InvitesService` dependency (EnokiModule imports
+InvitesModule). `INVITE_SYSTEM_ENABLED` added to `.do/app.mainnet.yaml` (true),
+`.env.production.example` (true), `.env.example` (false). The gate is on by
+default, so any environment that wants open sign-up must explicitly set the flag
+false. One-invite-per-account is enforced by the unique `account_id` — a user
+can never redeem a second code.

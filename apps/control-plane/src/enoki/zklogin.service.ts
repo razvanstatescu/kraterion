@@ -1,40 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { jwtToAddress } from "@mysten/sui/zklogin";
 import { ApiKeysService } from "../api-keys/api-keys.service.js";
 import { ControlPlaneError } from "../errors/control-plane-error.js";
+import { InvitesService } from "../invites/invites.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProjectsService } from "../projects/projects.service.js";
-import { asControlPlaneError, EnokiClientService } from "./enoki-client.service.js";
-
-interface JwtClaims {
-  sub: string;
-  email?: string;
-  aud?: string | string[];
-  iss?: string;
-  exp?: number;
-}
-
-/**
- * Decode (do NOT verify) the OIDC ID token's payload. We rely on Enoki's
- * `getZkLogin` for verification — Enoki rejects bad signatures, expired
- * tokens, and wrong audiences before returning an address. We only need
- * the payload to extract the stable `sub` (and email for friendlier UX).
- */
-function decodeJwtPayload(jwt: string): JwtClaims {
-  const parts = jwt.split(".");
-  if (parts.length !== 3) {
-    throw new ControlPlaneError("InvalidArgument", "Malformed JWT");
-  }
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
-    if (typeof payload !== "object" || payload === null) {
-      throw new Error("payload not an object");
-    }
-    return payload as JwtClaims;
-  } catch {
-    throw new ControlPlaneError("InvalidArgument", "JWT payload is not valid JSON");
-  }
-}
+import { GoogleJwtService } from "./google-jwt.service.js";
+import { ZkLoginSaltService } from "./salt.service.js";
 
 export interface ResolvedZkLoginAccount {
   account: { id: string; email: string; sui_address: string; status: string; created_at: Date };
@@ -50,17 +23,19 @@ export interface ResolvedZkLoginAccount {
 }
 
 /**
- * zkLogin account resolver.
+ * zkLogin account resolver (self-hosted; no Enoki).
  *
- * On every successful Google sign-in, we (a) hand the JWT to Enoki and
- * receive the canonical Sui address, (b) upsert the matching `Account`
- * row keyed by `zklogin_sub`, (c) on first sign-up, mint a default
- * project + API key so the user's boto3 / SDK clients work immediately.
+ * On every successful Google sign-in, we (a) verify the Google ID token
+ * locally (JWKS/RS256/aud/exp), (b) derive the canonical Sui address from
+ * `(iss, aud, sub) + our deterministic salt` via `@mysten/sui/zklogin`'s
+ * `jwtToAddress`, (c) upsert the matching `Account` row keyed by
+ * `zklogin_sub`, (d) on first sign-up, mint a default project + API key so
+ * the user's boto3 / SDK clients work immediately.
  *
- * Trust model: Enoki performs the JWT signature + audience + expiry
- * verification (against Google's JWKS); the address it returns is
- * derived from `(google_sub, app_salt)` which Enoki manages. We only
- * decode the JWT payload to read the stable `sub` claim.
+ * Trust model: we perform the JWT signature + audience + expiry verification
+ * ourselves (`GoogleJwtService`); the address is derived from the same salt
+ * (`ZkLoginSaltService`) the dashboard uses to build the zkLogin signature,
+ * so the address the user signs with matches the one we store.
  */
 @Injectable()
 export class ZkLoginService {
@@ -68,47 +43,48 @@ export class ZkLoginService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly enoki: EnokiClientService,
+    private readonly googleJwt: GoogleJwtService,
+    private readonly salt: ZkLoginSaltService,
     private readonly projects: ProjectsService,
     private readonly apiKeys: ApiKeysService,
+    private readonly invites: InvitesService,
   ) {}
 
-  /** Resolve a Google JWT to a Kraterion account, creating one on first sign-in. */
-  async resolveOrCreate(jwt: string): Promise<ResolvedZkLoginAccount> {
-    const claims = decodeJwtPayload(jwt);
-    if (!claims.sub) {
-      throw new ControlPlaneError("InvalidArgument", "JWT is missing the `sub` claim");
-    }
+  /**
+   * Resolve a Google JWT to a Kraterion account, creating one on first sign-in.
+   *
+   * `inviteCode` is required only when creating a new account and the invite
+   * gate is enabled; returning users (existing `zklogin_sub`) ignore it. The
+   * code is claimed atomically inside the account-creation transaction, so a
+   * failed claim rolls the whole sign-up back.
+   */
+  async resolveOrCreate(jwt: string, inviteCode?: string): Promise<ResolvedZkLoginAccount> {
+    // Verify the Google ID token locally (signature/issuer/audience/expiry).
+    const claims = await this.googleJwt.verify(jwt);
     if (!claims.email) {
       throw new ControlPlaneError("InvalidArgument", "JWT is missing the `email` claim");
     }
 
-    // Enoki verifies signature/audience/expiry and derives the address.
-    const client = this.enoki.require();
-    let address: string;
-    try {
-      const res = await client.getZkLogin({ jwt });
-      address = res.address;
-    } catch (err) {
-      asControlPlaneError(err, "Enoki rejected the Google JWT");
-    }
+    // Derive the zkLogin address from the same salt the dashboard uses.
+    const userSalt = this.salt.deriveSalt(claims.iss, claims.aud, claims.sub);
+    // `legacyAddress=false` → the current (non-legacy) address scheme.
+    const address = jwtToAddress(jwt, userSalt, false);
 
     // Look up existing account first — by `zklogin_sub`, the stable id.
     const existing = await this.prisma.account.findUnique({
       where: { zklogin_sub: claims.sub },
     });
     if (existing) {
-      // Defensive: if the Enoki-derived address ever changes for an
-      // existing zklogin_sub, refuse rather than silently mutate. (Enoki
-      // never rotates the salt on a given app, so this should be
-      // impossible — but worth catching loud if it happens.)
+      // Defensive: the derived address must be stable for a given
+      // zklogin_sub (our salt is deterministic), so a mismatch means the
+      // salt seed changed — refuse rather than silently mutate the address.
       if (existing.sui_address !== address) {
         this.logger.error(
           `zklogin_sub=${claims.sub} re-signed with a new address (was ${existing.sui_address}, got ${address})`,
         );
         throw new ControlPlaneError(
           "Conflict",
-          "Account is registered with a different Sui address than Enoki returned",
+          "Account is registered with a different Sui address than the one derived now (has ZKLOGIN_SALT_SEED changed?)",
         );
       }
       const project = await this.prisma.project.findFirst({
@@ -122,8 +98,33 @@ export class ZkLoginService {
       };
     }
 
+    // Invite gate: creating a new account requires a valid code (when the gate
+    // is enabled). Pre-validate here for a clean, early error; the authoritative
+    // claim happens atomically inside the transaction below.
+    const gateOn = this.invites.isEnabled();
+    if (gateOn) {
+      if (!inviteCode) {
+        throw new ControlPlaneError(
+          "Forbidden",
+          "An invite code is required to create a Kraterion account.",
+          { reason: "invite_required" },
+        );
+      }
+      const check = await this.invites.validate(inviteCode);
+      if (!check.valid) {
+        throw new ControlPlaneError(
+          "InvalidArgument",
+          check.message ?? "That invite code isn't valid.",
+          { reason: check.reason ?? "invite_invalid" },
+        );
+      }
+    }
+
     // First-time sign-up: create account + first project + first API key
-    // atomically. Mirrors the dev-sign-up endpoint's bootstrap flow.
+    // atomically. Mirrors the dev-sign-up endpoint's bootstrap flow. When the
+    // gate is on, the code is claimed in the same transaction — if the claim
+    // fails (e.g. the last slot was taken concurrently after pre-validation),
+    // the account creation rolls back too.
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const account = await tx.account.create({
@@ -134,6 +135,9 @@ export class ZkLoginService {
             status: "active",
           },
         });
+        if (gateOn) {
+          await this.invites.claimWithinTx(tx, inviteCode!, account.id);
+        }
         const project = await this.projects.create(account.id, "default", tx);
         const minted = await this.apiKeys.mint(project.id, "default", tx);
         return { account, project, minted };

@@ -24,7 +24,7 @@ interface Props {
  *
  *   1. **On-chain access** — per-bucket grant status with Grant /
  *      Revoke buttons. Each Grant fires a sponsored
- *      `grant_api_access(bucket, agent_addr)` Move call via Enoki;
+ *      `grant_api_access(bucket, agent_addr)` Move call (operator-sponsored);
  *      each Revoke fires the per-address emulated revoke
  *      (`revoke_all + grant(survivors)`). Status comes from a live
  *      Sui RPC read so the user sees the actual chain state, not a

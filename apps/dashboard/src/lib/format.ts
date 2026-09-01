@@ -1,7 +1,9 @@
 /**
- * Pure formatting helpers — no React, no side effects. Keep them small and
- * testable; if logic grows past a line or two, move it into a typed module.
+ * Formatting helpers — no React. `walrusAggregatorUrl` reads the network-aware
+ * aggregator base from `env`; the rest are pure.
  */
+
+import { env } from "./env";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 
@@ -125,5 +127,7 @@ export function walruscanUrl(blobId: string): string {
  *  fetching it. JSON blobs (e.g. K5 manifests) render inline in the
  *  browser; binary blobs download or get guessed from bytes. */
 export function walrusAggregatorUrl(blobId: string): string {
-  return `https://aggregator.walrus-testnet.walrus.space/v1/blobs/${blobId}`;
+  // Network-aware: `env.walrusAggregatorUrl` is the mainnet/testnet aggregator
+  // from NEXT_PUBLIC_WALRUS_AGGREGATOR_URL (defaults to testnet).
+  return `${env.walrusAggregatorUrl.replace(/\/$/, "")}/v1/blobs/${blobId}`;
 }

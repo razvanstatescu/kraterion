@@ -24,7 +24,8 @@ import { WalrusClient } from "@mysten/walrus";
 import { bcs } from "@mysten/sui/bcs";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import {
-  SUI_TESTNET_GRPC,
+  NETWORK,
+  SUI_GRPC_URL,
   WALRUS_AGGREGATOR_URL,
   WALRUS_UPLOAD_RELAY_URL,
 } from "@kraterion/shared";
@@ -40,7 +41,7 @@ let _walrusClient: WalrusClient | null = null;
  */
 export function getSuiClient(): SuiGrpcClient {
   if (!_suiClient) {
-    _suiClient = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_TESTNET_GRPC });
+    _suiClient = new SuiGrpcClient({ network: NETWORK.sui, baseUrl: SUI_GRPC_URL });
   }
   return _suiClient;
 }
@@ -56,7 +57,7 @@ export function getSuiClient(): SuiGrpcClient {
 export function getWalrusClient(): WalrusClient {
   if (!_walrusClient) {
     _walrusClient = new WalrusClient({
-      network: "testnet",
+      network: NETWORK.walrus,
       suiClient: getSuiClient(),
       uploadRelay: {
         host: WALRUS_UPLOAD_RELAY_URL,
@@ -167,14 +168,19 @@ const BYTES_PER_UNIT_SIZE = 1024 * 1024;
  * below, this gives ~4× headroom over current. Bump or move to live
  * reads if the gap closes.
  */
-const STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST = 3000n;
+// Network-aware. Testnet observed ~1446; mainnet governance-set 100,000
+// FROST/MiB/epoch. We keep headroom above the observed value + SAFETY_MULTIPLIER.
+export const STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST =
+  NETWORK.walrus === "mainnet" ? 100_000n : 3000n;
 
 /**
  * One-time write fee per encoded MiB. Observed testnet value:
  * `write_price_per_unit_size = 2891`. Hard-coded at 5000 for the same
  * peg-drift headroom rationale.
  */
-const WRITE_PRICE_PER_MIB_FROST = 5_000n;
+// Network-aware. Testnet observed ~2891; mainnet governance-set 20,000 FROST/MiB.
+export const WRITE_PRICE_PER_MIB_FROST =
+  NETWORK.walrus === "mainnet" ? 20_000n : 5_000n;
 
 /**
  * Safety multiplier applied to every WAL-cost estimate. Over-pulled WAL

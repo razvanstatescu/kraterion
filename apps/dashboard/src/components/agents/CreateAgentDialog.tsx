@@ -74,7 +74,7 @@ export function CreateAgentDialog({
   const runSponsored = useSponsoredTx();
 
   // Per-bucket grant progress after the agent is minted. We're firing
-  // one sponsored Move tx per attached bucket (Enoki caps a sponsored
+  // one sponsored Move tx per attached bucket (our sponsor path pins each
   // PTB to a single Move-call allow-list — see decisions.md 2026-05-13
   // "agent sub-wallet" — so batching isn't an option here).
   //
@@ -205,11 +205,10 @@ export function CreateAgentDialog({
 
     // === Phase 2: sequential per-bucket on-chain grants ===
     //
-    // One sponsored Move tx per (agent × bucket). Each tx requires one
-    // wallet signature — Enoki sponsors gas but the user's session key
-    // signs the PTB. We loop sequentially because (a) the Mysten
-    // sign-transaction hook is a single in-flight mutation, and (b)
-    // back-to-back prompts confuse users less than parallel popups.
+    // One sponsored Move tx per (agent × bucket). Each tx needs one user
+    // signature — the operator wallet sponsors gas; the user's zkLogin key
+    // signs the PTB. We loop sequentially because the proof fetch + signing
+    // share one in-flight zkLogin session and sequential is simpler/safer.
     //
     // A failure in one grant does NOT abort the others — the agent
     // exists; pending buckets stay "Pending" on the Connect tab and

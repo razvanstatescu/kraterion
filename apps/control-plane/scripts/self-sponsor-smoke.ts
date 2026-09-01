@@ -1,38 +1,37 @@
 /**
- * Live end-to-end smoke for the Enoki sponsorship pipeline.
+ * Live end-to-end smoke for the SELF-HOSTED sponsorship pipeline (no Enoki).
  *
  * Walks the full happy path:
  *
- *   1. Generate a fresh Ed25519 keypair (the "user").
+ *   1. Generate a fresh Ed25519 keypair (the "user"). A plain Ed25519
+ *      signature exercises the exact same sponsor path a zkLogin signature
+ *      will — the gas layer only cares that the sender produced a valid Sui
+ *      signature over the TransactionData; it doesn't care how.
  *   2. POST /v1/auth/dev-sign-up to mint a CP session keyed to that
- *      keypair's Sui address. (Real production sign-in is via
- *      /v1/auth/zklogin + Enoki Google OAuth; the dev-mode endpoint
- *      stands in here so the script doesn't need a live Google JWT.)
- *   3. POST /v1/buckets/prepare-create — control-plane builds the
- *      kind-bytes, asks Enoki to sponsor, returns { digest, bytes }.
- *   4. Sign `bytes` with the keypair locally (Enoki accepts any valid
- *      Sui signature for the sender, not only zkLogin signatures).
+ *      keypair's Sui address. (Production sign-in is /v1/auth/zklogin; the
+ *      dev endpoint stands in so this script needs no Google JWT.)
+ *   3. POST /v1/buckets/prepare-create — control-plane builds the PTB,
+ *      leases a gas coin from OUR operator wallet, sets gasOwner=operator +
+ *      sender=user, sponsor-signs, and returns { digest, bytes }.
+ *   4. Sign `bytes` with the keypair locally (the user's half of the dual
+ *      signature).
  *   5. POST /v1/sponsor/execute { digest, signature } — control-plane
- *      relays to Enoki, which co-signs the gas envelope and submits.
- *   6. Wait for the tx via SuiClient and assert the
- *      `KraterionBucketCreated` event fired.
+ *      submits with [user, sponsor] signatures. Gas paid by the operator
+ *      wallet; only real gas, no third-party fee.
+ *   6. Wait for the tx and assert `KraterionBucketCreated` fired and the
+ *      bucket is owned by the user's address.
  *
  * Prereqs:
  *   - control-plane running on $CP_URL (default http://127.0.0.1:4001)
- *   - ENOKI_PRIVATE_KEY set in .env at the repo root
- *   - The Enoki Portal app must permit the
- *     `<KRATERION_PACKAGE_ID>::kraterion::create_and_share_bucket`
- *     target (or wildcard the kraterion package).
+ *   - the operator (`api_decryption`) wallet funded with testnet SUI
+ *   - SUI_NETWORK=testnet
  *
- * Run: `pnpm -F @kraterion/control-plane enoki:smoke`
+ * Run: `pnpm -F @kraterion/control-plane sponsor:smoke`
  */
 
 import { config as dotenvConfig } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-// Walk to the workspace root .env. The Nest app picks it up via Prisma's
-// upward-walking dotenv loader at boot, but standalone scripts have to
-// resolve it ourselves.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenvConfig({ path: resolve(__dirname, "../../../.env") });
 
@@ -54,24 +53,17 @@ function fail(s: string): never {
 }
 
 async function main() {
-  if (!process.env["ENOKI_PRIVATE_KEY"]) {
-    fail("ENOKI_PRIVATE_KEY not set in .env. Provision a private key in the Enoki Portal first.");
-  }
-
-  bold("=== Enoki live smoke ===");
+  bold("=== Self-hosted sponsorship smoke (no Enoki) ===");
   info(`control-plane: ${CP_URL}`);
-  info(`sui rpc:       ${SUI_RPC}`);
+  info(`sui rpc:       ${SUI_GRPC}`);
   info(`package id:    ${KRATERION_PACKAGE_ID}`);
 
-  // 1. Generate a fresh keypair. Each run uses a distinct address so
-  //    the Account/Project/ApiKey rows we create are isolated.
   const keypair = new Ed25519Keypair();
   const senderAddress = keypair.toSuiAddress();
-  info(`sender:        ${senderAddress}`);
+  info(`sender (user): ${senderAddress}`);
 
-  // 2. dev-sign-up against the running control-plane.
   bold("\n[1/5] dev-sign-up");
-  const stamp = `enoki-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const stamp = `selfspon-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const email = `${stamp}@kraterion.dev`;
   const signupRes = await fetch(`${CP_URL}/v1/auth/dev-sign-up`, {
     method: "POST",
@@ -87,14 +79,8 @@ async function main() {
   };
   ok(`signed up, project id ${signup.project.id}`);
 
-  // 3. prepare-create: backend builds kind-bytes + Enoki sponsorship.
-  //
-  //    grant_api_access:false avoids needing the gateway sub-wallet for
-  //    this smoke — the goal is to verify Enoki, not the bootstrap
-  //    chain. The same path with grant_api_access:true works once
-  //    `pnpm -F @kraterion/gateway bootstrap` has been run.
-  bold("\n[2/5] prepare-create");
-  const bucketName = `enoki-smoke-${stamp.slice(0, 12)}`.toLowerCase();
+  bold("\n[2/5] prepare-create (self-sponsored)");
+  const bucketName = `selfspon-${stamp.slice(0, 12)}`.toLowerCase();
   const prepareRes = await fetch(`${CP_URL}/v1/buckets/prepare-create`, {
     method: "POST",
     headers: {
@@ -120,11 +106,11 @@ async function main() {
       summary: string;
       sender: string;
       allowed_move_call_targets: string[];
-      sponsored_by: "enoki";
+      sponsored_by: string;
     };
   };
-  if (prepared.expected.sponsored_by !== "enoki") {
-    fail(`expected sponsored_by=enoki, got ${prepared.expected.sponsored_by}`);
+  if (prepared.expected.sponsored_by !== "kraterion") {
+    fail(`expected sponsored_by=kraterion, got ${prepared.expected.sponsored_by}`);
   }
   if (prepared.expected.sender !== senderAddress) {
     fail(`expected sender=${senderAddress}, got ${prepared.expected.sender}`);
@@ -132,21 +118,15 @@ async function main() {
   if (prepared.expected.allowed_move_call_targets.length !== 1) {
     fail(`allow-list should be exactly 1 target, got ${prepared.expected.allowed_move_call_targets.length}`);
   }
-  ok(`enoki returned digest=${prepared.digest}`);
+  ok(`self-sponsored digest=${prepared.digest}`);
   info(`bytes:  ${prepared.bytes.length} chars (base64)`);
   info(`target: ${prepared.expected.allowed_move_call_targets[0]}`);
 
-  // 4. Sign Enoki's bytes locally. The keypair's signTransaction takes
-  //    the BCS TransactionData bytes (which Enoki already gas-paid)
-  //    and returns the user's part of the dual signature.
-  bold("\n[3/5] sign locally");
+  bold("\n[3/5] sign locally (user half of the dual signature)");
   const txBytes = fromBase64(prepared.bytes);
   const signed = await keypair.signTransaction(txBytes);
   ok(`signed (${signed.signature.length} chars)`);
 
-  // 5. Hand digest+signature back to the control plane, which relays
-  //    to Enoki's executeSponsoredTransaction. Enoki combines its
-  //    sponsor signature with ours and submits.
   bold("\n[4/5] sponsor/execute");
   const execRes = await fetch(`${CP_URL}/v1/sponsor/execute`, {
     method: "POST",
@@ -163,10 +143,8 @@ async function main() {
     fail(`sponsor/execute failed: ${execRes.status} ${await execRes.text()}`);
   }
   const exec = (await execRes.json()) as { digest: string };
-  ok(`enoki settled digest=${exec.digest}`);
+  ok(`settled digest=${exec.digest}`);
 
-  // 6. On-chain confirmation. We re-encode the digest the canonical
-  //    way and ask the fullnode for effects + emitted events.
   bold("\n[5/5] verify on-chain");
   const sui = new SuiGrpcClient({ network: "testnet", baseUrl: SUI_GRPC });
   const txResult = gasTx(
@@ -178,29 +156,32 @@ async function main() {
   if (!txResult.effects.status.success) {
     fail(`on-chain status: ${JSON.stringify(txResult.effects.status)}`);
   }
-  ok(`on-chain status: ${txResult.effects.status.success ? "success" : "failure"}`);
+  ok(`on-chain status: success`);
   const created = txResult.effects.created ?? [];
   const sharedBucketObj = created.find(
     (c) => typeof c.owner === "object" && c.owner !== null && "Shared" in c.owner,
   );
   if (sharedBucketObj) {
     ok(`new shared bucket object: ${sharedBucketObj.reference.objectId}`);
-  } else {
-    info(`(no shared object found in effects.created — odd, but the tx succeeded)`);
   }
+  // The gRPC Core API returns the fully-qualified type on `eventType`.
+  const eventTypeOf = (e: unknown): string | undefined => {
+    const rec = e as { eventType?: string; type?: string };
+    return rec.eventType ?? rec.type;
+  };
   const bucketCreatedEvent = (txResult.events ?? []).find((e) =>
-    e.type.endsWith("::events::KraterionBucketCreated"),
+    eventTypeOf(e)?.endsWith("::events::KraterionBucketCreated"),
   );
   if (bucketCreatedEvent) {
-    ok(`KraterionBucketCreated event emitted`);
-    info(`  parsed: ${JSON.stringify(bucketCreatedEvent.parsedJson)}`);
+    ok(`KraterionBucketCreated event emitted (sender=${(bucketCreatedEvent as { sender?: string }).sender})`);
   } else {
     fail("KraterionBucketCreated event not found in transaction events");
   }
 
-  bold("\n=== Enoki live smoke green ===");
+  bold("\n=== Self-sponsor smoke green ===");
   info(`bucket name:  ${bucketName}`);
   info(`tx digest:    ${exec.digest}`);
+  info(`gas paid by:  operator wallet (no Enoki)`);
   info(`explorer:     https://suiscan.xyz/testnet/tx/${exec.digest}`);
 }
 

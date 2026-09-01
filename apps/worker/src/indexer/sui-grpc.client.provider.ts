@@ -9,7 +9,10 @@ import { ChannelCredentials } from "@grpc/grpc-js";
  */
 export const SUI_GRPC_CLIENT = Symbol("SUI_GRPC_CLIENT");
 
-const DEFAULT_HOST = "fullnode.testnet.sui.io:443";
+const DEFAULT_HOST =
+  (process.env["SUI_NETWORK"] ?? "testnet") === "mainnet"
+    ? "fullnode.mainnet.sui.io:443"
+    : "fullnode.testnet.sui.io:443";
 
 /**
  * Build a `SuiGrpcClient` over native HTTP/2 gRPC.

@@ -10,6 +10,7 @@ import { BillingModule } from "./billing/billing.module.js";
 import { BucketsModule } from "./buckets/buckets.module.js";
 import { EnokiModule } from "./enoki/enoki.module.js";
 import { FoldersModule } from "./folders/folders.module.js";
+import { InvitesModule } from "./invites/invites.module.js";
 import { HealthController } from "./health.controller.js";
 import { KnowledgeModule } from "./knowledge/knowledge.module.js";
 import { McpModule } from "./mcp/mcp.module.js";
@@ -51,6 +52,7 @@ import { UsageModule } from "./usage/usage.module.js";
     AdminModule,
     BillingModule,
     UsageModule,
+    InvitesModule,
   ],
   controllers: [HealthController],
 })

@@ -1,39 +1,31 @@
 "use client";
 
 /**
- * Sponsored-transaction orchestrator.
- *
- * Walks the full Phase-4 pipeline that
- * `apps/control-plane/scripts/enoki-live-smoke.ts` proved on testnet:
+ * Sponsored-transaction orchestrator (self-hosted; verified by
+ * `apps/control-plane/scripts/self-sponsor-smoke.ts` on testnet):
  *
  *   1. POST `/v1/buckets/prepare-*` → `{ digest, bytes, expected }`
- *      The control plane built the PTB, handed kind-bytes to Enoki,
- *      and got back sponsor-signed bytes for the user to sign.
- *   2. `Transaction.from(bytes_base64)` — dApp Kit / @mysten/sui's
- *      reconstructor branch-detects on the leading char; bytes from
- *      Enoki are base64 BCS, so this is the right entry point.
- *   3. `useSignTransaction().mutateAsync({ transaction, chain })` —
- *      pops the Enoki zkLogin wallet's "approve" prompt (frictionless
- *      since we already auth'd). Returns `{ bytes, signature }`.
- *   4. POST `/v1/sponsor/execute { digest, signature }` — backend
- *      relays to Enoki's `executeSponsoredTransaction`, settling
- *      on-chain.
- *   5. `suiClient.waitForTransaction({ digest })` — block until the
- *      tx is finalized so the indexer has a chance to write its row
- *      before we invalidate caches.
- *   6. Invalidate the relevant React Query keys so the read views
- *      pick up the new state.
+ *      The control plane built the PTB, leased a gas coin from our own
+ *      operator wallet, sponsor-signed it, and returned the user-signable
+ *      bytes + digest.
+ *   2. `signWithZkLogin(bytes)` — sign with the ephemeral key, fetch the
+ *      Groth16 proof from our prover, and assemble the zkLogin signature.
+ *   3. POST `/v1/sponsor/execute { digest, signature }` — backend submits
+ *      with `[user, sponsor]` signatures; gas paid by the operator wallet.
+ *   4. `suiClient.waitForTransaction({ digest })` — block until finalized so
+ *      the indexer can write its row before we invalidate caches.
+ *   5. Invalidate the relevant React Query keys so read views refresh.
  *
  * `onStatus` lets the caller drive a tiny UX state machine
- * ("Preparing…" → "Sign with your wallet…" → "Submitting…" → "Settling…").
+ * ("Preparing…" → "Sign…" → "Submitting…" → "Settling…").
  */
 
-import { useCurrentWallet, useSignTransaction, useSuiClient } from "@mysten/dapp-kit";
-import { Transaction } from "@mysten/sui/transactions";
+import { useSuiClient } from "@mysten/dapp-kit";
+import { fromBase64 } from "@mysten/sui/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { cpFetch, type PrepareTxResponse } from "./api";
-import { env } from "./env";
+import { getZkSession, signWithZkLogin } from "./zklogin";
 
 export type SponsorStatus =
   | "preparing"
@@ -43,7 +35,7 @@ export type SponsorStatus =
   | "done";
 
 export interface RunSponsoredArgs {
-  /** The CP endpoint that builds the PTB + asks Enoki to sponsor it. */
+  /** The CP endpoint that builds the PTB + sponsors it (operator wallet). */
   prepareEndpoint: string;
   /** Request body for the prepare endpoint. Defaults to `{}`. */
   body?: Record<string, unknown>;
@@ -63,26 +55,19 @@ export interface SponsoredTxResult {
 }
 
 export function useSponsoredTx() {
-  const { mutateAsync: signTransaction } = useSignTransaction();
-  const { isConnected, currentWallet } = useCurrentWallet();
   const suiClient = useSuiClient();
   const queryClient = useQueryClient();
 
   return useCallback(
     async (args: RunSponsoredArgs): Promise<SponsoredTxResult> => {
-      // Guard against the race where a user clicks a sponsored action
-      // while dApp Kit is still mid-autoConnect (or after the Enoki
-      // session has silently expired). `RequireAuth` redirects in both
-      // cases, but kicking a friendlier error here protects pages that
-      // mount their own modals (CreateBucket, BucketKebab, etc.) — those
-      // can branch on the message and surface "session expired" copy
-      // instead of the raw `WalletNotConnectedError`.
-      if (!isConnected || !currentWallet) {
+      // Guard against a click after the zkLogin session has expired.
+      // `RequireAuth` redirects in that case, but a friendlier error here
+      // protects pages that mount their own modals (CreateBucket, etc.).
+      if (!getZkSession()) {
         throw new Error(
-          "Your wallet session expired. Refresh the page and sign in again.",
+          "Your session expired. Refresh the page and sign in again.",
         );
       }
-      const chain = `sui:${env.network}` as const;
 
       args.onStatus?.("preparing");
       const prepared = await cpFetch<PrepareTxResponse>(args.prepareEndpoint, {
@@ -91,16 +76,14 @@ export function useSponsoredTx() {
       });
 
       args.onStatus?.("signing");
-      // `Transaction.from` accepts the base64 BCS string directly — no
-      // need to fromBase64() ourselves. Verified at
-      // `@mysten/sui/dist/transactions/Transaction.d.mts:#from`.
-      const tx = Transaction.from(prepared.bytes);
-      const signed = await signTransaction({ transaction: tx, chain });
+      // Sign the sponsored bytes with our zkLogin identity: sign with the
+      // ephemeral key, fetch the proof, and assemble the zkLogin signature.
+      const signature = await signWithZkLogin(fromBase64(prepared.bytes));
 
       args.onStatus?.("executing");
       const exec = await cpFetch<{ digest: string }>("/v1/sponsor/execute", {
         method: "POST",
-        body: { digest: prepared.digest, signature: signed.signature },
+        body: { digest: prepared.digest, signature },
       });
 
       args.onStatus?.("waiting");
@@ -123,7 +106,7 @@ export function useSponsoredTx() {
       args.onStatus?.("done");
       return { digest: exec.digest, expected: prepared.expected };
     },
-    [signTransaction, suiClient, queryClient, isConnected, currentWallet],
+    [suiClient, queryClient],
   );
 }
 

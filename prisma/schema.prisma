@@ -44,6 +44,10 @@ model Account {
   projects                 Project[]
   api_decryption_subwallet SubWallet? @relation("api_decryption_for_account")
 
+  /// The invite code this account redeemed at sign-up. Null for accounts
+  /// created before the invite gate existed (or when the gate is disabled).
+  invite_claim InviteClaim?
+
   @@index([sui_address])
 }
 
@@ -919,7 +923,7 @@ model AgentInvocation {
   /// bytes of `id` interpreted as int32 so replays are reproducible
   /// given the same input. Null on legacy rows + on provider paths
   /// that don't support seed.
-  seed Int?
+  seed               Int?
   /// OpenAI `system_fingerprint` returned with the completion.
   /// Identifies the backend config version. On replay, a mismatch
   /// surfaces as a yellow banner ("backend changed since this run") —
@@ -935,9 +939,9 @@ model AgentInvocation {
   //   - `key_source = 'byok'`     → tokens roll into BYOKDailySpend
   //     instead; no MeterEvent is emitted (BYOK is display-only).
   // `cost_usd_micros` stays at 0 for failed/revoked invocations.
-  cost_usd_micros   BigInt  @default(0)
+  cost_usd_micros    BigInt  @default(0)
   cost_price_version String?
-  key_source        String? // 'platform' | 'byok'
+  key_source         String? // 'platform' | 'byok'
 
   error_detail String?
 
@@ -1053,8 +1057,8 @@ model AgentSession {
   /// `KraterionSessionAnchored` lands. Until then, null.
   anchored_tx_digest Bytes?
 
-  project     Project           @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  agent       KraterionAgent    @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  project     Project            @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  agent       KraterionAgent     @relation(fields: [agent_id], references: [id], onDelete: Cascade)
   invocations AgentInvocation[]
   trace       AgentSessionTrace?
 
@@ -1073,22 +1077,22 @@ model AgentSessionTrace {
   pooled_blob_id String @unique
 
   /// Mirror of PooledBlob.walrus_blob_id for direct lookup without join.
-  walrus_blob_id String
+  walrus_blob_id        String
   /// 48-byte Seal IBE identity: `bucket_uid (32) || session_uuid (16)`.
-  seal_identity  Bytes
+  seal_identity         Bytes
   /// 32-byte SHA-256 of the canonical-JSON, plaintext trace bytes.
-  trace_hash     Bytes
+  trace_hash            Bytes
   /// Number of distinct chat completions rolled into the trace.
-  invocation_count       Int
+  invocation_count      Int
   /// Plaintext serialized JSON bytes (pre-gzip, pre-Seal). For dashboard
   /// display and the size-cap path.
-  trace_size_bytes       Int
+  trace_size_bytes      Int
   /// Gzipped, post-Seal bytes — what we actually paid Walrus to store.
-  trace_gzip_size_bytes  Int
+  trace_gzip_size_bytes Int
 
   /// 32-byte Sui digest of the anchor tx. URL-safe replay handle.
-  tx_digest  Bytes
-  event_seq  Int
+  tx_digest Bytes
+  event_seq Int
 
   anchored_at DateTime @default(now())
 
@@ -1175,28 +1179,28 @@ model AgentShareToken {
 /// row right before issuing the LLM call. Rows older than a couple of
 /// days are stale audit; can be reaped by a future cleanup job.
 model ShareTokenUsageDay {
-  share_token_id   String
+  share_token_id         String
   // UTC date as YYYY-MM-DD. Avoids timezone foot-guns in WHERE clauses.
-  day_utc          String
+  day_utc                String
   // Number of chat completions completed (failures + over-cap rejects
   // do NOT increment).
-  requests         Int      @default(0)
+  requests               Int      @default(0)
   // USD spend in micro-dollars (i.e. 1e-6 USD). Aggregates the per-turn
   // (output_tokens / 1_000_000) * price_per_m_tokens_usd computation.
-  spend_usd_micros BigInt   @default(0)
+  spend_usd_micros       BigInt   @default(0)
   // Approximate bytes egressed through this share token today —
   // counted as `completion_tokens × 4` per chat completion (UTF-8
   // tokens average ~4 bytes per token). Source for the
   // `share_token_egress_bytes` Stripe meter; kept separate from the
   // gateway egress meter so we can detect public-link abuse without
   // double-billing the same byte.
-  bytes_out        BigInt   @default(0)
+  bytes_out              BigInt   @default(0)
   // Cursor for the share-token-egress rollup processor. Each tick
   // computes `bytes_out - bytes_out_at_last_emit` and emits the delta
   // as a MeterEvent; afterwards this field is set to `bytes_out`.
   // Null on first observation.
-  bytes_out_at_last_emit BigInt? @default(0)
-  updated_at       DateTime @updatedAt
+  bytes_out_at_last_emit BigInt?  @default(0)
+  updated_at             DateTime @updatedAt
 
   share_token AgentShareToken @relation(fields: [share_token_id], references: [id], onDelete: Cascade)
 
@@ -1367,26 +1371,27 @@ model StripeWebhookEvent {
 /// can't fire the same alert twice. Period rollover (new month)
 /// produces fresh rows naturally.
 model BillingAlert {
-  id              String   @id @default(cuid())
-  project_id      String
+  id                        String    @id @default(cuid())
+  project_id                String
   /// Calendar-month-UTC of the period: YYYY-MM. Matches the
   /// `/v1/usage` window so the dashboard can correlate.
-  period          String
+  period                    String
   /// 50, 80, 100, etc. Matches values from
   /// `BillingAccount.soft_alert_thresholds`.
-  threshold_pct   Int
+  threshold_pct             Int
   /// `email`, `slack`, `log`. Stubbed channels emit to logger; real
   /// ones swap in later.
-  channel         String
+  channel                   String
   /// USD-cents accrued when the alert fired (snapshot for audit).
   accrued_at_fire_usd_cents Int
   /// USD-cents cap the threshold was a percentage of.
   cap_usd_cents             Int
-  fired_at        DateTime @default(now())
-  delivered_at    DateTime?
-  attempt_count   Int      @default(0)
-  last_error      String?
-  payload         Json?
+  fired_at                  DateTime  @default(now())
+  delivered_at              DateTime?
+  attempt_count             Int       @default(0)
+  last_error                String?
+  payload                   Json?
+
   @@unique([project_id, period, threshold_pct, channel])
   @@index([delivered_at, fired_at])
   @@index([project_id, period])
@@ -1409,4 +1414,53 @@ model CostFloorSnapshot {
   oracle_sources             Json
   alert_fired                Boolean  @default(false)
   created_at                 DateTime @default(now())
+}
+
+// === Invite gate ===========================================================
+//
+// Kraterion is invite-only: a new account can only be created by redeeming a
+// valid invite code. Unlike inkray's referral model, codes are generated ONLY
+// by us (admin allowlist / CLI) — there is no user-facing earning system.
+//
+// A code carries a claim budget (`max_claims`); each redemption increments
+// `claim_count` and writes an `InviteClaim` row. The race-safe claim is a
+// single conditional UPDATE guarded by `claim_count < max_claims` (see
+// InvitesService.claimWithinTx), so a code can never be over-redeemed under
+// concurrent sign-ups.
+
+model InviteCode {
+  id          String    @id @default(uuid())
+  /// Human-facing code, format `KRT-XXXXXX` (uppercase, unambiguous alphabet).
+  code        String    @unique
+  /// How many times this code may be redeemed. 1 = single-use; >1 = multi-use.
+  max_claims  Int       @default(1)
+  /// Redemptions so far. Invariant: 0 <= claim_count <= max_claims.
+  claim_count Int       @default(0)
+  /// Free-text label for our own bookkeeping (who/why it was issued).
+  note        String?
+  /// Soft kill-switch — a disabled code fails validation without being deleted
+  /// (keeps the audit trail of prior claims intact).
+  disabled    Boolean   @default(false)
+  /// Null = never expires.
+  expires_at  DateTime?
+  created_at  DateTime  @default(now())
+
+  claims InviteClaim[]
+
+  @@index([code])
+}
+
+model InviteClaim {
+  id             String   @id @default(uuid())
+  invite_code_id String
+  /// The account created by redeeming the code. Unique → one invite per
+  /// account, ever (an account cannot redeem a second code).
+  account_id     String   @unique
+  claimed_at     DateTime @default(now())
+
+  invite_code InviteCode @relation(fields: [invite_code_id], references: [id], onDelete: Cascade)
+  account     Account    @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  @@unique([invite_code_id, account_id])
+  @@index([invite_code_id])
 }

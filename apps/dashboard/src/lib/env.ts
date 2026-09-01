@@ -41,10 +41,17 @@ export const env = {
   ),
   network: optional(process.env.NEXT_PUBLIC_SUI_NETWORK, "testnet") as "testnet" | "mainnet" | "devnet",
   /**
-   * Read lazily — `getEnokiPublicKey()` only throws when an Enoki path is hit.
-   * Pre-Phase-B pages that don't touch Enoki keep working even without it.
+   * Seal aggregator API key. Mainnet's aggregator is gated: browser-side
+   * decrypt must send this under the `SEAL_API_KEY_NAME` header (`x-api-key`).
+   * These Enoki-issued aggregator keys are meant to be client-shipped (same as
+   * inkray). Empty on testnet (open aggregator) → no header attached.
    */
-  getEnokiPublicKey: () => required(process.env.NEXT_PUBLIC_ENOKI_PUBLIC_KEY, "NEXT_PUBLIC_ENOKI_PUBLIC_KEY"),
+  sealApiKey: optional(process.env.NEXT_PUBLIC_SEAL_API_KEY, ""),
+  /**
+   * Google OAuth client id for self-hosted zkLogin. Read lazily — only the
+   * sign-in path needs it; other pages boot without it. Must match the
+   * control-plane's `GOOGLE_CLIENT_ID` (the `aud` it validates).
+   */
   getGoogleClientId: () => required(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, "NEXT_PUBLIC_GOOGLE_CLIENT_ID"),
   /**
    * Stripe publishable key for inline `<PaymentElement />` on the

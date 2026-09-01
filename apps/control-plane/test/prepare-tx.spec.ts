@@ -115,7 +115,7 @@ describe("PrepareTxService — Enoki-sponsored PTB build + authz", () => {
     });
     expect(res.expected.function).toBe(`${KRATERION_PACKAGE_ID}::kraterion::create_grant_and_share_bucket`);
     expect(res.expected.sender).toBe(aliceAddr);
-    expect(res.expected.sponsored_by).toBe("enoki");
+    expect(res.expected.sponsored_by).toBe("kraterion");
     expect(res.expected.allowed_move_call_targets).toEqual([
       `${KRATERION_PACKAGE_ID}::kraterion::create_grant_and_share_bucket`,
     ]);

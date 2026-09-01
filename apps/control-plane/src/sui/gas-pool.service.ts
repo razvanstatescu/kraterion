@@ -88,4 +88,44 @@ export class GasPoolService implements OnApplicationBootstrap, OnModuleDestroy {
     }
     return this.pool.execute(tx, options);
   }
+
+  private requirePool(): GasCoinPool {
+    if (!this.pool) {
+      throw new Error("GasPoolService used before initialization");
+    }
+    return this.pool;
+  }
+
+  /** Lease a coin to use as gas for a user-signed (sponsored) transaction. */
+  leaseForSponsor() {
+    return this.requirePool().leaseForSponsor();
+  }
+
+  /** Return a sponsor lease to the pool (failure path — refetch from chain). */
+  releaseSponsorLease(objectId: string) {
+    return this.requirePool().releaseSponsorLease(objectId);
+  }
+
+  /** Return a sponsor lease after a successful execution, using tx effects. */
+  releaseSponsorLeaseFromEffects(
+    objectId: string,
+    effects: Parameters<GasCoinPool["releaseSponsorLeaseFromEffects"]>[1],
+    oldBalanceMist: bigint,
+  ) {
+    return this.requirePool().releaseSponsorLeaseFromEffects(
+      objectId,
+      effects,
+      oldBalanceMist,
+    );
+  }
+
+  /** Gas budget (MIST) a sponsored tx should set to match the pooled coin. */
+  get sponsorGasBudgetMist(): bigint {
+    return this.requirePool().gasBudgetMist;
+  }
+
+  /** True once the gas pool has initialized (operator keypair loaded). */
+  isReady(): boolean {
+    return this.pool !== null;
+  }
 }

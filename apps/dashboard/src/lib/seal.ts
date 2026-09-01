@@ -27,6 +27,7 @@ import { access } from "@kraterion/kraterion-move-sdk";
 import {
   KRATERION_PACKAGE_ID,
   SEAL_AGGREGATOR_URL,
+  SEAL_API_KEY_NAME,
   SEAL_KEY_SERVERS,
 } from "@kraterion/shared";
 import { env } from "./env";
@@ -43,9 +44,9 @@ const SESSION_STORAGE_PREFIX = "kraterion.seal.session.";
 export type SealSuiClient = SuiJsonRpcClient;
 
 /**
- * Async callback that signs a personal-message payload — typically wired
- * straight to dApp Kit's `useSignPersonalMessage().mutateAsync`. Returning
- * just the signature string keeps the contract minimal.
+ * Async callback that signs a personal-message payload — wired to the
+ * zkLogin personal-message signer (`signPersonalMessageWithZkLogin`).
+ * Returning just the signature string keeps the contract minimal.
  */
 export type SignPersonalMessage = (message: Uint8Array) => Promise<{ signature: string }>;
 
@@ -61,12 +62,20 @@ export function getSealClient(suiClient: SealSuiClient): SealClient {
   if (_sealClient && _sealClient.suiClientRef === suiClient) {
     return _sealClient.client;
   }
+  // Mainnet aggregator is gated — attach the API key under its header when
+  // both are present (name from shared, key from NEXT_PUBLIC_SEAL_API_KEY).
+  // Testnet aggregator is open, so `gated` is false and no header is sent.
+  const apiKey = env.sealApiKey.trim() || undefined;
+  const apiKeyName = SEAL_API_KEY_NAME || undefined;
   const client = new SealClient({
     suiClient,
     serverConfigs: SEAL_KEY_SERVERS.map((s) => ({
       objectId: s.objectId,
       weight: s.weight,
       aggregatorUrl: SEAL_AGGREGATOR_URL,
+      // `apiKeyName && apiKey` narrows both to string; header attached only
+      // when both are present (mainnet), skipped on testnet's open aggregator.
+      ...(apiKeyName && apiKey ? { apiKeyName, apiKey } : {}),
     })),
     verifyKeyServers: false,
   });
@@ -88,9 +97,9 @@ interface SessionKeyDeps {
  * signature; same sensitivity as the JWT we already store in
  * `localStorage`, scoped to the current tab and gone on sign-out.
  *
- * On cache miss or expiry the user gets a wallet prompt to sign the
- * Seal personal message — Enoki's zkLogin signer handles it without a
- * popup if the OAuth session is still valid.
+ * On cache miss or expiry the Seal personal message is signed by the
+ * zkLogin signer (no wallet popup); a fresh Groth16 proof is fetched from
+ * the prover if one isn't already cached in the session.
  */
 export async function getOrCreateSessionKey(deps: SessionKeyDeps): Promise<SessionKey> {
   const cacheKey = SESSION_STORAGE_PREFIX + deps.accountAddress.toLowerCase();

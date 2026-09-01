@@ -4958,3 +4958,25 @@ reads + epoch, and a full smoke register→event-parse→indexer→handler chain
 `pnpm typecheck` + `pnpm test` green (also fixed a pre-existing stale DI arg-count
 in `prepare-tx.spec`). Residual: dashboard interactive sign+sponsor needs a
 manual browser+wallet pass; the 6 ops scripts are migrated but not run.
+
+## 2026-09-01 — [auth] Invite-only sign-up + mainnet-publish blocker found
+
+- **[mainnet] BLOCKED — Walrus mainnet lacks `storage_pool`.** Deployer funded
+  (20 SUI + 300 WAL, addr `0xbd9355…`), Sui CLI upgraded 1.73→1.78 (old CLI
+  couldn't read mainnet over gRPC), `setup-mainnet.sh` balance-check fixed for
+  the new `gas --json` shape. But the publish is blocked: `pool_vault.move`
+  depends on `walrus::storage_pool`, which is deployed on Walrus **testnet**
+  only — the live mainnet Walrus package (31 modules) has the classic
+  `shared_blob`/`storage_resource` model, no `storage_pool`. Options logged for
+  the user (wait for Walrus mainnet; build a classic-SharedBlob mainnet backend;
+  stay testnet-only). Nothing published.
+- **[auth] Seal mainnet config corrected** to match inkray: gated aggregator
+  `seal-aggregator-mainnet.mystenlabs.com` + Enoki API key header `x-api-key`,
+  `verifyKeyServers:false`, plumbed through server + browser SealClients.
+- **[auth] Invite-only sign-up shipped.** `InviteCode`/`InviteClaim` models +
+  migration; `InvitesModule` (public validate/status + admin generate/list/
+  disable behind ADMIN_EMAILS); gate wired into `resolveOrCreate` with an
+  atomic in-transaction claim; `KRT-XXXXXX` codes; CLI `invites:generate`;
+  dashboard `/login` invite field + callback error handling. Tests: 72/72
+  control-plane (incl. 3 new gate tests + a 12-check service probe covering
+  concurrency). Repo typecheck 19/19. `INVITE_SYSTEM_ENABLED` gates it.

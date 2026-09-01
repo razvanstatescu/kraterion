@@ -6,9 +6,10 @@ import { Banner } from "@/components/ui/Banner";
 import { Mark } from "@/components/ui/Mark";
 import { Pill } from "@/components/ui/Pill";
 import { useToast } from "@/components/ui/Toast";
-import { useCpSession, useGoogleSignIn } from "@/lib/auth";
+import { stashPendingInvite, useCpSession, useGoogleSignIn } from "@/lib/auth";
 import { ControlPlaneError } from "@/lib/api";
 import { GridPulse } from "@/components/auth/GridPulse";
+import { InviteCodeInput, fullInviteCode } from "@/components/auth/InviteCodeInput";
 import { LoginStoryPanel } from "@/components/auth/LoginStoryPanel";
 import { ProviderButton } from "@/components/auth/ProviderButton";
 
@@ -17,9 +18,9 @@ import { ProviderButton } from "@/components/auth/ProviderButton";
  * Left (Ink) — rotating story panel of Kraterion's differentiators.
  * Right (Cream) — the actual auth controls.
  *
- * Auth flow itself is unchanged: Enoki opens the Google popup and returns
- * the JWT directly to the SDK. `?reason=stale` indicates the dashboard
- * detected an expired Enoki session (zkLogin ~1 day; CP JWT 7 days).
+ * Auth is self-hosted zkLogin: "Continue" redirects to Google, which returns
+ * to `/auth/callback` to finish the ceremony. `?reason=stale` indicates the
+ * dashboard detected an expired zkLogin session (proof ~days; CP JWT 7 days).
  */
 function LoginContent() {
   const router = useRouter();
@@ -29,24 +30,35 @@ function LoginContent() {
   const { show } = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteBody, setInviteBody] = useState("");
+  const [inviteInvalid, setInviteInvalid] = useState(false);
 
   const stale = params?.get("reason") === "stale";
+  // The callback bounces invite failures back here with a message.
+  const inviteError = params?.get("invite_error") ?? null;
 
   useEffect(() => {
     if (mounted && session) router.replace("/buckets");
   }, [mounted, session, router]);
 
+  useEffect(() => {
+    if (inviteError) {
+      setError(inviteError);
+      setInviteInvalid(true);
+    }
+  }, [inviteError]);
+
   const onContinue = async () => {
     setError(null);
+    setInviteInvalid(false);
     setBusy(true);
     try {
-      const res = await signIn();
-      show({
-        tone: "success",
-        title: res.created ? "Welcome to Kraterion" : "Welcome back",
-        body: `Signed in as ${res.account.email}.`,
-      });
-      router.replace("/buckets");
+      // Persist the invite code (if any) so it survives the Google redirect and
+      // can be read on /auth/callback. Blank is fine for returning users.
+      stashPendingInvite(fullInviteCode(inviteBody));
+      // Redirects to Google; sign-in completes on /auth/callback. If the
+      // redirect is initiated, the code below won't run (page unloads).
+      await signIn();
     } catch (err) {
       const message =
         err instanceof ControlPlaneError
@@ -103,6 +115,16 @@ function LoginContent() {
               body="Your wallet session timed out. Re-authenticate to keep working on-chain."
             />
           ) : null}
+
+          <InviteCodeInput
+            value={inviteBody}
+            onChange={(b) => {
+              setInviteBody(b);
+              if (inviteInvalid) setInviteInvalid(false);
+            }}
+            invalid={inviteInvalid}
+            disabled={busy}
+          />
 
           <div className="ks-login-providers">
             <ProviderButton

@@ -11,9 +11,11 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "enoki:smoke": "tsx scripts/enoki-live-smoke.ts",
+    "sponsor:smoke": "tsx scripts/self-sponsor-smoke.ts",
     "stripe:sync": "tsx scripts/stripe/sync.ts",
-    "replay": "tsx scripts/kraterion-replay.ts"
+    "replay": "tsx scripts/kraterion-replay.ts",
+    "zklogin:probe": "tsx scripts/zklogin-selfhost-probe.ts",
+    "invites:generate": "tsx scripts/generate-invites.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
@@ -25,7 +27,6 @@
     "@kraterion/walrus-client": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mysten-incubation/memwal": "^0.0.7",
-    "@mysten/enoki": "^1.0.7",
     "@mysten/sui": "^2.16.2",
     "@nestjs/bullmq": "^10.2.0",
     "@nestjs/common": "^10.4.0",

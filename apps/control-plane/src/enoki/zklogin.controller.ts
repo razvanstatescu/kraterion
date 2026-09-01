@@ -5,10 +5,10 @@ import { type ZkLoginDto, zkLoginSchema } from "./dto.js";
 import { ZkLoginService } from "./zklogin.service.js";
 
 /**
- * Production sign-in endpoint. The dashboard does the Enoki-mediated
- * Google OAuth popup and ends up with a Google ID token; it POSTs that
- * token here, we hand it to Enoki for verification + address derivation,
- * upsert our `Account` row, and mint our own session JWT.
+ * Production sign-in endpoint. The dashboard runs the Google OAuth redirect
+ * and ends up with a Google ID token; it POSTs that token here. We verify it
+ * locally (`GoogleJwtService`), derive the address from our salt
+ * (`jwtToAddress`), upsert the `Account`, and mint our own session JWT.
  *
  * The dev-mode endpoints in `auth.controller.ts` are still gated behind
  * `NODE_ENV !== 'production'` for tests / smoke probes.
@@ -23,7 +23,7 @@ export class ZkLoginController {
   @Post("zklogin")
   @HttpCode(200)
   async signIn(@Body(parseBody(zkLoginSchema)) dto: ZkLoginDto) {
-    const resolved = await this.zklogin.resolveOrCreate(dto.google_jwt);
+    const resolved = await this.zklogin.resolveOrCreate(dto.google_jwt, dto.invite_code);
     const token = this.tokens.sign({
       sub: resolved.account.id,
       email: resolved.account.email,

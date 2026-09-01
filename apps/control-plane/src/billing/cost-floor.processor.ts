@@ -1,5 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import {
+  STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST,
+  WRITE_PRICE_PER_MIB_FROST,
+} from "@kraterion/walrus-client";
 import { PrismaService } from "../prisma/prisma.service.js";
 
 /**
@@ -114,8 +118,8 @@ export class CostFloorProcessor implements OnModuleInit, OnModuleDestroy {
       update: {
         wal_usd_micros: BigInt(Math.round(walUsd * 1_000_000)),
         sui_usd_micros: BigInt(Math.round(suiUsd * 1_000_000)),
-        walrus_storage_price_frost: 3000n,
-        walrus_write_price_frost: 5_000n,
+        walrus_storage_price_frost: STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST,
+        walrus_write_price_frost: WRITE_PRICE_PER_MIB_FROST,
         per_meter_floor_json: perMeterFloor as unknown as Prisma.InputJsonValue,
         oracle_sources: sources as unknown as Prisma.InputJsonValue,
         alert_fired: alertFired,
@@ -124,8 +128,8 @@ export class CostFloorProcessor implements OnModuleInit, OnModuleDestroy {
         day,
         wal_usd_micros: BigInt(Math.round(walUsd * 1_000_000)),
         sui_usd_micros: BigInt(Math.round(suiUsd * 1_000_000)),
-        walrus_storage_price_frost: 3000n,
-        walrus_write_price_frost: 5_000n,
+        walrus_storage_price_frost: STORAGE_PRICE_PER_MIB_PER_EPOCH_FROST,
+        walrus_write_price_frost: WRITE_PRICE_PER_MIB_FROST,
         per_meter_floor_json: perMeterFloor as unknown as Prisma.InputJsonValue,
         oracle_sources: sources as unknown as Prisma.InputJsonValue,
         alert_fired: alertFired,

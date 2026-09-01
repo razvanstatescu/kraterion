@@ -12,13 +12,12 @@
 import "dotenv/config";
 import { execSync } from "node:child_process";
 import { Transaction, coinWithBalance } from "@mysten/sui/transactions";
-import { KRATERION_PACKAGE_ID, KRATERION_RESERVE_ID } from "@kraterion/shared";
+import { KRATERION_PACKAGE_ID, KRATERION_RESERVE_ID, WAL_COIN_TYPE } from "@kraterion/shared";
 import { reserve } from "@kraterion/kraterion-move-sdk";
 import { gasStatusError, gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
-const WAL_COIN_TYPE =
-  "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL";
+
 
 interface Args {
   walMist: bigint;

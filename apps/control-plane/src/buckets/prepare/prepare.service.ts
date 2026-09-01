@@ -21,19 +21,17 @@ const FN = {
 } as const;
 
 /**
- * Builds the unsigned PTBs for the four bucket-lifecycle calls and
- * hands them to Enoki for sponsorship.
+ * Builds the unsigned PTBs for the four bucket-lifecycle calls and hands
+ * them to our self-hosted `SponsorshipService` for gas sponsorship.
  *
  * For each entry function we:
  *   1. Verify ownership against Postgres (`accountId` → project / bucket).
- *   2. Build a `Transaction` with the single Move call, the same way
- *      Phase 3 did.
- *   3. Serialize via `tx.build({ client, onlyTransactionKind: true })` —
- *      Enoki accepts kind-bytes only (it constructs gas + sender itself).
- *   4. Call `SponsorshipService.createSponsored` with the user's address
- *      and a per-request `allowedMoveCallTargets` set to the *exact*
- *      package-qualified target. Enoki will refuse to settle anything
- *      else, so a malicious frontend can't redirect our budget.
+ *   2. Build a `Transaction` with the single Move call.
+ *   3. Serialize via `tx.build({ client, onlyTransactionKind: true })` — the
+ *      sponsor path adds the gas envelope (operator as gas owner) itself.
+ *   4. Call `SponsorshipService.createSponsored` with the user's address and
+ *      a per-request `allowedMoveCallTargets` set to the *exact* package-
+ *      qualified target — a defense-in-depth guard on the reconstructed PTB.
  *
  * The Move helpers in `@kraterion/kraterion-move-sdk` default
  * `package: '@local-pkg/kraterion'` (a NamedPackagesPlugin placeholder).
@@ -472,7 +470,7 @@ export class PrepareTxService {
         summary,
         sender: senderAddress,
         allowed_move_call_targets: targets,
-        sponsored_by: "enoki",
+        sponsored_by: "kraterion",
       },
     };
   }

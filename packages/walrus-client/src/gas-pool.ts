@@ -165,6 +165,15 @@ interface CoinRecord {
   balance: string; // MIST, decimal string
 }
 
+/** A leased gas coin handed to the sponsor path. Nameable (exported) so
+ *  consumers can annotate return types across package boundaries. */
+export interface SponsorLease {
+  objectId: string;
+  version: string;
+  digest: string;
+  balance: string;
+}
+
 interface GasObjectRef {
   objectId: string;
   version: string;
@@ -273,7 +282,66 @@ export class GasCoinPool {
     }
   }
 
-  private async acquire(): Promise<{ objectId: string } & CoinRecord> {
+  /**
+   * Gas budget (MIST) the pool provisions per leased coin — also the budget
+   * a sponsored tx should set. Exposed so the sponsor path can build a tx
+   * whose budget matches what the pooled coin can actually cover.
+   */
+  get gasBudgetMist(): bigint {
+    return this.cfg.gasBudgetMist;
+  }
+
+  /**
+   * Lease a pool coin for an **externally-signed** (sponsored) transaction.
+   *
+   * Unlike {@link execute}, the caller holds the lease across a client
+   * round-trip (build → user signs → execute), so we use a longer TTL than
+   * the default lease. The caller MUST call {@link releaseSponsorLease} once
+   * the tx settles (or fails); if the process crashes, the lease TTL still
+   * reclaims the coin on the next reconcile.
+   */
+  async leaseForSponsor(ttlMs = 300_000): Promise<SponsorLease> {
+    return this.acquire(ttlMs);
+  }
+
+  /**
+   * Return a sponsor lease to the pool, re-reading the coin's current ref
+   * from chain. Use for the failure path (tx never executed) where there are
+   * no effects to recover the new ref from.
+   */
+  async releaseSponsorLease(objectId: string): Promise<void> {
+    await this.releaseByRefetch(objectId, this.cfg);
+  }
+
+  /**
+   * Return a sponsor lease after a *successful* execution, recovering the
+   * gas coin's new version directly from the tx effects — exactly like
+   * {@link execute} does. This is deterministic and avoids the read-your-own-
+   * write race a refetch can hit, which would otherwise leave a stale coin
+   * version in Redis and fail the next lease with "provided version doesn't
+   * match". Falls back to refetch if effects don't carry the gas ref.
+   */
+  async releaseSponsorLeaseFromEffects(
+    objectId: string,
+    effects: SuiClientTypes.TransactionEffects,
+    oldBalanceMist: bigint,
+  ): Promise<void> {
+    const ref = gasRefFromEffects(effects);
+    if (ref) {
+      await this.release(
+        objectId,
+        ref,
+        estimateNewBalance(oldBalanceMist.toString(), effects),
+        this.cfg,
+      );
+    } else {
+      await this.releaseByRefetch(objectId, this.cfg);
+    }
+  }
+
+  private async acquire(
+    ttlMs: number = this.cfg.leaseTtlMs,
+  ): Promise<{ objectId: string } & CoinRecord> {
     const cfg = this.cfg;
     const deadline = Date.now() + cfg.acquireTimeoutMs;
     let warned = false;
@@ -284,7 +352,7 @@ export class GasCoinPool {
         this.kFree,
         this.kData,
         this.leasePrefix,
-        cfg.leaseTtlMs,
+        ttlMs,
       )) as [string, string | null] | null;
       if (r && r[1]) {
         const rec = JSON.parse(r[1]) as CoinRecord;

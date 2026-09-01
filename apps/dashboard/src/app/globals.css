@@ -1305,6 +1305,69 @@ code, kbd, samp {
   white-space: nowrap;
 }
 
+/* Invite-code field — shown on /login above the providers. Kraterion is
+   invite-only; new accounts must present a KRT-XXXXXX code. */
+.ks-invite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ks-invite-label {
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.ks-invite-field {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  height: 48px;
+  padding: 0 var(--space-4);
+  gap: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--dur-base) var(--ease);
+}
+.ks-invite-field:focus-within {
+  border-color: var(--krater);
+  outline: 2px solid var(--krater);
+  outline-offset: 1px;
+}
+.ks-invite-field[data-invalid="true"] {
+  border-color: var(--danger, #b4432f);
+}
+.ks-invite-prefix {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.12em;
+  user-select: none;
+}
+.ks-invite-input {
+  appearance: none;
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ks-invite-input::placeholder {
+  color: var(--text-tertiary);
+  letter-spacing: 0.12em;
+}
+.ks-invite-help {
+  font-size: var(--fs-micro);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 .ks-login-rule {
   display: flex; align-items: center;
   gap: var(--space-3);

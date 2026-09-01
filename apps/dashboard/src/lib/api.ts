@@ -387,7 +387,7 @@ export interface PrepareTxResponse {
     summary: string;
     sender: string;
     allowed_move_call_targets: string[];
-    sponsored_by: "enoki";
+    sponsored_by: "kraterion";
   };
 }
 

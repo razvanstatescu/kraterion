@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useCurrentAccount, useSignPersonalMessage, useSuiClient } from "@mysten/dapp-kit";
+import { useSuiClient } from "@mysten/dapp-kit";
+import { getZkSession, signPersonalMessageWithZkLogin } from "@/lib/zklogin";
 import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -73,18 +74,16 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
   const encryptionMode = bucket.encryption_mode;
   const apiAccessGranted = bucket.api_access_granted;
 
-  // Browser-decrypt path dependencies. `useCurrentAccount()` is the
-  // signed-in Sui address (the bucket owner during normal use); the
-  // `signPersonalMessage` mutation pipes through Enoki's zkLogin signer.
+  // Browser-decrypt path dependencies. The signed-in Sui address + signer
+  // come from our self-hosted zkLogin session; the personal-message signature
+  // (for the Seal SessionKey) is assembled as a zkLogin signature.
   const suiClient = useSuiClient();
-  const currentAccount = useCurrentAccount();
-  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+  const zkSession = getZkSession();
 
   const filename = object.s3_key.split("/").pop() || object.s3_key;
-  // Browser decrypt requires the wallet to be connected (we need the
-  // user's address to seed the SessionKey + the signer to sign it).
-  // Without it we can't run the private path at all.
-  const browserDecryptReady = encryptionMode === "private" && Boolean(currentAccount);
+  // Browser decrypt requires an active zkLogin session (we need the user's
+  // address to seed the SessionKey + the signer to sign it).
+  const browserDecryptReady = encryptionMode === "private" && Boolean(zkSession);
   // Gateway path is the fallback (public-read) or the only path when the
   // wallet isn't connected. It's blocked by api_access_granted.
   const useBrowserDecrypt = encryptionMode === "private" && browserDecryptReady;
@@ -94,7 +93,7 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
   const downloadTooltip = useBrowserDecrypt
     ? browserDecryptReady
       ? undefined
-      : "Sign in with a wallet to decrypt this file in your browser."
+      : "Sign in to decrypt this file in your browser."
     : apiAccessGranted
       ? undefined
       : "API access is revoked.";
@@ -102,11 +101,11 @@ export function Inspector({ object, bucket, onDeleted }: Props) {
   const onDownload = async () => {
     setDownloading(true);
     try {
-      if (useBrowserDecrypt && currentAccount) {
+      if (useBrowserDecrypt && zkSession) {
         await downloadPrivateInBrowser({
           suiClient,
-          accountAddress: currentAccount.address,
-          signPersonalMessage: async (msg) => signPersonalMessage({ message: msg }),
+          accountAddress: zkSession.address,
+          signPersonalMessage: (msg) => signPersonalMessageWithZkLogin(msg),
           object,
           bucket,
           filename,

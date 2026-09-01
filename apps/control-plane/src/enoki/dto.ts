@@ -1,8 +1,12 @@
 import { z } from "zod";
 
 export const zkLoginSchema = z.object({
-  /** The Google ID token returned by the Enoki popup OAuth flow. */
+  /** The Google ID token from the OAuth redirect flow. */
   google_jwt: z.string().min(20),
+  /** Invite code, required only on first sign-up when the gate is enabled.
+   *  Ignored for returning users. Loosely bounded here; the invites service
+   *  normalizes + validates the exact `KRT-XXXXXX` shape. */
+  invite_code: z.string().trim().min(1).max(32).optional(),
 });
 export type ZkLoginDto = z.infer<typeof zkLoginSchema>;
 
