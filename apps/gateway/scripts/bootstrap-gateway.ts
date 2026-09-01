@@ -35,13 +35,16 @@ import { gasTx, getSuiClient } from "@kraterion/walrus-client";
 import { EnvKeyWrapper } from "../src/auth/key-wrapping.js";
 import { loadActiveDeployerKeypair } from "./load-deployer.js";
 
-const GATEWAY_FUND_SUI = 50n; // 50 SUI for gas (raised from 5 for the hosted deploy)
+// Funding amounts are env-overridable so a bootstrap can fit a constrained
+// deployer balance (e.g. BOOTSTRAP_GATEWAY_SUI=10). Defaults target a hosted
+// deploy with ample headroom.
+const GATEWAY_FUND_SUI = BigInt(process.env["BOOTSTRAP_GATEWAY_SUI"] ?? "50"); // whole SUI
 // Knowledge-indexer sub-wallet needs SUI for K5 manifest writes
-// (`register_blob_for_bucket` + `wrap_in_shared_blob`). Raised to 10 SUI
-// for the hosted deploy so the indexer has ample gas headroom; the K5
-// worker uses the same gas pattern as the gateway.
-const KNOWLEDGE_INDEXER_FUND_SUI = 10_000_000_000n; // 10 SUI in MIST
-const RESERVE_FUND_WAL_MIST = 100_000_000_000n; // 100 WAL (raised from 2 for storage headroom)
+// (`register_blob_for_bucket` + `wrap_in_shared_blob`).
+const KNOWLEDGE_INDEXER_FUND_SUI =
+  BigInt(process.env["BOOTSTRAP_INDEXER_SUI"] ?? "10") * MIST_PER_SUI; // in MIST
+const RESERVE_FUND_WAL_MIST =
+  BigInt(process.env["BOOTSTRAP_RESERVE_WAL"] ?? "100") * 1_000_000_000n; // WAL in MIST
 const TEST_ACCOUNT_EMAIL = "demo@kraterion.dev";
 const TEST_ACCOUNT_ZKLOGIN_SUB = "demo-zklogin-sub-bootstrap";
 const TEST_PROJECT_NAME = "demo-project";
