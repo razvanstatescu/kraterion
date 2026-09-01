@@ -159,6 +159,8 @@ services:
       # plan is usable, and no Stripe keys are required to boot. Flip to "true"
       # and set the live keys below to enable paid plans.
       - { key: BILLING_ENABLED, scope: RUN_TIME, value: "false" }
+      # Sponsorship gas-coin pool size (coins x 1 SUI). Fit the operator balance.
+      - { key: GAS_POOL_SIZE, scope: RUN_TIME, value: "6" }
       - { key: STRIPE_MODE, scope: RUN_TIME, value: "test" }
       # Only required when BILLING_ENABLED=true:
       # - { key: STRIPE_PUBLISHABLE_KEY, scope: RUN_TIME, type: SECRET, value: "REPLACE_ME" }
