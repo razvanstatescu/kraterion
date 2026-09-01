@@ -1,34 +1,7 @@
 [package]
 name = "kraterion"
-edition = "2024.beta"
+edition = "2024"
 
 [dependencies]
-# Sui framework is brought in transitively via Walrus. The `testnet-contracts`
-# subtree of the Walrus repo holds the exact source code of the testnet
-# deployment, paired with Move.lock files that carry the deployed addresses.
-#
-# Pinned to a specific commit (not the `testnet` branch HEAD) for build
-# stability — the storage_pool primitive lives at this commit and bumping
-# without rebuilding our wrapper module risks ABI drift. Bump deliberately:
-# update SHA, run `sui move build`, regenerate TS bindings, run full E2E.
-# Source: https://github.com/MystenLabs/walrus/commit/9c5590a81e29e1141b05a2481c677fe1e2b73b29
-Walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "testnet-contracts/walrus", rev = "9c5590a81e29e1141b05a2481c677fe1e2b73b29" }
-
-[addresses]
-kraterion = "0x0"
-# Override the placeholder addresses Walrus's source carries (`0x0`) with the
-# real testnet deployment IDs so our package consumes the deployed Walrus and
-# WAL packages instead of trying to re-publish them. Verify against
-# `testnet-contracts/{walrus,wal}/Published.toml` (chain-id = "4c78adac") if
-# the build complains.
-#
-# `walrus` is the ORIGINAL-id (v1 published-at). Move types live forever at
-# their original address — `walrus::system::System` is `0xd84704c1...::system::System`
-# regardless of upgrades. When we submit tx calls referencing this address,
-# Sui's upgrade-chain resolution dispatches to the latest version
-# (currently v3 at 0x849e95d2... — which is the version that ships
-# `storage_pool`). For RPC introspection that should reflect current code,
-# query the v3 published-at directly (see `WALRUS_PACKAGE_PUBLISHED_AT_TESTNET`
-# in `packages/shared/src/constants.ts`).
-walrus = "0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66"
-wal = "0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a"
+walrus = { git = "https://github.com/MystenLabs/walrus.git", subdir = "mainnet-contracts/walrus", rev = "d46fde7db5d78dc51767d35f22aa5b55c7e4c1fa" }
+wal = { git = "https://github.com/MystenLabs/walrus.git", subdir = "mainnet-contracts/wal", rev = "d46fde7db5d78dc51767d35f22aa5b55c7e4c1fa" }

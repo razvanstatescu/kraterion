@@ -165,9 +165,9 @@ export const KRATERION_RESERVE_ID_TESTNET =
 
 // Filled by `scripts/setup-mainnet.sh` after the mainnet publish. Empty until
 // then — mainnet on-chain ops fail loudly (by design) until published.
-export const KRATERION_PACKAGE_ID_MAINNET = "";
-export const KRATERION_UPGRADE_CAP_ID_MAINNET = "";
-export const KRATERION_RESERVE_ID_MAINNET = "";
+export const KRATERION_PACKAGE_ID_MAINNET = "0xcd9329e9693fecbcdb1d505d537e007c08d08f77dc65094cf149bc3018ce3396";
+export const KRATERION_UPGRADE_CAP_ID_MAINNET = "0x724ef6a057c7146c68dbbf5e59ed20dfeee8c4c985dc507bc93892fec1d799ee";
+export const KRATERION_RESERVE_ID_MAINNET = "0x6759a74f0bdaf5aa245790fef85dc06bc480bcec804bf286760bf026bb8ff132";
 
 /** Kraterion Move package (active network). */
 export const KRATERION_PACKAGE_ID = MAINNET
