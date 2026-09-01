@@ -18,8 +18,14 @@
 | Mainnet Postgres | `kraterion-db-mainnet` (nyc3) — migrations applied incl. invites |
 | Mainnet Redis | `kraterion-redis-mainnet` (nyc3) |
 | DO app | `kraterion-mainnet` (id `fe06a33a-9af6-4f1c-9347-80e143bd822f`) — control-plane + worker, **autodeploy from `main`** |
-| RAZVAN invite | `KRT-RAZVAN`, 50 claims, in the mainnet DB ✓ |
-| Vercel dashboard | env repointed to mainnet (network, aggregator, Seal key, Google client) |
+| Control-plane URL | `https://kraterion-mainnet-omtuv.ondigitalocean.app` — `/health` 200, invite endpoints live |
+| Dashboard | `https://app.kraterion.com` (Vercel) — bundle now points at the mainnet control-plane; autodeploys from `main` |
+| RAZVAN invite | `KRT-RAZVAN`, 50 claims — **validated live on mainnet** (`{"valid":true,"remaining":50}`) ✓ |
+| Billing | **disabled** (`BILLING_ENABLED=false`) — free-plan-only, no Stripe keys needed |
+| Gas pool | `GAS_POOL_SIZE=6` (operator has 10 SUI; default 16 didn't fit) |
+
+Verified live via API: `/health` → 200, `/v1/invites/system-status` → `{enabled:true}`,
+`POST /v1/invites/validate {code:"KRT-RAZVAN"}` → `{valid:true, remaining:50}`.
 
 Build fix along the way: `pnpm-lock.yaml` had stale `@mysten/enoki` entries
 (removed from package.json in the self-host work) that broke every
@@ -34,11 +40,14 @@ requires the same environment-aware flow (see Move.lock).
 
 ## ⚠️ Manual steps to finish full end-to-end
 
-1. **Google OAuth redirect URI (blocks browser sign-in).** The dashboard uses
-   client `529273428874-…` (must equal the control-plane `GOOGLE_CLIENT_ID`).
-   Add the dashboard origin's callback to that client's authorized redirect
-   URIs: `https://<dashboard-domain>/auth/callback`. Until this is done, Google
-   sign-in (and thus the RAZVAN sign-up test) fails at the OAuth redirect.
+1. **Google OAuth redirect URI (verify for browser sign-in).** The dashboard +
+   control-plane both use client `529273428874-…`. The dashboard runs at
+   `https://app.kraterion.com` (its domain for 82 days), so the redirect URI
+   `https://app.kraterion.com/auth/callback` is *probably already registered* on
+   that client — if so, browser sign-in with `KRT-RAZVAN` works end-to-end right
+   now. If sign-in fails at the Google redirect, add that exact URI in the Google
+   Cloud console (Credentials → the OAuth client → Authorized redirect URIs).
+   This is the only step I can't verify without your Google console.
 2. **Gateway (S3 uploads) not yet deployed.** It needs its own hostname
    (`s3.kraterion.com`) — App Platform can't route two host-root HTTP services
    without DNS. Add the gateway service to the app + a CNAME once DNS is set.
