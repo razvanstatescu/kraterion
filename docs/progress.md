@@ -4980,3 +4980,31 @@ manual browser+wallet pass; the 6 ops scripts are migrated but not run.
   dashboard `/login` invite field + callback error handling. Tests: 72/72
   control-plane (incl. 3 new gate tests + a 12-check service probe covering
   concurrency). Repo typecheck 19/19. `INVITE_SYSTEM_ENABLED` gates it.
+
+## 2026-09-01 — [mainnet] LIVE on Sui + Walrus mainnet (blocker was a stale cache)
+
+- **The "storage_pool BLOCKED" note above is superseded.** The earlier check
+  queried the wrong/stale Walrus package versions. Walrus mainnet DOES ship
+  `storage_pool` — it's in the v3 code package `0x98da433a…` (34 modules).
+- **[move] Published to mainnet.** Migrated `move/kraterion/Move.toml` to the
+  new environment-aware format depending on `mainnet-contracts/{walrus,wal}` at
+  rev `d46fde7`; 44 Move tests pass, TS bindings unchanged (kraterion's own ABI
+  is identical). Deployed:
+  - package `0xcd9329e9693fecbcdb1d505d537e007c08d08f77dc65094cf149bc3018ce3396`
+  - reserve `0x6759a74f0bdaf5aa245790fef85dc06bc480bcec804bf286760bf026bb8ff132`
+  - upgrade cap `0x724ef6a057c7146c68dbbf5e59ed20dfeee8c4c985dc507bc93892fec1d799ee`
+  - publish checkpoint `317510651` (INDEXER_INITIAL_CHECKPOINT)
+- **[infra] Full mainnet stack up.** DO managed Postgres + Redis (nyc3),
+  migrations applied (incl. invites); reserve funded 100 WAL, operator +
+  knowledge-indexer wallets created + authorized on-chain; DO app
+  `kraterion-mainnet` (control-plane + worker, autodeploy from `main`), live at
+  `kraterion-mainnet-omtuv.ondigitalocean.app`; dashboard repointed to mainnet
+  at `app.kraterion.com`. Verified live: `/health` 200, invite validate, and a
+  real bucket creation indexed end-to-end.
+- **[billing] `BILLING_ENABLED` flag** (default false) — Stripe fully disabled,
+  free-plan-only, no keys needed to boot; fixes a `STRIPE_MODE=live` boot crash.
+- **[infra] `GAS_POOL_SIZE=6`** so the operator's sponsorship gas-coin pool fits
+  the funded balance (default 16 coins didn't).
+- Known follow-ups: the indexer runs on the public mainnet gRPC (rate-limited /
+  flaky) — move to a dedicated provider for reliability; the gateway (S3) still
+  needs its own `s3.` hostname/DNS; Move package is unaudited.

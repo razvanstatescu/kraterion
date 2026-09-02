@@ -1,6 +1,12 @@
 # Sui Overflow 2026 — Timeline
 
-Walrus track. Submission gate is **June 21, 2026**. Today is **May 7, 2026**.
+> **STATUS (2026-09-01): shipped.** Sui Overflow 2026 is over — Kraterion won the
+> Walrus track — and the app is now **live on Sui + Walrus mainnet**
+> (package `0xcd9329e9…`). The hackathon schedule below is kept as the historical
+> build plan; current work is tracked in [`progress.md`](progress.md) and the live
+> state in [`mainnet-deploy-status.md`](mainnet-deploy-status.md).
+
+Walrus track. Submission gate was **June 21, 2026**.
 
 ## Key dates
 

@@ -20,7 +20,7 @@ export function PremiumCTA({
   secondaryHref = "/docs",
   secondaryLabel = "Read the docs",
   satellites,
-  buildTag = "v 0.1 · testnet",
+  buildTag = "Live on mainnet",
   status = "All systems normal",
   className,
 }: {

@@ -88,7 +88,7 @@ export default async function Image() {
                   background: KRATER,
                 }}
               />
-              <span>v 0.1 · testnet</span>
+              <span>Live on Sui mainnet</span>
               <span
                 style={{
                   width: 1,

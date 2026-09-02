@@ -143,7 +143,12 @@ Improvements to the design system go in `/design-system/` — not in app code.
   not install.
 
 ## Network
-- Walrus testnet only for now
-- Sui testnet only for now
-- Seal testnet key servers (Mysten public, 2-of-3)
-- Network constants in packages/shared/src/constants.ts
+- **Live on Sui + Walrus MAINNET** (published 2026-09-01). Move package
+  `0xcd9329e9693fecbcdb1d505d537e007c08d08f77dc65094cf149bc3018ce3396`,
+  PlatformReserve `0x6759a74f0bdaf5aa245790fef85dc06bc480bcec804bf286760bf026bb8ff132`.
+- Code is network-aware: `SUI_NETWORK` (server) / `NEXT_PUBLIC_SUI_NETWORK`
+  (browser) selects mainnet vs testnet. **Local dev still defaults to testnet.**
+- Seal mainnet uses the gated aggregator (`seal-aggregator-mainnet.mystenlabs.com`)
+  with an Enoki API key as the `x-api-key` header; `verifyKeyServers:false`
+  (see /docs/decisions.md). Testnet uses the open aggregator + Mysten key servers.
+- All network constants resolve from `packages/shared/src/constants.ts`.

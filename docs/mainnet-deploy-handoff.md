@@ -1,5 +1,11 @@
 # Kraterion mainnet deployment — handoff
 
+> **SUPERSEDED — the deploy happened.** This was the pre-funding handoff; the
+> "hard stop" below was cleared later the same day (the deployer was funded and
+> the package published to mainnet). For the live state — package id, live URLs,
+> and what actually remains — see [`mainnet-deploy-status.md`](mainnet-deploy-status.md).
+> This doc is kept as the record of what was staged beforehand.
+
 **Prepared 2026-09-01.** Everything that could be done without real money or an
 external account is done and tested. What remains is fundamentally gated on
 **real SUI/WAL** (publish + fund) and a few **external signups** (Google OAuth,

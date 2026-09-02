@@ -126,7 +126,7 @@ export default function Page() {
   -H "Authorization: Bearer kr_live_..." \\
   -H "Content-Type: application/json" \\
   -d '{ "name": "backend" }'
-# → { "token": "kr_live_...", "network": "testnet" }`,
+# → { "token": "kr_live_...", "network": "mainnet" }`,
               },
             ]}
           />

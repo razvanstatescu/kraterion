@@ -18,7 +18,13 @@ const HEADINGS = [
   { id: "pool-vaults-renewal", label: "Pools & renewal", level: 2 as const },
   { id: "revocation-guarantee", label: "The revocation guarantee", level: 2 as const },
   { id: "cancellation-persistence", label: "Cancellation persistence", level: 2 as const },
+  { id: "on-chain-deployment", label: "On-chain deployment", level: 2 as const },
 ];
+
+const MAINNET_PACKAGE_ID =
+  "0xcd9329e9693fecbcdb1d505d537e007c08d08f77dc65094cf149bc3018ce3396";
+const MAINNET_RESERVE_ID =
+  "0x6759a74f0bdaf5aa245790fef85dc06bc480bcec804bf286760bf026bb8ff132";
 
 export default function Page() {
   return (
@@ -179,6 +185,53 @@ public fun seal_approve(id, bucket, ctx) {
           stored under your account on Walrus; they exist independently of your
           subscription. The platform can stop serving the API, but it was never
           holding your files hostage to begin with — they remain yours, on-chain.
+        </p>
+
+        <h2
+          id="on-chain-deployment"
+          className="mt-16 text-[24px] leading-[1.2] text-ink"
+        >
+          On-chain deployment
+        </h2>
+        <p className="mt-3 text-[15px] leading-[1.7] text-stone-700">
+          Kraterion is <strong>live on Sui mainnet</strong>. Everything above —
+          bucket ownership, the{" "}
+          <code className="rounded-sm bg-stone-100 px-1.5 py-0.5 font-mono text-[13px]">
+            seal_approve
+          </code>{" "}
+          policy, and the platform reserve — resolves against a single published
+          Move package. It&apos;s public: you can read the source and every
+          transaction against it on a block explorer, without trusting us.
+        </p>
+        <div className="mt-4 rounded-lg border border-stone-200/70 bg-stone-50 p-4 font-mono text-[13px] leading-[1.9] text-stone-700">
+          <div>
+            <span className="text-stone-500">package&nbsp;&nbsp;</span>
+            <a
+              href={`https://suiscan.xyz/mainnet/object/${MAINNET_PACKAGE_ID}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all text-ink underline decoration-stone-300 underline-offset-2 hover:decoration-krater"
+            >
+              {MAINNET_PACKAGE_ID}
+            </a>
+          </div>
+          <div>
+            <span className="text-stone-500">reserve&nbsp;&nbsp;</span>
+            <a
+              href={`https://suiscan.xyz/mainnet/object/${MAINNET_RESERVE_ID}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all text-ink underline decoration-stone-300 underline-offset-2 hover:decoration-krater"
+            >
+              {MAINNET_RESERVE_ID}
+            </a>
+          </div>
+        </div>
+        <p className="mt-3 text-[15px] leading-[1.7] text-stone-700">
+          The package is currently unaudited — a formal review is planned before
+          the platform holds significant value. Storage and Seal run against the
+          Walrus and Seal mainnet networks; local development still defaults to
+          testnet.
         </p>
       </article>
       <div className="hidden md:block">

@@ -365,7 +365,7 @@ export function Landing() {
 
       {/* 08 — Final CTA */}
       <PremiumCTA
-        eyebrow="Now on testnet"
+        eyebrow="Now live on Sui mainnet"
         headline={
           <>
             Ship agents you can

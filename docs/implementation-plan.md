@@ -1623,9 +1623,10 @@ when in doubt.
 - Don't implement gated mode (custom Move policies) — that's post-hackathon
 
 ## Network
-- Walrus testnet only for now
-- Sui testnet only for now
-- Seal testnet key servers (Mysten public, 2-of-3)
+- Live on Sui + Walrus MAINNET (published 2026-09-01); network-aware via
+  SUI_NETWORK / NEXT_PUBLIC_SUI_NETWORK. Local dev defaults to testnet.
+- Seal mainnet: gated aggregator + Enoki API key; testnet: open aggregator +
+  Mysten key servers.
 - Network constants in packages/shared/src/constants.ts
 ```
 
