@@ -1,4 +1,5 @@
 import { FadeUp } from "@/components/motion/FadeUp";
+import { COMPANY_COUNTRY, COMPANY_LEGAL_NAME } from "@/lib/company";
 
 /**
  * LegalPage — shared shell for the private-beta legal pages. Renders a title, a
@@ -26,7 +27,10 @@ export function LegalPage({
         <h1 className="mt-4 text-[40px] leading-[1.05] tracking-[-0.01em] text-ink">
           {title}
         </h1>
-        <p className="mt-3 text-[13px] text-stone-500">Last updated {updated}</p>
+        <p className="mt-3 text-[13px] text-stone-500">
+          Last updated {updated} · Kraterion is created and operated by{" "}
+          {COMPANY_LEGAL_NAME}, {COMPANY_COUNTRY}
+        </p>
         <p className="mt-6 text-[18px] leading-[1.6] text-stone-700">{summary}</p>
         <div className="mt-6 border-l-2 border-krater bg-stone-50 px-5 py-4 text-[14px] leading-[1.65] text-stone-700">
           Kraterion is in private beta. This is a plain-language summary while the

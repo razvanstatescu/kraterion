@@ -3,7 +3,7 @@
 > **Project codename:** Kraterion (working name; finalize before public anything)
 > **Pitch:** S3-compatible storage on Walrus where leaving the platform doesn't lose your files, and revoking the platform means we can't read them anymore. Every file is owned on-chain via SharedBlob, encrypted by default via Seal, and the platform's access is delegated — never custodial.
 > **Target:** Sui Overflow 2026 — Walrus track. Tracks announce May 7, 2026. Expected build window: 6–8 weeks starting mid-May or early June.
-> **Operator:** NanoSoft Technology SRL.
+> **Operator:** Nano-Soft Technology SRL.
 > **Author note:** This document is the single source of truth for the build. If something contradicts elsewhere, this file wins. It is written to be handed directly to Claude Code in chunks; each section can be delegated as an independent workstream.
 
 ---

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPage, LegalSection } from "@/components/marketing/LegalPage";
+import { COMPANY_COUNTRY, COMPANY_LEGAL_NAME } from "@/lib/company";
 
 export const dynamic = "force-static";
 
@@ -13,9 +14,18 @@ export default function Page() {
   return (
     <LegalPage
       title="Terms"
-      updated="June 2026"
+      updated="October 2026"
       summary="The short version: use Kraterion responsibly and lawfully; your data stays yours; and during private beta the service is provided as-is while we finalize full terms."
     >
+      <LegalSection heading="Who we are">
+        <p>
+          Kraterion is created and operated by {COMPANY_LEGAL_NAME}, a company
+          registered in {COMPANY_COUNTRY} (&quot;we&quot;, &quot;us&quot;). These
+          terms are between you and {COMPANY_LEGAL_NAME}, and it is the party that
+          provides the Kraterion website, dashboard, APIs, and services to you.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="Private beta">
         <p>
           Kraterion is offered as a private beta. Features may change, and the

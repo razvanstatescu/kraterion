@@ -149,9 +149,9 @@ function LoginContent() {
           <div className="ks-login-legal">
             <Pill>v0.1 · testnet</Pill>
             <span>
-              By continuing you agree to the{" "}
-              <a href="https://kraterion.com/legal/terms">terms</a> and{" "}
-              <a href="https://kraterion.com/legal/privacy">privacy policy</a>.
+              Kraterion is operated by Nano-Soft Technology SRL. By continuing you
+              agree to the <a href="https://kraterion.com/legal/terms">terms</a>{" "}
+              and <a href="https://kraterion.com/legal/privacy">privacy policy</a>.
             </span>
           </div>
         </div>

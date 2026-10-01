@@ -5008,3 +5008,14 @@ manual browser+wallet pass; the 6 ops scripts are migrated but not run.
 - Known follow-ups: the indexer runs on the public mainnet gRPC (rate-limited /
   flaky) — move to a dedicated provider for reliability; the gateway (S3) still
   needs its own `s3.` hostname/DNS; Move package is unaudited.
+
+## 2026-10-01 — [landing] Operator attribution on website + legal docs
+
+- Website, Terms, and Privacy now state
+  Kraterion is created and operated by Nano-Soft Technology SRL (Romania):
+  footer, legal-page header, a "Who we are" section in both legal docs
+  (Privacy names Nano-Soft as controller for account/billing/usage data and
+  processor for stored content), `authors`/`creator`/`publisher` metadata, and
+  JSON-LD `legalName`. Dashboard login fine print names the operator too.
+  Name lives in `apps/landing/src/lib/company.ts`. Still missing: registered
+  office address, trade-register no. and CUI.

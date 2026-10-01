@@ -2,6 +2,7 @@ import Link from "next/link";
 import { KraterionMark } from "@/components/ui/KraterionMark";
 import { BrandLogo, BRAND_URL } from "./BrandLogo";
 import { cn } from "@/lib/cn";
+import { COMPANY_LEGAL_NAME } from "@/lib/company";
 
 const COLUMNS = [
   {
@@ -113,7 +114,9 @@ export function Footer() {
             <KraterionMark variant="mono" size={22} />
             <span>Kraterion</span>
           </span>
-          <div className="text-[13px] text-stone-400">© 2026 Kraterion</div>
+          <div className="text-[13px] text-stone-400">
+            Created and operated by {COMPANY_LEGAL_NAME} · © 2026
+          </div>
           <div className="flex items-center gap-2 text-[13px] text-stone-300">
             <span
               aria-hidden

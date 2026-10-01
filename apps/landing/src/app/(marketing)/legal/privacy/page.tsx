@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPage, LegalSection } from "@/components/marketing/LegalPage";
+import { COMPANY_COUNTRY, COMPANY_LEGAL_NAME } from "@/lib/company";
 
 export const dynamic = "force-static";
 
@@ -13,9 +14,19 @@ export default function Page() {
   return (
     <LegalPage
       title="Privacy"
-      updated="June 2026"
+      updated="October 2026"
       summary="The short version: your files and the records of what your agents do are encrypted before they reach us and owned by you. We can't read sealed content, and you can revoke our access or delete your data at any time."
     >
+      <LegalSection heading="Who we are">
+        <p>
+          Kraterion is created and operated by {COMPANY_LEGAL_NAME}, a company
+          registered in {COMPANY_COUNTRY} (&quot;we&quot;, &quot;us&quot;).{" "}
+          {COMPANY_LEGAL_NAME} is the controller of the account, billing, and usage
+          data described here. For the content you store with Kraterion, we act as
+          your processor under our data processing agreement.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="What we collect">
         <p>
           Account details when you sign in (your email via Google sign-in),

@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { SmoothScroll } from "@/components/providers/SmoothScroll";
 import { MotionProvider } from "@/components/providers/MotionProvider";
+import { COMPANY_COUNTRY, COMPANY_LEGAL_NAME } from "@/lib/company";
 import "./globals.css";
 
 const inter = Inter({
@@ -33,7 +34,9 @@ export const metadata: Metadata = {
   },
   description: DESCRIPTION,
   applicationName: SITE_NAME,
-  authors: [{ name: "Kraterion" }],
+  authors: [{ name: COMPANY_LEGAL_NAME }],
+  creator: COMPANY_LEGAL_NAME,
+  publisher: COMPANY_LEGAL_NAME,
   generator: "Next.js",
   keywords: [
     "AI agent runtime",
@@ -101,6 +104,8 @@ const jsonLd = {
       "@type": "Organization",
       "@id": `${SITE_URL}/#org`,
       name: SITE_NAME,
+      legalName: COMPANY_LEGAL_NAME,
+      address: { "@type": "PostalAddress", addressCountry: COMPANY_COUNTRY },
       url: SITE_URL,
       logo: `${SITE_URL}/icon`,
       description: DESCRIPTION,
