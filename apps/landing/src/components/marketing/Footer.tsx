@@ -105,15 +105,33 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col items-start gap-4 border-t border-stone-800 pt-8 md:flex-row md:items-center md:justify-between">
-          <span
-            className={cn(
-              "inline-flex items-center gap-[10px] text-[15px] font-medium text-cream"
-            )}
-            style={{ letterSpacing: "0.06em" }}
+          <a
+            href="https://nano-soft.tech"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Kraterion by Nano Soft"
+            className="inline-flex items-center gap-2"
           >
-            <KraterionMark variant="mono" size={22} />
-            <span>Kraterion</span>
-          </span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-[10px] text-[15px] font-medium text-cream"
+              )}
+              style={{ letterSpacing: "0.06em" }}
+            >
+              <KraterionMark variant="mono" size={22} />
+              <span>Kraterion</span>
+            </span>
+            <span className="text-[14px] text-stone-400"> by </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brands/nano-soft-logo-reversed.svg"
+              alt="Nano Soft"
+              width={89}
+              height={18}
+              className="inline-block shrink-0"
+              style={{ height: 18, width: "auto" }}
+            />
+          </a>
           <div className="text-[13px] text-stone-400">
             Created and operated by {COMPANY_LEGAL_NAME} · © 2026
           </div>
